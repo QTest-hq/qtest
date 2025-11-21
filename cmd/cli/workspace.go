@@ -27,6 +27,7 @@ func workspaceCmd() *cobra.Command {
 	cmd.AddCommand(workspaceRunCmd())
 	cmd.AddCommand(workspaceResumeCmd())
 	cmd.AddCommand(workspaceValidateCmd())
+	cmd.AddCommand(workspaceCoverageCmd())
 
 	return cmd
 }
@@ -143,6 +144,7 @@ func workspaceRunCmd() *cobra.Command {
 		commitEach bool
 		dryRun     bool
 		validate   bool
+		coverage   bool
 	)
 
 	cmd := &cobra.Command{
@@ -240,6 +242,21 @@ func workspaceRunCmd() *cobra.Command {
 			fmt.Printf("  Completed: %d\n", summary["completed"])
 			fmt.Printf("  Failed:    %d\n", summary["failed"])
 
+			// Collect coverage if requested
+			if coverage && !dryRun && ws.Language != "" {
+				fmt.Println("\nCollecting coverage...")
+				collector := workspace.NewCoverageCollector(ws)
+				report, err := collector.CollectAll(ctx)
+				if err != nil {
+					log.Warn().Err(err).Msg("coverage collection failed")
+				} else {
+					fmt.Printf("  Coverage: %.1f%% (%d/%d lines)\n",
+						report.Summary.CoveragePercent,
+						report.Summary.CoveredLines,
+						report.Summary.TotalLines)
+				}
+			}
+
 			return nil
 		},
 	}
@@ -248,6 +265,7 @@ func workspaceRunCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&commitEach, "commit", true, "Commit after each test")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Don't write test files")
 	cmd.Flags().BoolVar(&validate, "validate", false, "Run tests after generation to verify they pass")
+	cmd.Flags().BoolVar(&coverage, "coverage", false, "Collect code coverage after generation")
 
 	return cmd
 }
@@ -329,6 +347,61 @@ func workspaceValidateCmd() *cobra.Command {
 					fmt.Printf("  - %s\n", f)
 				}
 			}
+
+			return nil
+		},
+	}
+}
+
+func workspaceCoverageCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "coverage <workspace-id>",
+		Short: "Collect code coverage from generated tests",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
+			// Load workspace
+			ws, err := workspace.LoadByID(args[0], nil)
+			if err != nil {
+				return fmt.Errorf("workspace not found: %w", err)
+			}
+
+			if ws.Language == "" {
+				return fmt.Errorf("workspace language not detected, run tests first")
+			}
+
+			fmt.Printf("Collecting coverage for %s project...\n\n", ws.Language)
+
+			// Create collector and run
+			collector := workspace.NewCoverageCollector(ws)
+			report, err := collector.CollectAll(ctx)
+			if err != nil {
+				return fmt.Errorf("coverage collection failed: %w", err)
+			}
+
+			// Print results
+			fmt.Printf("%-50s %10s %10s %8s\n", "FILE", "COVERED", "TOTAL", "PCT")
+			fmt.Println(repeatStr("-", 80))
+
+			for _, f := range report.Files {
+				pct := fmt.Sprintf("%.1f%%", f.CoveragePercent)
+				name := f.Path
+				if len(name) > 48 {
+					name = "..." + name[len(name)-45:]
+				}
+				fmt.Printf("%-50s %10d %10d %8s\n", name, f.CoveredLines, f.TotalLines, pct)
+			}
+
+			// Print summary
+			fmt.Println(repeatStr("-", 80))
+			fmt.Printf("%-50s %10d %10d %8.1f%%\n",
+				"TOTAL",
+				report.Summary.CoveredLines,
+				report.Summary.TotalLines,
+				report.Summary.CoveragePercent)
+
+			fmt.Printf("\nCoverage report saved to: %s/artifacts/coverage.json\n", ws.Path())
 
 			return nil
 		},
