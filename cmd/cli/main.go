@@ -120,6 +120,7 @@ func main() {
 	rootCmd.AddCommand(datagenCmd())
 	rootCmd.AddCommand(coverageCmd())
 	rootCmd.AddCommand(prCmd())
+	rootCmd.AddCommand(jobCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
