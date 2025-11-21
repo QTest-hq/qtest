@@ -350,3 +350,30 @@ func TestDetectFramework(t *testing.T) {
 		})
 	}
 }
+
+func TestDeriveSourcePath(t *testing.T) {
+	tests := []struct {
+		testPath   string
+		wantSource string
+	}{
+		{"foo_test.go", "foo.go"},
+		{"/path/to/bar_test.go", "/path/to/bar.go"},
+		{"test_foo.py", "foo.py"},
+		{"/src/test_bar.py", "/src/bar.py"},
+		{"foo.test.ts", "foo.ts"},
+		{"foo.test.js", "foo.js"},
+		{"foo.spec.ts", "foo.ts"},
+		{"foo.spec.js", "foo.js"},
+		{"/dir/component.test.ts", "/dir/component.ts"},
+		{"unknown.txt", ""},
+		{"random_file.py", ""}, // Not a test file pattern
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.testPath, func(t *testing.T) {
+			if got := deriveSourcePath(tt.testPath); got != tt.wantSource {
+				t.Errorf("deriveSourcePath(%s) = %s, want %s", tt.testPath, got, tt.wantSource)
+			}
+		})
+	}
+}

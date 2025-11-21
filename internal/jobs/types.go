@@ -86,6 +86,8 @@ type GenerationPayload struct {
 	PlanID          uuid.UUID `json:"plan_id"`
 	IntentIDs       []string  `json:"intent_ids,omitempty"` // Specific intents to generate
 	LLMTier         int       `json:"llm_tier,omitempty"`   // 1=fast, 2=balanced, 3=thorough
+	RunMutation     bool      `json:"run_mutation"`         // Whether to run mutation testing
+	CreatePR        bool      `json:"create_pr"`            // Whether to create a PR at the end
 }
 
 // MutationPayload is the payload for mutation testing jobs

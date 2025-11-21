@@ -76,11 +76,12 @@ func (p *Pipeline) StartFullPipeline(ctx context.Context, repoURL string, option
 
 // PipelineOptions configures pipeline execution
 type PipelineOptions struct {
-	Branch     string   // Git branch to use
-	MaxTests   int      // Maximum tests to generate
-	LLMTier    int      // LLM tier (1=fast, 2=balanced, 3=thorough)
-	TestLevels []string // "unit", "api", "e2e"
-	CreatePR   bool     // Whether to create a PR at the end
+	Branch      string   // Git branch to use
+	MaxTests    int      // Maximum tests to generate
+	LLMTier     int      // LLM tier (1=fast, 2=balanced, 3=thorough)
+	TestLevels  []string // "unit", "api", "e2e"
+	RunMutation bool     // Whether to run mutation testing after generation
+	CreatePR    bool     // Whether to create a PR at the end
 }
 
 // ChainJob creates a child job linked to a parent
@@ -148,13 +149,22 @@ func (p *Pipeline) CreatePlanningJob(ctx context.Context, parentID uuid.UUID, re
 	return p.ChainJob(ctx, parentID, JobTypePlanning, payload)
 }
 
+// GenerationJobOptions configures a generation job
+type GenerationJobOptions struct {
+	Tier        int  // LLM tier
+	RunMutation bool // Whether to run mutation testing after generation
+	CreatePR    bool // Whether to create a PR at the end
+}
+
 // CreateGenerationJob creates a generation job after planning completes
-func (p *Pipeline) CreateGenerationJob(ctx context.Context, parentID uuid.UUID, repoID, runID, planID uuid.UUID, tier int) (*Job, error) {
+func (p *Pipeline) CreateGenerationJob(ctx context.Context, parentID uuid.UUID, repoID, runID, planID uuid.UUID, opts GenerationJobOptions) (*Job, error) {
 	payload := GenerationPayload{
 		RepositoryID:    repoID,
 		GenerationRunID: runID,
 		PlanID:          planID,
-		LLMTier:         tier,
+		LLMTier:         opts.Tier,
+		RunMutation:     opts.RunMutation,
+		CreatePR:        opts.CreatePR,
 	}
 
 	job, err := p.ChainJob(ctx, parentID, JobTypeGeneration, payload)

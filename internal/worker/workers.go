@@ -440,7 +440,10 @@ func (w *PlanningWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 	// Chain to generation job
 	if w.Pipeline() != nil {
 		runID := uuid.New()
-		_, err := w.Pipeline().CreateGenerationJob(ctx, job.ID, payload.RepositoryID, runID, result.PlanID, 1)
+		opts := jobs.GenerationJobOptions{
+			Tier: 1, // Default to fast tier
+		}
+		_, err := w.Pipeline().CreateGenerationJob(ctx, job.ID, payload.RepositoryID, runID, result.PlanID, opts)
 		if err != nil {
 			log.Warn().Err(err).Msg("failed to create generation job")
 		}
@@ -593,15 +596,62 @@ func (w *GenerationWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 		return fmt.Errorf("failed to complete job: %w", err)
 	}
 
+	// Chain to mutation jobs if requested
+	if w.Pipeline() != nil && payload.RunMutation && len(result.TestFilePaths) > 0 {
+		for _, testPath := range result.TestFilePaths {
+			sourcePath := deriveSourcePath(testPath)
+			if sourcePath == "" {
+				log.Warn().Str("test_path", testPath).Msg("could not derive source path for mutation testing")
+				continue
+			}
+			_, err := w.Pipeline().CreateMutationJob(ctx, job.ID, payload.RepositoryID, payload.GenerationRunID, testPath, sourcePath)
+			if err != nil {
+				log.Warn().Err(err).Str("test_path", testPath).Msg("failed to create mutation job")
+			}
+		}
+	}
+
 	// Chain to integration job if tests were generated
 	if w.Pipeline() != nil && len(result.TestFilePaths) > 0 {
-		_, err := w.Pipeline().CreateIntegrationJob(ctx, job.ID, payload.RepositoryID, payload.GenerationRunID, result.TestFilePaths, false)
+		_, err := w.Pipeline().CreateIntegrationJob(ctx, job.ID, payload.RepositoryID, payload.GenerationRunID, result.TestFilePaths, payload.CreatePR)
 		if err != nil {
 			log.Warn().Err(err).Msg("failed to create integration job")
 		}
 	}
 
 	return nil
+}
+
+// deriveSourcePath converts a test file path back to its source file path
+func deriveSourcePath(testPath string) string {
+	dir := filepath.Dir(testPath)
+	base := filepath.Base(testPath)
+
+	var sourceName string
+	switch {
+	case strings.HasSuffix(base, "_test.go"):
+		// Go: foo_test.go -> foo.go
+		sourceName = strings.TrimSuffix(base, "_test.go") + ".go"
+	case strings.HasPrefix(base, "test_") && strings.HasSuffix(base, ".py"):
+		// Python: test_foo.py -> foo.py
+		sourceName = strings.TrimPrefix(base, "test_")
+	case strings.HasSuffix(base, ".test.ts"):
+		// TypeScript: foo.test.ts -> foo.ts
+		sourceName = strings.TrimSuffix(base, ".test.ts") + ".ts"
+	case strings.HasSuffix(base, ".test.js"):
+		// JavaScript: foo.test.js -> foo.js
+		sourceName = strings.TrimSuffix(base, ".test.js") + ".js"
+	case strings.HasSuffix(base, ".spec.ts"):
+		// TypeScript spec: foo.spec.ts -> foo.ts
+		sourceName = strings.TrimSuffix(base, ".spec.ts") + ".ts"
+	case strings.HasSuffix(base, ".spec.js"):
+		// JavaScript spec: foo.spec.js -> foo.js
+		sourceName = strings.TrimSuffix(base, ".spec.js") + ".js"
+	default:
+		return ""
+	}
+
+	return filepath.Join(dir, sourceName)
 }
 
 // getWorkspacePath retrieves workspace path from the job chain
