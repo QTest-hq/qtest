@@ -35,6 +35,7 @@ func main() {
 	rootCmd.AddCommand(generateFileCmd())
 	rootCmd.AddCommand(analyzeCmd())
 	rootCmd.AddCommand(parseCmd())
+	rootCmd.AddCommand(workspaceCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

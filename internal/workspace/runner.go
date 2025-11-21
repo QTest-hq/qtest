@@ -1,0 +1,409 @@
+package workspace
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/QTest-hq/qtest/internal/adapters"
+	"github.com/QTest-hq/qtest/internal/llm"
+	"github.com/QTest-hq/qtest/internal/parser"
+	"github.com/QTest-hq/qtest/pkg/dsl"
+	"github.com/rs/zerolog/log"
+	"gopkg.in/yaml.v3"
+)
+
+// Runner orchestrates incremental test generation
+type Runner struct {
+	ws         *Workspace
+	git        *GitManager
+	parser     *parser.Parser
+	llmRouter  *llm.Router
+	adapters   *adapters.Registry
+	cfg        *RunConfig
+
+	// Callbacks for progress reporting
+	OnProgress func(current, total int, target *TargetState)
+	OnComplete func(target *TargetState, testFile string)
+	OnError    func(target *TargetState, err error)
+}
+
+// RunConfig holds configuration for a generation run
+type RunConfig struct {
+	Tier            llm.Tier
+	CommitEach      bool   // Commit after each test
+	BranchName      string // Branch for tests
+	TestDir         string // Directory for test files
+	DryRun          bool   // Don't write files
+	MaxConcurrent   int    // Max parallel generations
+	FilePatterns    []string // Files to include
+}
+
+// DefaultRunConfig returns sensible defaults
+func DefaultRunConfig() *RunConfig {
+	return &RunConfig{
+		Tier:          llm.Tier2,
+		CommitEach:    true,
+		BranchName:    "qtest/generated-tests",
+		TestDir:       "", // Same directory as source
+		DryRun:        false,
+		MaxConcurrent: 1, // Sequential for now
+		FilePatterns:  []string{"*.go", "*.py", "*.ts", "*.js"},
+	}
+}
+
+// NewRunner creates a new runner
+func NewRunner(ws *Workspace, llmRouter *llm.Router, gitToken string, cfg *RunConfig) *Runner {
+	if cfg == nil {
+		cfg = DefaultRunConfig()
+	}
+
+	return &Runner{
+		ws:        ws,
+		git:       NewGitManager(ws, gitToken),
+		parser:    parser.NewParser(),
+		llmRouter: llmRouter,
+		adapters:  adapters.NewRegistry(),
+		cfg:       cfg,
+	}
+}
+
+// Initialize prepares the workspace (clone + parse)
+func (r *Runner) Initialize(ctx context.Context) error {
+	// Clone if not already cloned
+	if _, err := os.Stat(r.ws.RepoPath); os.IsNotExist(err) {
+		if err := r.git.Clone(ctx); err != nil {
+			return fmt.Errorf("clone failed: %w", err)
+		}
+	}
+
+	// Create test branch if configured
+	if r.cfg.BranchName != "" && r.ws.Branch == "" {
+		if err := r.git.CreateTestBranch(r.cfg.BranchName); err != nil {
+			log.Warn().Err(err).Msg("failed to create branch, continuing on current branch")
+		}
+	}
+
+	// Parse the repository
+	if err := r.parse(ctx); err != nil {
+		return fmt.Errorf("parse failed: %w", err)
+	}
+
+	return nil
+}
+
+// parse discovers all testable functions
+func (r *Runner) parse(ctx context.Context) error {
+	r.ws.SetPhase(PhaseParsing)
+	log.Info().Str("path", r.ws.RepoPath).Msg("parsing repository")
+
+	// Find source files
+	var files []string
+	for _, pattern := range r.cfg.FilePatterns {
+		matches, _ := filepath.Glob(filepath.Join(r.ws.RepoPath, "**", pattern))
+		files = append(files, matches...)
+
+		// Also check root level
+		rootMatches, _ := filepath.Glob(filepath.Join(r.ws.RepoPath, pattern))
+		files = append(files, rootMatches...)
+	}
+
+	// Walk directory for more thorough search
+	filepath.Walk(r.ws.RepoPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+
+		// Skip common ignore patterns
+		if strings.Contains(path, "node_modules") ||
+			strings.Contains(path, "vendor") ||
+			strings.Contains(path, ".git") ||
+			strings.Contains(path, "__pycache__") {
+			return nil
+		}
+
+		// Skip test files
+		base := filepath.Base(path)
+		if strings.Contains(base, "_test.") || strings.Contains(base, ".test.") || strings.HasPrefix(base, "test_") {
+			return nil
+		}
+
+		// Check extension
+		ext := filepath.Ext(path)
+		for _, pattern := range r.cfg.FilePatterns {
+			if strings.HasSuffix(pattern, ext) {
+				files = append(files, path)
+				break
+			}
+		}
+
+		return nil
+	})
+
+	// Deduplicate
+	seen := make(map[string]bool)
+	uniqueFiles := make([]string, 0)
+	for _, f := range files {
+		if !seen[f] {
+			seen[f] = true
+			uniqueFiles = append(uniqueFiles, f)
+		}
+	}
+
+	log.Info().Int("files", len(uniqueFiles)).Msg("found source files")
+
+	// Parse each file
+	for _, file := range uniqueFiles {
+		parsed, err := r.parser.ParseFile(ctx, file)
+		if err != nil {
+			log.Debug().Err(err).Str("file", file).Msg("skipping file")
+			continue
+		}
+
+		// Detect language for the workspace
+		if r.ws.Language == "" {
+			r.ws.Language = string(parsed.Language)
+		}
+
+		// Add functions as targets
+		r.ws.AddTargets(parsed.Functions, file)
+
+		log.Debug().
+			Str("file", file).
+			Int("functions", len(parsed.Functions)).
+			Msg("parsed file")
+	}
+
+	r.ws.SetPhase(PhasePlanning)
+	log.Info().Int("targets", r.ws.State.TotalTargets).Msg("found testable targets")
+
+	return r.ws.Save()
+}
+
+// Run executes the incremental generation
+func (r *Runner) Run(ctx context.Context) error {
+	r.ws.SetPhase(PhaseGenerating)
+	now := time.Now()
+	r.ws.State.StartedAt = &now
+
+	processed := 0
+	total := r.ws.State.TotalTargets
+
+	for {
+		select {
+		case <-ctx.Done():
+			r.ws.SetPhase(PhasePaused)
+			return r.ws.Save()
+		default:
+		}
+
+		// Get next target
+		target := r.ws.GetNextTarget()
+		if target == nil {
+			break // All done
+		}
+
+		processed++
+		log.Info().
+			Str("target", target.Name).
+			Str("file", target.File).
+			Int("progress", processed).
+			Int("total", total).
+			Msg("generating test")
+
+		// Callback for progress
+		if r.OnProgress != nil {
+			r.OnProgress(processed, total, target)
+		}
+
+		// Mark as running
+		r.ws.UpdateTarget(target.ID, StatusRunning, "", nil)
+
+		// Generate test
+		testFile, err := r.generateTest(ctx, target)
+		if err != nil {
+			log.Warn().Err(err).Str("target", target.Name).Msg("generation failed")
+			r.ws.UpdateTarget(target.ID, StatusFailed, "", err)
+			if r.OnError != nil {
+				r.OnError(target, err)
+			}
+			continue
+		}
+
+		// Update target
+		r.ws.UpdateTarget(target.ID, StatusCompleted, testFile, nil)
+
+		// Commit if configured
+		if r.cfg.CommitEach && testFile != "" && !r.cfg.DryRun {
+			commitSHA, err := r.git.CommitTest(testFile, target.Name)
+			if err != nil {
+				log.Warn().Err(err).Msg("failed to commit test")
+			} else {
+				target.CommitSHA = commitSHA
+			}
+		}
+
+		// Callback for completion
+		if r.OnComplete != nil {
+			r.OnComplete(target, testFile)
+		}
+
+		// Save state after each test
+		if err := r.ws.Save(); err != nil {
+			log.Warn().Err(err).Msg("failed to save workspace state")
+		}
+	}
+
+	r.ws.SetPhase(PhaseCompleted)
+	return r.ws.Save()
+}
+
+// generateTest generates a test for a single target
+func (r *Runner) generateTest(ctx context.Context, target *TargetState) (string, error) {
+	// Read the source file
+	content, err := os.ReadFile(target.File)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+
+	// Parse to get function details
+	lang := parser.DetectLanguage(target.File)
+	parsed, err := r.parser.ParseContent(ctx, target.File, string(content), lang)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse file: %w", err)
+	}
+
+	// Find the target function
+	var targetFn *parser.Function
+	for _, fn := range parsed.Functions {
+		if fn.Name == target.Name && fn.StartLine == target.Line {
+			targetFn = &fn
+			break
+		}
+	}
+
+	if targetFn == nil {
+		return "", fmt.Errorf("function not found: %s", target.Name)
+	}
+
+	// Extract function code
+	lines := strings.Split(string(content), "\n")
+	var funcCode strings.Builder
+	for i := targetFn.StartLine - 1; i < targetFn.EndLine && i < len(lines); i++ {
+		funcCode.WriteString(lines[i])
+		funcCode.WriteString("\n")
+	}
+
+	// Create prompt and generate
+	prompt := llm.TestGenerationPrompt(
+		funcCode.String(),
+		targetFn.Name,
+		target.File,
+		string(lang),
+		"",
+	)
+
+	resp, err := r.llmRouter.Complete(ctx, &llm.Request{
+		Tier:        r.cfg.Tier,
+		System:      llm.SystemPromptTestGeneration,
+		Messages:    []llm.Message{{Role: "user", Content: prompt}},
+		Temperature: 0.3,
+		MaxTokens:   2000,
+	})
+	if err != nil {
+		return "", fmt.Errorf("LLM error: %w", err)
+	}
+
+	// Parse DSL
+	yamlContent := llm.ParseDSLOutput(resp.Content)
+	var testDSL dsl.TestDSL
+	if err := yaml.Unmarshal([]byte(yamlContent), &testDSL); err != nil {
+		return "", fmt.Errorf("invalid DSL: %w", err)
+	}
+
+	// Store DSL in target
+	dslJSON, _ := yaml.Marshal(testDSL)
+	target.DSL = dslJSON
+
+	if r.cfg.DryRun {
+		return "", nil
+	}
+
+	// Get adapter for language
+	adapter, err := r.adapters.GetForLanguage(lang)
+	if err != nil {
+		// Just save DSL if no adapter
+		return r.saveDSL(target, yamlContent)
+	}
+
+	// Generate test code
+	testCode, err := adapter.Generate(&testDSL)
+	if err != nil {
+		// Fall back to DSL
+		return r.saveDSL(target, yamlContent)
+	}
+
+	// Write test file
+	testFile := r.getTestFilePath(target.File, adapter)
+	if err := os.MkdirAll(filepath.Dir(testFile), 0755); err != nil {
+		return "", err
+	}
+
+	if err := os.WriteFile(testFile, []byte(testCode), 0644); err != nil {
+		return "", err
+	}
+
+	return testFile, nil
+}
+
+// saveDSL saves just the DSL when no adapter is available
+func (r *Runner) saveDSL(target *TargetState, yamlContent string) (string, error) {
+	dslFile := r.getTestFilePath(target.File, nil) + ".yaml"
+	if err := os.MkdirAll(filepath.Dir(dslFile), 0755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(dslFile, []byte(yamlContent), 0644); err != nil {
+		return "", err
+	}
+	return dslFile, nil
+}
+
+// getTestFilePath returns the path for a test file
+func (r *Runner) getTestFilePath(sourceFile string, adapter adapters.Adapter) string {
+	dir := filepath.Dir(sourceFile)
+	base := filepath.Base(sourceFile)
+	ext := filepath.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+
+	if r.cfg.TestDir != "" {
+		// Use custom test directory
+		relDir, _ := filepath.Rel(r.ws.RepoPath, dir)
+		dir = filepath.Join(r.ws.RepoPath, r.cfg.TestDir, relDir)
+	}
+
+	if adapter != nil {
+		return filepath.Join(dir, name+adapter.TestFileSuffix()+adapter.FileExtension())
+	}
+
+	// Default: source_test.yaml
+	return filepath.Join(dir, name+"_test")
+}
+
+// Resume continues a paused run
+func (r *Runner) Resume(ctx context.Context) error {
+	if r.ws.State.Phase != PhasePaused {
+		return fmt.Errorf("workspace not paused")
+	}
+	return r.Run(ctx)
+}
+
+// Pause pauses the current run
+func (r *Runner) Pause() {
+	r.ws.SetPhase(PhasePaused)
+	now := time.Now()
+	r.ws.State.PausedAt = &now
+	r.ws.Save()
+}
