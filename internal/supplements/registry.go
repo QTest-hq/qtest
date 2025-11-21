@@ -24,9 +24,9 @@ func NewRegistry() *Registry {
 	r.Register(&ExpressSupplement{})
 	r.Register(&FastAPISupplement{})
 	r.Register(&GinSupplement{})
-	// Future: r.Register(&SpringBootSupplement{})
+	r.Register(&SpringBootSupplement{})
+	r.Register(&DjangoSupplement{})
 	// Future: r.Register(&NestJSSupplement{})
-	// Future: r.Register(&DjangoSupplement{})
 
 	return r
 }

@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 
 	"github.com/QTest-hq/qtest/internal/codecov"
+	"github.com/QTest-hq/qtest/internal/config"
+	"github.com/QTest-hq/qtest/internal/llm"
+	"github.com/QTest-hq/qtest/internal/workspace"
 	"github.com/QTest-hq/qtest/pkg/model"
 	"github.com/spf13/cobra"
 )
@@ -22,6 +25,7 @@ func coverageCmd() *cobra.Command {
 	cmd.AddCommand(coverageCollectCmd())
 	cmd.AddCommand(coverageAnalyzeCmd())
 	cmd.AddCommand(coverageGapsCmd())
+	cmd.AddCommand(coverageGenerateCmd())
 
 	return cmd
 }
@@ -181,6 +185,134 @@ func coverageAnalyzeCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&reportFile, "report", "r", "codecov.json", "Coverage report file")
 	cmd.Flags().StringVarP(&modelFile, "model", "m", "", "System model file (optional)")
 	cmd.Flags().Float64VarP(&target, "target", "t", 80.0, "Target coverage percentage")
+
+	return cmd
+}
+
+func coverageGenerateCmd() *cobra.Command {
+	var (
+		workDir        string
+		targetCoverage float64
+		maxIterations  int
+		maxTests       int
+		tier           string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "generate",
+		Short: "Generate tests to improve code coverage",
+		Long:  `Run iterative test generation to reach target coverage`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+
+			// Validate directory
+			if workDir == "." {
+				var err error
+				workDir, err = os.Getwd()
+				if err != nil {
+					return fmt.Errorf("failed to get working directory: %w", err)
+				}
+			}
+
+			// Auto-detect language
+			language := detectProjectLanguage(workDir)
+
+			fmt.Printf("Coverage-Guided Test Generation\n")
+			fmt.Printf("================================\n")
+			fmt.Printf("Directory: %s\n", workDir)
+			fmt.Printf("Language:  %s\n", language)
+			fmt.Printf("Target:    %.1f%%\n", targetCoverage)
+			fmt.Printf("Max Iter:  %d\n\n", maxIterations)
+
+			// Load config
+			cfg, err := config.Load()
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			// Create LLM router
+			router, err := llm.NewRouter(cfg)
+			if err != nil {
+				return fmt.Errorf("failed to create LLM router: %w", err)
+			}
+
+			// Check LLM health
+			if err := router.HealthCheck(); err != nil {
+				return fmt.Errorf("LLM not available: %w\nMake sure Ollama is running: ollama serve", err)
+			}
+
+			// Parse tier
+			tierNum := 2
+			fmt.Sscanf(tier, "%d", &tierNum)
+			llmTier := llm.Tier(tierNum)
+			if llmTier < 1 || llmTier > 3 {
+				llmTier = llm.Tier2
+			}
+
+			// Create workspace for coverage generation
+			ws := &workspace.Workspace{
+				Name:     filepath.Base(workDir),
+				RepoPath: workDir,
+				Language: language,
+				State:    &workspace.WorkspaceState{},
+			}
+
+			// Create coverage runner
+			runnerCfg := &workspace.CoverageRunConfig{
+				Tier:           llmTier,
+				TargetCoverage: targetCoverage,
+				MaxIterations:  maxIterations,
+				MaxTestsPerRun: maxTests,
+				TestDir:        "tests",
+				RunTests:       true,
+				FocusCritical:  true,
+			}
+
+			runner := workspace.NewCoverageRunner(ws, router, runnerCfg)
+
+			// Set up progress callback
+			runner.OnProgress = func(phase string, current, total int, message string) {
+				fmt.Printf("[%d/%d] %s\n", current, total, message)
+			}
+
+			runner.OnComplete = func(testFile string, testsCount int) {
+				fmt.Printf("Generated %d tests: %s\n", testsCount, testFile)
+			}
+
+			runner.OnCoverage = func(before, after float64) {
+				diff := after - before
+				icon := "📈"
+				if diff <= 0 {
+					icon = "📉"
+				}
+				fmt.Printf("%s Coverage: %.1f%% -> %.1f%% (%+.1f%%)\n", icon, before, after, diff)
+			}
+
+			// Run coverage-guided generation
+			if err := runner.Run(ctx); err != nil {
+				return fmt.Errorf("coverage generation failed: %w", err)
+			}
+
+			// Show final report
+			report := runner.GetCoverageReport()
+			if report != nil {
+				fmt.Printf("\n📊 Final Coverage: %.1f%%\n", report.Percentage)
+				if report.Percentage >= targetCoverage {
+					fmt.Printf("✅ Target coverage reached!\n")
+				} else {
+					fmt.Printf("⚠️ Target coverage not reached (%.1f%% remaining)\n", targetCoverage-report.Percentage)
+				}
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&workDir, "dir", "d", ".", "Working directory")
+	cmd.Flags().Float64VarP(&targetCoverage, "target", "t", 80.0, "Target coverage percentage")
+	cmd.Flags().IntVarP(&maxIterations, "iterations", "i", 5, "Maximum iterations")
+	cmd.Flags().IntVarP(&maxTests, "max", "m", 10, "Maximum tests per iteration")
+	cmd.Flags().StringVar(&tier, "tier", "2", "LLM tier (1=fast, 2=balanced, 3=thorough)")
 
 	return cmd
 }
