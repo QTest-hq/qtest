@@ -144,8 +144,37 @@ func (s *Server) healthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) readyCheck(w http.ResponseWriter, r *http.Request) {
-	// TODO: Check database, redis, nats connections
-	respondJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	ctx := r.Context()
+	checks := make(map[string]string)
+	allHealthy := true
+
+	// Check database
+	if s.store != nil {
+		if err := s.store.Ping(ctx); err != nil {
+			checks["database"] = "unhealthy"
+			allHealthy = false
+		} else {
+			checks["database"] = "healthy"
+		}
+	}
+
+	// Check NATS
+	if s.nats != nil {
+		if err := s.nats.HealthCheck(); err != nil {
+			checks["nats"] = "unhealthy"
+			allHealthy = false
+		} else {
+			checks["nats"] = "healthy"
+		}
+	}
+
+	if allHealthy {
+		checks["status"] = "ready"
+		respondJSON(w, http.StatusOK, checks)
+	} else {
+		checks["status"] = "not_ready"
+		respondJSON(w, http.StatusServiceUnavailable, checks)
+	}
 }
 
 // Repo handlers
@@ -264,8 +293,33 @@ func (s *Server) getRepo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteRepo(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement delete
-	respondError(w, http.StatusNotImplemented, "not implemented")
+	repoID, err := uuid.Parse(chi.URLParam(r, "repoID"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid repo ID")
+		return
+	}
+
+	// Check if repo exists first
+	repo, err := s.store.GetRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to get repository")
+		respondError(w, http.StatusInternalServerError, "failed to get repository")
+		return
+	}
+
+	if repo == nil {
+		respondError(w, http.StatusNotFound, "repository not found")
+		return
+	}
+
+	// Delete the repository (cascades to runs and tests)
+	if err := s.store.DeleteRepository(r.Context(), repoID); err != nil {
+		log.Error().Err(err).Msg("failed to delete repository")
+		respondError(w, http.StatusInternalServerError, "failed to delete repository")
+		return
+	}
+
+	respondJSON(w, http.StatusNoContent, nil)
 }
 
 // Run handlers
@@ -316,8 +370,27 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement list runs
-	respondJSON(w, http.StatusOK, []interface{}{})
+	repoID, err := uuid.Parse(chi.URLParam(r, "repoID"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid repo ID")
+		return
+	}
+
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	runs, err := s.store.ListRunsByRepository(r.Context(), repoID, limit, offset)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to list runs")
+		respondError(w, http.StatusInternalServerError, "failed to list runs")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, runs)
 }
 
 func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
@@ -361,16 +434,101 @@ func (s *Server) getRunTests(w http.ResponseWriter, r *http.Request) {
 
 // Test handlers
 func (s *Server) getTest(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement get test
-	respondError(w, http.StatusNotImplemented, "not implemented")
+	testID, err := uuid.Parse(chi.URLParam(r, "testID"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid test ID")
+		return
+	}
+
+	test, err := s.store.GetTest(r.Context(), testID)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to get test")
+		respondError(w, http.StatusInternalServerError, "failed to get test")
+		return
+	}
+
+	if test == nil {
+		respondError(w, http.StatusNotFound, "test not found")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, test)
+}
+
+type RejectTestRequest struct {
+	Reason string `json:"reason"`
 }
 
 func (s *Server) acceptTest(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement accept test
-	respondError(w, http.StatusNotImplemented, "not implemented")
+	testID, err := uuid.Parse(chi.URLParam(r, "testID"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid test ID")
+		return
+	}
+
+	// Verify test exists
+	test, err := s.store.GetTest(r.Context(), testID)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to get test")
+		respondError(w, http.StatusInternalServerError, "failed to get test")
+		return
+	}
+
+	if test == nil {
+		respondError(w, http.StatusNotFound, "test not found")
+		return
+	}
+
+	// Update status to accepted
+	if err := s.store.UpdateTestStatus(r.Context(), testID, "accepted", nil); err != nil {
+		log.Error().Err(err).Msg("failed to accept test")
+		respondError(w, http.StatusInternalServerError, "failed to accept test")
+		return
+	}
+
+	// Return updated test
+	test.Status = "accepted"
+	respondJSON(w, http.StatusOK, test)
 }
 
 func (s *Server) rejectTest(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement reject test
-	respondError(w, http.StatusNotImplemented, "not implemented")
+	testID, err := uuid.Parse(chi.URLParam(r, "testID"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid test ID")
+		return
+	}
+
+	// Verify test exists
+	test, err := s.store.GetTest(r.Context(), testID)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to get test")
+		respondError(w, http.StatusInternalServerError, "failed to get test")
+		return
+	}
+
+	if test == nil {
+		respondError(w, http.StatusNotFound, "test not found")
+		return
+	}
+
+	// Parse rejection reason
+	var req RejectTestRequest
+	json.NewDecoder(r.Body).Decode(&req)
+
+	var reason *string
+	if req.Reason != "" {
+		reason = &req.Reason
+	}
+
+	// Update status to rejected
+	if err := s.store.UpdateTestStatus(r.Context(), testID, "rejected", reason); err != nil {
+		log.Error().Err(err).Msg("failed to reject test")
+		respondError(w, http.StatusInternalServerError, "failed to reject test")
+		return
+	}
+
+	// Return updated test
+	test.Status = "rejected"
+	test.RejectionReason = reason
+	respondJSON(w, http.StatusOK, test)
 }

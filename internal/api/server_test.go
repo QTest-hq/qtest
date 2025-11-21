@@ -259,17 +259,17 @@ func TestGetRepo_InvalidID(t *testing.T) {
 	}
 }
 
-func TestDeleteRepo_NotImplemented(t *testing.T) {
+func TestDeleteRepo_InvalidID(t *testing.T) {
 	server := &Server{}
 	server.router = setupTestRouter(server)
 
-	req := httptest.NewRequest("DELETE", "/api/v1/repos/00000000-0000-0000-0000-000000000001", nil)
+	req := httptest.NewRequest("DELETE", "/api/v1/repos/invalid-uuid", nil)
 	rr := httptest.NewRecorder()
 
 	server.router.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusNotImplemented {
-		t.Errorf("deleteRepo returned status %d, want %d", rr.Code, http.StatusNotImplemented)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("deleteRepo with invalid ID returned status %d, want %d", rr.Code, http.StatusBadRequest)
 	}
 }
 
@@ -363,45 +363,45 @@ func TestRetryJob_NoJobSystem(t *testing.T) {
 	}
 }
 
-func TestGetTest_NotImplemented(t *testing.T) {
+func TestGetTest_InvalidID(t *testing.T) {
 	server := &Server{}
 	server.router = setupTestRouter(server)
 
-	req := httptest.NewRequest("GET", "/api/v1/tests/00000000-0000-0000-0000-000000000001", nil)
+	req := httptest.NewRequest("GET", "/api/v1/tests/invalid-uuid", nil)
 	rr := httptest.NewRecorder()
 
 	server.router.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusNotImplemented {
-		t.Errorf("getTest returned status %d, want %d", rr.Code, http.StatusNotImplemented)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("getTest with invalid ID returned status %d, want %d", rr.Code, http.StatusBadRequest)
 	}
 }
 
-func TestAcceptTest_NotImplemented(t *testing.T) {
+func TestAcceptTest_InvalidID(t *testing.T) {
 	server := &Server{}
 	server.router = setupTestRouter(server)
 
-	req := httptest.NewRequest("PUT", "/api/v1/tests/00000000-0000-0000-0000-000000000001/accept", nil)
+	req := httptest.NewRequest("PUT", "/api/v1/tests/invalid-uuid/accept", nil)
 	rr := httptest.NewRecorder()
 
 	server.router.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusNotImplemented {
-		t.Errorf("acceptTest returned status %d, want %d", rr.Code, http.StatusNotImplemented)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("acceptTest with invalid ID returned status %d, want %d", rr.Code, http.StatusBadRequest)
 	}
 }
 
-func TestRejectTest_NotImplemented(t *testing.T) {
+func TestRejectTest_InvalidID(t *testing.T) {
 	server := &Server{}
 	server.router = setupTestRouter(server)
 
-	req := httptest.NewRequest("PUT", "/api/v1/tests/00000000-0000-0000-0000-000000000001/reject", nil)
+	req := httptest.NewRequest("PUT", "/api/v1/tests/invalid-uuid/reject", nil)
 	rr := httptest.NewRecorder()
 
 	server.router.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusNotImplemented {
-		t.Errorf("rejectTest returned status %d, want %d", rr.Code, http.StatusNotImplemented)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("rejectTest with invalid ID returned status %d, want %d", rr.Code, http.StatusBadRequest)
 	}
 }
 

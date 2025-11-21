@@ -21,6 +21,11 @@ func NewStore(db *DB) *Store {
 	return &Store{pool: db.Pool()}
 }
 
+// Ping verifies database connectivity
+func (s *Store) Ping(ctx context.Context) error {
+	return s.pool.Ping(ctx)
+}
+
 // Repository represents a repository record
 type Repository struct {
 	ID            uuid.UUID `json:"id"`
@@ -270,4 +275,82 @@ func (s *Store) ListTestsByRun(ctx context.Context, runID uuid.UUID) ([]Generate
 	}
 
 	return tests, nil
+}
+
+// DeleteRepository deletes a repository and all related data (cascading)
+func (s *Store) DeleteRepository(ctx context.Context, id uuid.UUID) error {
+	// The database schema has ON DELETE CASCADE, so this will delete related runs and tests
+	result, err := s.pool.Exec(ctx, `DELETE FROM repositories WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete repository: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("repository not found")
+	}
+
+	return nil
+}
+
+// GetTest gets a generated test by ID
+func (s *Store) GetTest(ctx context.Context, id uuid.UUID) (*GeneratedTest, error) {
+	test := &GeneratedTest{}
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, run_id, name, type, target_file, target_function, dsl, generated_code,
+		       framework, status, rejection_reason, mutation_score, metadata, created_at, updated_at
+		FROM generated_tests WHERE id = $1
+	`, id).Scan(&test.ID, &test.RunID, &test.Name, &test.Type, &test.TargetFile,
+		&test.TargetFunction, &test.DSL, &test.GeneratedCode, &test.Framework, &test.Status,
+		&test.RejectionReason, &test.MutationScore, &test.Metadata, &test.CreatedAt, &test.UpdatedAt)
+
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get test: %w", err)
+	}
+
+	return test, nil
+}
+
+// UpdateTestStatus updates the status of a generated test
+func (s *Store) UpdateTestStatus(ctx context.Context, id uuid.UUID, status string, rejectionReason *string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE generated_tests
+		SET status = $2, rejection_reason = $3, updated_at = $4
+		WHERE id = $1
+	`, id, status, rejectionReason, time.Now())
+
+	if err != nil {
+		return fmt.Errorf("failed to update test status: %w", err)
+	}
+
+	return nil
+}
+
+// ListRunsByRepository lists all generation runs for a repository
+func (s *Store) ListRunsByRepository(ctx context.Context, repoID uuid.UUID, limit, offset int) ([]GenerationRun, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, repository_id, system_model_id, status, config, summary, started_at, completed_at, created_at
+		FROM generation_runs
+		WHERE repository_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`, repoID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list runs: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]GenerationRun, 0)
+	for rows.Next() {
+		var run GenerationRun
+		if err := rows.Scan(&run.ID, &run.RepositoryID, &run.SystemModelID, &run.Status, &run.Config,
+			&run.Summary, &run.StartedAt, &run.CompletedAt, &run.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan run: %w", err)
+		}
+		runs = append(runs, run)
+	}
+
+	return runs, nil
 }
