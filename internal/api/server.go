@@ -10,6 +10,8 @@ import (
 	"github.com/QTest-hq/qtest/internal/config"
 	"github.com/QTest-hq/qtest/internal/db"
 	gh "github.com/QTest-hq/qtest/internal/github"
+	"github.com/QTest-hq/qtest/internal/jobs"
+	qtestnats "github.com/QTest-hq/qtest/internal/nats"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
@@ -22,6 +24,9 @@ type Server struct {
 	router      *chi.Mux
 	store       *db.Store
 	repoService *gh.RepoService
+	nats        *qtestnats.Client
+	jobRepo     *jobs.Repository
+	pipeline    *jobs.Pipeline
 }
 
 // NewServer creates a new API server
@@ -37,6 +42,15 @@ func NewServer(cfg *config.Config, database *db.DB) (*Server, error) {
 	s.setupRoutes()
 
 	return s, nil
+}
+
+// SetJobSystem configures the job processing system
+func (s *Server) SetJobSystem(jobRepo *jobs.Repository, natsClient *qtestnats.Client) {
+	s.nats = natsClient
+	s.jobRepo = jobRepo
+	if jobRepo != nil {
+		s.pipeline = jobs.NewPipeline(jobRepo, natsClient)
+	}
 }
 
 // Router returns the HTTP router
@@ -81,6 +95,7 @@ func (s *Server) setupRoutes() {
 			r.Get("/", s.listRepos)
 			r.Get("/{repoID}", s.getRepo)
 			r.Delete("/{repoID}", s.deleteRepo)
+			r.Get("/{repoID}/jobs", s.listRepoJobs)
 		})
 
 		// Generation runs
@@ -89,6 +104,16 @@ func (s *Server) setupRoutes() {
 			r.Get("/", s.listRuns)
 			r.Get("/{runID}", s.getRun)
 			r.Get("/{runID}/tests", s.getRunTests)
+		})
+
+		// Jobs
+		r.Route("/jobs", func(r chi.Router) {
+			r.Post("/", s.createJob)
+			r.Post("/pipeline", s.startPipeline)
+			r.Get("/", s.listJobs)
+			r.Get("/{jobID}", s.getJob)
+			r.Post("/{jobID}/cancel", s.cancelJob)
+			r.Post("/{jobID}/retry", s.retryJob)
 		})
 
 		// Tests
