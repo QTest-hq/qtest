@@ -223,12 +223,12 @@ func (a *ArtifactManager) GenerateCoverageReport(files []FileCoverage) (*Coverag
 
 // MutationReport represents mutation testing results
 type MutationReport struct {
-	Version         string            `json:"version"`
-	ExecutedAt      time.Time         `json:"executed_at"`
-	DurationSeconds int               `json:"duration_seconds"`
-	Summary         MutationSummary   `json:"summary"`
-	ByTest          []TestMutations   `json:"by_test"`
-	Survivors       []SurvivedMutant  `json:"survivors"`
+	Version         string           `json:"version"`
+	ExecutedAt      time.Time        `json:"executed_at"`
+	DurationSeconds int              `json:"duration_seconds"`
+	Summary         MutationSummary  `json:"summary"`
+	ByTest          []TestMutations  `json:"by_test"`
+	Survivors       []SurvivedMutant `json:"survivors"`
 }
 
 type MutationSummary struct {
@@ -276,16 +276,16 @@ func (a *ArtifactManager) GenerateMutationReport(summary MutationSummary, byTest
 
 // GenerationSummary creates a summary of the generation run
 type GenerationSummary struct {
-	Version     string               `json:"version"`
-	WorkspaceID string               `json:"workspace_id"`
-	Repository  string               `json:"repository"`
-	Branch      string               `json:"branch"`
-	CommitSHA   string               `json:"commit_sha"`
-	StartedAt   time.Time            `json:"started_at"`
-	CompletedAt time.Time            `json:"completed_at"`
-	Duration    string               `json:"duration"`
-	Results     GenerationResults    `json:"results"`
-	Artifacts   []string             `json:"artifacts"`
+	Version     string            `json:"version"`
+	WorkspaceID string            `json:"workspace_id"`
+	Repository  string            `json:"repository"`
+	Branch      string            `json:"branch"`
+	CommitSHA   string            `json:"commit_sha"`
+	StartedAt   time.Time         `json:"started_at"`
+	CompletedAt time.Time         `json:"completed_at"`
+	Duration    string            `json:"duration"`
+	Results     GenerationResults `json:"results"`
+	Artifacts   []string          `json:"artifacts"`
 }
 
 type GenerationResults struct {

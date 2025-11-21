@@ -261,9 +261,9 @@ func TestGenerateFromModel_Empty(t *testing.T) {
 
 func TestInferRequestContract_PathParams(t *testing.T) {
 	tests := []struct {
-		name     string
-		path     string
-		wantCnt  int
+		name    string
+		path    string
+		wantCnt int
 	}{
 		{"colon style", "/users/:id", 1},
 		{"brace style", "/users/{id}", 1},

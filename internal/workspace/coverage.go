@@ -246,8 +246,8 @@ func (c *CoverageCollector) parseJestCoverage(coverFile string) ([]FileCoverage,
 
 	// Istanbul format: map of file paths to coverage data
 	var report map[string]struct {
-		S map[string]int `json:"s"` // Statement counts
-		F map[string]int `json:"f"` // Function counts
+		S map[string]int   `json:"s"` // Statement counts
+		F map[string]int   `json:"f"` // Function counts
 		B map[string][]int `json:"b"` // Branch counts
 	}
 

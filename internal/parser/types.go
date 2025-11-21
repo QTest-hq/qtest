@@ -24,17 +24,17 @@ type ParsedFile struct {
 
 // Function represents a parsed function
 type Function struct {
-	ID          string      // Unique identifier: file:line:name
-	Name        string
-	StartLine   int
-	EndLine     int
-	Parameters  []Parameter
-	ReturnType  string
-	Body        string      // Full function body
-	Comments    string      // Doc comments
-	Exported    bool        // Is publicly accessible
-	Async       bool        // Is async function
-	Class       string      // Parent class (if method)
+	ID         string // Unique identifier: file:line:name
+	Name       string
+	StartLine  int
+	EndLine    int
+	Parameters []Parameter
+	ReturnType string
+	Body       string // Full function body
+	Comments   string // Doc comments
+	Exported   bool   // Is publicly accessible
+	Async      bool   // Is async function
+	Class      string // Parent class (if method)
 }
 
 // Class represents a parsed class
@@ -82,21 +82,21 @@ type Export struct {
 
 // SystemModel represents the parsed system model
 type SystemModel struct {
-	Repository  string
-	CommitSHA   string
-	Language    Language // Primary language
-	Files       []ParsedFile
-	Endpoints   []Endpoint
+	Repository   string
+	CommitSHA    string
+	Language     Language // Primary language
+	Files        []ParsedFile
+	Endpoints    []Endpoint
 	Dependencies []Dependency
 }
 
 // Endpoint represents an API endpoint
 type Endpoint struct {
-	Method   string // GET, POST, etc.
-	Path     string
-	Handler  string // Function that handles this endpoint
-	File     string
-	Line     int
+	Method  string // GET, POST, etc.
+	Path    string
+	Handler string // Function that handles this endpoint
+	File    string
+	Line    int
 }
 
 // Dependency represents a project dependency

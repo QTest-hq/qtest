@@ -11,9 +11,9 @@ import (
 // CypressEmitter generates Cypress tests for E2E testing
 type CypressEmitter struct{}
 
-func (e *CypressEmitter) Name() string         { return "cypress" }
-func (e *CypressEmitter) Language() string     { return "javascript" }
-func (e *CypressEmitter) Framework() string    { return "cypress" }
+func (e *CypressEmitter) Name() string          { return "cypress" }
+func (e *CypressEmitter) Language() string      { return "javascript" }
+func (e *CypressEmitter) Framework() string     { return "cypress" }
 func (e *CypressEmitter) FileExtension() string { return ".cy.js" }
 
 // Emit generates a complete Cypress test file from multiple specs

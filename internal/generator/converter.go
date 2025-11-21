@@ -12,7 +12,7 @@ import (
 type SimpleTest struct {
 	Name       string                 `yaml:"name"`
 	Setup      map[string]interface{} `yaml:"setup,omitempty"`
-	Action     interface{}            `yaml:"action"` // Can be string or map
+	Action     interface{}            `yaml:"action"`     // Can be string or map
 	Assertions interface{}            `yaml:"assertions"` // Can be map or list
 	Assert     interface{}            `yaml:"assert"`     // Alternative name for assertions
 	Expected   interface{}            `yaml:"expected"`   // Another alternative

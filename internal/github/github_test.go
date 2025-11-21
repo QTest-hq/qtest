@@ -661,8 +661,8 @@ func TestDetectLanguages(t *testing.T) {
 		lang string
 		want int
 	}{
-		{"go", 2},        // main.go and utils.go (not main_test.go)
-		{"python", 1},    // app.py (not app.test.py)
+		{"go", 2},     // main.go and utils.go (not main_test.go)
+		{"python", 1}, // app.py (not app.test.py)
 		{"javascript", 1},
 		{"typescript", 1},
 		{"java", 1},

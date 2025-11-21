@@ -22,25 +22,25 @@ type TestIntent struct {
 
 // TestPlan is a collection of test intents with metadata
 type TestPlan struct {
-	ModelID     string       `json:"model_id"`     // ID of the SystemModel this plan is for
-	Repository  string       `json:"repository"`
-	TotalTests  int          `json:"total_tests"`
-	UnitTests   int          `json:"unit_tests"`
-	APITests    int          `json:"api_tests"`
-	E2ETests    int          `json:"e2e_tests"`
-	Intents     []TestIntent `json:"intents"`
+	ModelID    string       `json:"model_id"` // ID of the SystemModel this plan is for
+	Repository string       `json:"repository"`
+	TotalTests int          `json:"total_tests"`
+	UnitTests  int          `json:"unit_tests"`
+	APITests   int          `json:"api_tests"`
+	E2ETests   int          `json:"e2e_tests"`
+	Intents    []TestIntent `json:"intents"`
 }
 
 // Stats returns test plan statistics
 func (p *TestPlan) Stats() map[string]int {
 	return map[string]int{
-		"total":    p.TotalTests,
-		"unit":     p.UnitTests,
-		"api":      p.APITests,
-		"e2e":      p.E2ETests,
-		"high":     p.countByPriority("high"),
-		"medium":   p.countByPriority("medium"),
-		"low":      p.countByPriority("low"),
+		"total":  p.TotalTests,
+		"unit":   p.UnitTests,
+		"api":    p.APITests,
+		"e2e":    p.E2ETests,
+		"high":   p.countByPriority("high"),
+		"medium": p.countByPriority("medium"),
+		"low":    p.countByPriority("low"),
 	}
 }
 

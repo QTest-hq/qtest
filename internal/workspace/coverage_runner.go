@@ -35,14 +35,14 @@ type CoverageRunner struct {
 
 // CoverageRunConfig configures coverage-guided generation
 type CoverageRunConfig struct {
-	Tier             llm.Tier
-	TargetCoverage   float64 // Target coverage percentage (default: 80%)
-	MaxIterations    int     // Max generation iterations (default: 5)
-	MaxTestsPerRun   int     // Max tests per iteration (default: 10)
-	TestDir          string  // Output directory for tests
-	RunTests         bool    // Run tests after generation
-	CommitEach       bool    // Commit after each iteration
-	FocusCritical    bool    // Focus on critical gaps first
+	Tier           llm.Tier
+	TargetCoverage float64 // Target coverage percentage (default: 80%)
+	MaxIterations  int     // Max generation iterations (default: 5)
+	MaxTestsPerRun int     // Max tests per iteration (default: 10)
+	TestDir        string  // Output directory for tests
+	RunTests       bool    // Run tests after generation
+	CommitEach     bool    // Commit after each iteration
+	FocusCritical  bool    // Focus on critical gaps first
 }
 
 // DefaultCoverageRunConfig returns sensible defaults

@@ -34,12 +34,12 @@ type LLMConfig struct {
 	DefaultProvider string
 
 	// Ollama settings
-	OllamaURL     string
-	OllamaTier1   string
-	OllamaTier2   string
+	OllamaURL   string
+	OllamaTier1 string
+	OllamaTier2 string
 
 	// Anthropic settings
-	AnthropicKey  string
+	AnthropicKey   string
 	AnthropicTier3 string
 
 	// OpenAI settings (fallback)

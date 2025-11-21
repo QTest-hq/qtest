@@ -16,9 +16,9 @@ import (
 
 // GitManager handles git operations for a workspace
 type GitManager struct {
-	ws     *Workspace
-	repo   *git.Repository
-	token  string
+	ws    *Workspace
+	repo  *git.Repository
+	token string
 }
 
 // NewGitManager creates a git manager for a workspace

@@ -117,16 +117,16 @@ type StepAction struct {
 type ActionType string
 
 const (
-	ActionCall       ActionType = "call"        // Call a function
-	ActionHTTP       ActionType = "http"        // Make HTTP request
-	ActionAssert     ActionType = "assert"      // Assert condition
-	ActionSetup      ActionType = "setup"       // Setup action
-	ActionTeardown   ActionType = "teardown"    // Teardown action
-	ActionNavigate   ActionType = "navigate"    // E2E: navigate to URL
-	ActionClick      ActionType = "click"       // E2E: click element
-	ActionType_      ActionType = "type"        // E2E: type text
-	ActionWait       ActionType = "wait"        // E2E: wait for condition
-	ActionScreenshot ActionType = "screenshot"  // E2E: take screenshot
+	ActionCall       ActionType = "call"       // Call a function
+	ActionHTTP       ActionType = "http"       // Make HTTP request
+	ActionAssert     ActionType = "assert"     // Assert condition
+	ActionSetup      ActionType = "setup"      // Setup action
+	ActionTeardown   ActionType = "teardown"   // Teardown action
+	ActionNavigate   ActionType = "navigate"   // E2E: navigate to URL
+	ActionClick      ActionType = "click"      // E2E: click element
+	ActionType_      ActionType = "type"       // E2E: type text
+	ActionWait       ActionType = "wait"       // E2E: wait for condition
+	ActionScreenshot ActionType = "screenshot" // E2E: take screenshot
 )
 
 // Expected defines the expected outcome of a step

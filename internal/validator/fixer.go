@@ -12,16 +12,16 @@ import (
 
 // Fixer uses LLM to fix failing tests
 type Fixer struct {
-	router    *llm.Router
-	tier      llm.Tier
+	router     *llm.Router
+	tier       llm.Tier
 	maxRetries int
 }
 
 // NewFixer creates a test fixer
 func NewFixer(router *llm.Router, tier llm.Tier) *Fixer {
 	return &Fixer{
-		router:    router,
-		tier:      tier,
+		router:     router,
+		tier:       tier,
 		maxRetries: 3,
 	}
 }

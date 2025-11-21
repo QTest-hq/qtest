@@ -12,11 +12,11 @@ import (
 
 // mockClient is a test double for Client interface
 type mockClient struct {
-	name       Provider
-	available  bool
-	responses  []*Response
-	errors     []error
-	callCount  int
+	name      Provider
+	available bool
+	responses []*Response
+	errors    []error
+	callCount int
 }
 
 func newMockClient(name Provider, available bool) *mockClient {

@@ -36,10 +36,10 @@ type GenerateOptions struct {
 
 // GeneratedTest represents a generated test with metadata
 type GeneratedTest struct {
-	DSL       *dsl.TestDSL
-	RawYAML   string
-	Function  *parser.Function
-	FileName  string
+	DSL      *dsl.TestDSL
+	RawYAML  string
+	Function *parser.Function
+	FileName string
 }
 
 // GenerateForFile generates tests for all functions in a file

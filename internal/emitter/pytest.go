@@ -11,9 +11,9 @@ import (
 // PytestEmitter generates pytest + httpx tests for Python APIs
 type PytestEmitter struct{}
 
-func (e *PytestEmitter) Name() string         { return "pytest" }
-func (e *PytestEmitter) Language() string     { return "python" }
-func (e *PytestEmitter) Framework() string    { return "pytest" }
+func (e *PytestEmitter) Name() string          { return "pytest" }
+func (e *PytestEmitter) Language() string      { return "python" }
+func (e *PytestEmitter) Framework() string     { return "pytest" }
 func (e *PytestEmitter) FileExtension() string { return "_test.py" }
 
 // Emit generates a complete test file from multiple specs

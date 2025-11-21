@@ -11,9 +11,9 @@ import (
 // SupertestEmitter generates Jest + Supertest tests for Express APIs
 type SupertestEmitter struct{}
 
-func (e *SupertestEmitter) Name() string      { return "supertest" }
-func (e *SupertestEmitter) Language() string  { return "javascript" }
-func (e *SupertestEmitter) Framework() string { return "jest" }
+func (e *SupertestEmitter) Name() string          { return "supertest" }
+func (e *SupertestEmitter) Language() string      { return "javascript" }
+func (e *SupertestEmitter) Framework() string     { return "jest" }
 func (e *SupertestEmitter) FileExtension() string { return ".test.js" }
 
 // Emit generates a complete test file from multiple specs

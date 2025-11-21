@@ -29,14 +29,14 @@ func NewPRService(token string) *PRService {
 
 // PRRequest represents a pull request creation request
 type PRRequest struct {
-	Owner       string
-	Repo        string
-	Title       string
-	Body        string
-	Head        string // Branch with changes
-	Base        string // Target branch (e.g., main)
-	Draft       bool
-	Maintainer  bool // Allow maintainer edits
+	Owner      string
+	Repo       string
+	Title      string
+	Body       string
+	Head       string // Branch with changes
+	Base       string // Target branch (e.g., main)
+	Draft      bool
+	Maintainer bool // Allow maintainer edits
 }
 
 // PRResponse represents a created pull request

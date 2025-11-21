@@ -28,9 +28,9 @@ type RunnerV2 struct {
 	cfg       *RunConfig
 
 	// Pipeline state
-	sysModel  *model.SystemModel
-	testPlan  *model.TestPlan
-	specSet   *model.TestSpecSet
+	sysModel *model.SystemModel
+	testPlan *model.TestPlan
+	specSet  *model.TestSpecSet
 
 	// Callbacks
 	OnProgress func(phase string, current, total int, message string)

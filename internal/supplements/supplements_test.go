@@ -1137,7 +1137,9 @@ func TestSupplement_Detect_NonExistentFiles(t *testing.T) {
 func TestSupplement_Analyze_EmptyModel(t *testing.T) {
 	supplements := []struct {
 		name string
-		s    interface{ Analyze(*model.SystemModel) error }
+		s    interface {
+			Analyze(*model.SystemModel) error
+		}
 	}{
 		{"express", &ExpressSupplement{}},
 		{"fastapi", &FastAPISupplement{}},

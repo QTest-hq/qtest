@@ -11,9 +11,9 @@ import (
 // GoHTTPEmitter generates Go net/http tests
 type GoHTTPEmitter struct{}
 
-func (e *GoHTTPEmitter) Name() string         { return "go-http" }
-func (e *GoHTTPEmitter) Language() string     { return "go" }
-func (e *GoHTTPEmitter) Framework() string    { return "testing" }
+func (e *GoHTTPEmitter) Name() string          { return "go-http" }
+func (e *GoHTTPEmitter) Language() string      { return "go" }
+func (e *GoHTTPEmitter) Framework() string     { return "testing" }
 func (e *GoHTTPEmitter) FileExtension() string { return "_test.go" }
 
 // Emit generates a complete test file from multiple specs

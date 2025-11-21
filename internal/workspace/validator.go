@@ -31,16 +31,16 @@ func NewTestValidator(ws *Workspace) *TestValidator {
 
 // ValidationResult holds the result of validating a single test
 type ValidationResult struct {
-	TestFile   string        `json:"test_file"`
-	Target     string        `json:"target"`
-	Passed     bool          `json:"passed"`
-	Output     string        `json:"output"`
-	Error      string        `json:"error,omitempty"`
-	Duration   time.Duration `json:"duration"`
-	TestCount  int           `json:"test_count"`
-	PassCount  int           `json:"pass_count"`
-	FailCount  int           `json:"fail_count"`
-	SkipCount  int           `json:"skip_count"`
+	TestFile  string        `json:"test_file"`
+	Target    string        `json:"target"`
+	Passed    bool          `json:"passed"`
+	Output    string        `json:"output"`
+	Error     string        `json:"error,omitempty"`
+	Duration  time.Duration `json:"duration"`
+	TestCount int           `json:"test_count"`
+	PassCount int           `json:"pass_count"`
+	FailCount int           `json:"fail_count"`
+	SkipCount int           `json:"skip_count"`
 }
 
 // ValidateAll runs all generated tests and returns results
@@ -276,13 +276,13 @@ func extractTestName(testFile string) string {
 
 // ValidateSummary returns a summary of validation results
 type ValidateSummary struct {
-	Total      int           `json:"total"`
-	Passed     int           `json:"passed"`
-	Failed     int           `json:"failed"`
-	Skipped    int           `json:"skipped"`
-	Duration   time.Duration `json:"duration"`
-	PassRate   float64       `json:"pass_rate"`
-	FailedTests []string     `json:"failed_tests,omitempty"`
+	Total       int           `json:"total"`
+	Passed      int           `json:"passed"`
+	Failed      int           `json:"failed"`
+	Skipped     int           `json:"skipped"`
+	Duration    time.Duration `json:"duration"`
+	PassRate    float64       `json:"pass_rate"`
+	FailedTests []string      `json:"failed_tests,omitempty"`
 }
 
 // Summarize creates a summary from validation results

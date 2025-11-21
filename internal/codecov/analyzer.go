@@ -22,25 +22,25 @@ func NewAnalyzer(report *CoverageReport, sysModel *model.SystemModel) *Analyzer 
 
 // CoverageGap represents a gap in test coverage
 type CoverageGap struct {
-	File       string       `json:"file"`
-	StartLine  int          `json:"start_line"`
-	EndLine    int          `json:"end_line"`
-	Type       string       `json:"type"` // "function", "endpoint", "branch"
-	Name       string       `json:"name"`
-	Priority   string       `json:"priority"` // "critical", "high", "medium", "low"
-	Reason     string       `json:"reason"`
-	TargetID   string       `json:"target_id,omitempty"`
-	Complexity int          `json:"complexity,omitempty"`
+	File       string `json:"file"`
+	StartLine  int    `json:"start_line"`
+	EndLine    int    `json:"end_line"`
+	Type       string `json:"type"` // "function", "endpoint", "branch"
+	Name       string `json:"name"`
+	Priority   string `json:"priority"` // "critical", "high", "medium", "low"
+	Reason     string `json:"reason"`
+	TargetID   string `json:"target_id,omitempty"`
+	Complexity int    `json:"complexity,omitempty"`
 }
 
 // AnalysisResult holds the coverage analysis results
 type AnalysisResult struct {
-	TotalCoverage    float64       `json:"total_coverage"`
-	TargetCoverage   float64       `json:"target_coverage"` // Coverage goal
-	Gaps             []CoverageGap `json:"gaps"`
-	CriticalGaps     int           `json:"critical_gaps"`
-	SuggestedTests   int           `json:"suggested_tests"`
-	EstimatedEffort  string        `json:"estimated_effort"`
+	TotalCoverage   float64       `json:"total_coverage"`
+	TargetCoverage  float64       `json:"target_coverage"` // Coverage goal
+	Gaps            []CoverageGap `json:"gaps"`
+	CriticalGaps    int           `json:"critical_gaps"`
+	SuggestedTests  int           `json:"suggested_tests"`
+	EstimatedEffort string        `json:"estimated_effort"`
 }
 
 // Analyze performs coverage gap analysis

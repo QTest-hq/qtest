@@ -25,15 +25,15 @@ func prCmd() *cobra.Command {
 
 func prCreateCmd() *cobra.Command {
 	var (
-		owner      string
-		repo       string
-		branch     string
-		base       string
-		title      string
-		testFiles  []string
-		testDir    string
-		draft      bool
-		token      string
+		owner     string
+		repo      string
+		branch    string
+		base      string
+		title     string
+		testFiles []string
+		testDir   string
+		draft     bool
+		token     string
 	)
 
 	cmd := &cobra.Command{

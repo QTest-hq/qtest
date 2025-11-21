@@ -241,11 +241,11 @@ func (sg *SchemaGenerator) GenerateTestDataSet(schema *Schema, fieldName string,
 	// Generate edge cases based on type
 	switch schema.Type {
 	case "string":
-		dataset.Edge = append(dataset.Edge, "")         // Empty string
-		dataset.Edge = append(dataset.Edge, " ")        // Whitespace
-		dataset.Edge = append(dataset.Edge, "   ")      // Multiple spaces
-		dataset.Invalid = append(dataset.Invalid, nil)  // Null
-		dataset.Invalid = append(dataset.Invalid, 123)  // Wrong type
+		dataset.Edge = append(dataset.Edge, "")        // Empty string
+		dataset.Edge = append(dataset.Edge, " ")       // Whitespace
+		dataset.Edge = append(dataset.Edge, "   ")     // Multiple spaces
+		dataset.Invalid = append(dataset.Invalid, nil) // Null
+		dataset.Invalid = append(dataset.Invalid, 123) // Wrong type
 
 	case "integer", "number":
 		dataset.Edge = append(dataset.Edge, 0)

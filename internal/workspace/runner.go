@@ -20,15 +20,15 @@ import (
 
 // Runner orchestrates incremental test generation
 type Runner struct {
-	ws          *Workspace
-	git         *GitManager
-	parser      *parser.Parser
-	llmRouter   *llm.Router
-	adapters    *adapters.Registry
-	artifacts   *ArtifactManager
-	cfg         *RunConfig
-	projectCfg  *config.ProjectConfig
-	startTime   time.Time
+	ws         *Workspace
+	git        *GitManager
+	parser     *parser.Parser
+	llmRouter  *llm.Router
+	adapters   *adapters.Registry
+	artifacts  *ArtifactManager
+	cfg        *RunConfig
+	projectCfg *config.ProjectConfig
+	startTime  time.Time
 
 	// Callbacks for progress reporting
 	OnProgress func(current, total int, target *TargetState)
@@ -38,20 +38,20 @@ type Runner struct {
 
 // RunConfig holds configuration for a generation run
 type RunConfig struct {
-	Tier            llm.Tier
-	CommitEach      bool     // Commit after each test
-	BranchName      string   // Branch for tests
-	TestDir         string   // Directory for test files
-	DryRun          bool     // Don't write files
-	MaxConcurrent   int      // Max parallel generations
-	FilePatterns    []string // Files to include
-	ValidateTests   bool     // Run tests after generation
-	MaxTests        int      // Max tests to generate (0=unlimited)
-	CreatePR        bool     // Create a PR after generation
-	PRDraft         bool     // Create PR as draft
-	PRTitle         string   // Custom PR title
-	GitHubOwner     string   // GitHub repo owner
-	GitHubRepo      string   // GitHub repo name
+	Tier          llm.Tier
+	CommitEach    bool     // Commit after each test
+	BranchName    string   // Branch for tests
+	TestDir       string   // Directory for test files
+	DryRun        bool     // Don't write files
+	MaxConcurrent int      // Max parallel generations
+	FilePatterns  []string // Files to include
+	ValidateTests bool     // Run tests after generation
+	MaxTests      int      // Max tests to generate (0=unlimited)
+	CreatePR      bool     // Create a PR after generation
+	PRDraft       bool     // Create PR as draft
+	PRTitle       string   // Custom PR title
+	GitHubOwner   string   // GitHub repo owner
+	GitHubRepo    string   // GitHub repo name
 }
 
 // DefaultRunConfig returns sensible defaults

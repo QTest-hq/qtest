@@ -14,10 +14,10 @@ import (
 
 func emitTestsCmd() *cobra.Command {
 	var (
-		specsFile  string
-		outputDir  string
+		specsFile   string
+		outputDir   string
 		emitterName string
-		language   string
+		language    string
 	)
 
 	cmd := &cobra.Command{

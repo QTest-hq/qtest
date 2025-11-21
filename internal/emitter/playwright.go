@@ -10,9 +10,9 @@ import (
 // PlaywrightEmitter generates Playwright tests for E2E testing
 type PlaywrightEmitter struct{}
 
-func (e *PlaywrightEmitter) Name() string         { return "playwright" }
-func (e *PlaywrightEmitter) Language() string     { return "typescript" }
-func (e *PlaywrightEmitter) Framework() string    { return "playwright" }
+func (e *PlaywrightEmitter) Name() string          { return "playwright" }
+func (e *PlaywrightEmitter) Language() string      { return "typescript" }
+func (e *PlaywrightEmitter) Framework() string     { return "playwright" }
 func (e *PlaywrightEmitter) FileExtension() string { return ".spec.ts" }
 
 // Emit generates a complete Playwright test file from multiple specs

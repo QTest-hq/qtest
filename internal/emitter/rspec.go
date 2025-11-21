@@ -11,9 +11,9 @@ import (
 // RSpecEmitter generates RSpec tests for Ruby/Rails APIs
 type RSpecEmitter struct{}
 
-func (e *RSpecEmitter) Name() string         { return "rspec" }
-func (e *RSpecEmitter) Language() string     { return "ruby" }
-func (e *RSpecEmitter) Framework() string    { return "rspec" }
+func (e *RSpecEmitter) Name() string          { return "rspec" }
+func (e *RSpecEmitter) Language() string      { return "ruby" }
+func (e *RSpecEmitter) Framework() string     { return "rspec" }
 func (e *RSpecEmitter) FileExtension() string { return "_spec.rb" }
 
 // Emit generates a complete test file from multiple specs

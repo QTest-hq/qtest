@@ -52,10 +52,10 @@ func (c *OllamaClient) Available() bool {
 
 // ollamaRequest represents the Ollama API request format
 type ollamaRequest struct {
-	Model    string           `json:"model"`
-	Messages []ollamaMessage  `json:"messages"`
-	Stream   bool             `json:"stream"`
-	Options  *ollamaOptions   `json:"options,omitempty"`
+	Model    string          `json:"model"`
+	Messages []ollamaMessage `json:"messages"`
+	Stream   bool            `json:"stream"`
+	Options  *ollamaOptions  `json:"options,omitempty"`
 }
 
 type ollamaMessage struct {
@@ -71,12 +71,12 @@ type ollamaOptions struct {
 
 // ollamaResponse represents the Ollama API response format
 type ollamaResponse struct {
-	Model     string        `json:"model"`
-	Message   ollamaMessage `json:"message"`
-	Done      bool          `json:"done"`
-	DoneReason string       `json:"done_reason,omitempty"`
-	PromptEvalCount   int   `json:"prompt_eval_count,omitempty"`
-	EvalCount         int   `json:"eval_count,omitempty"`
+	Model           string        `json:"model"`
+	Message         ollamaMessage `json:"message"`
+	Done            bool          `json:"done"`
+	DoneReason      string        `json:"done_reason,omitempty"`
+	PromptEvalCount int           `json:"prompt_eval_count,omitempty"`
+	EvalCount       int           `json:"eval_count,omitempty"`
 }
 
 func (c *OllamaClient) Complete(ctx context.Context, req *Request) (*Response, error) {

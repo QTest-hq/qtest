@@ -14,16 +14,16 @@ import (
 
 // Workspace represents a local working environment for test generation
 type Workspace struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	RepoURL   string    `json:"repo_url"`
-	RepoPath  string    `json:"repo_path"`   // Where the repo is cloned
-	Branch    string    `json:"branch"`       // Working branch for tests
-	BaseBranch string   `json:"base_branch"`  // Original branch
-	CommitSHA string    `json:"commit_sha"`
-	Language  string    `json:"language"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	RepoURL    string    `json:"repo_url"`
+	RepoPath   string    `json:"repo_path"`   // Where the repo is cloned
+	Branch     string    `json:"branch"`      // Working branch for tests
+	BaseBranch string    `json:"base_branch"` // Original branch
+	CommitSHA  string    `json:"commit_sha"`
+	Language   string    `json:"language"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 
 	// State tracking
 	State *WorkspaceState `json:"state"`
@@ -35,15 +35,15 @@ type Workspace struct {
 
 // WorkspaceState tracks the generation progress
 type WorkspaceState struct {
-	Phase        Phase                      `json:"phase"`
-	TotalTargets int                        `json:"total_targets"`
-	Completed    int                        `json:"completed"`
-	Failed       int                        `json:"failed"`
-	Skipped      int                        `json:"skipped"`
-	Targets      map[string]*TargetState    `json:"targets"` // Function ID -> state
-	CurrentIndex int                        `json:"current_index"`
-	StartedAt    *time.Time                 `json:"started_at,omitempty"`
-	PausedAt     *time.Time                 `json:"paused_at,omitempty"`
+	Phase        Phase                   `json:"phase"`
+	TotalTargets int                     `json:"total_targets"`
+	Completed    int                     `json:"completed"`
+	Failed       int                     `json:"failed"`
+	Skipped      int                     `json:"skipped"`
+	Targets      map[string]*TargetState `json:"targets"` // Function ID -> state
+	CurrentIndex int                     `json:"current_index"`
+	StartedAt    *time.Time              `json:"started_at,omitempty"`
+	PausedAt     *time.Time              `json:"paused_at,omitempty"`
 }
 
 // Phase represents the current phase of generation
@@ -62,19 +62,19 @@ const (
 
 // TargetState tracks state for a single function/method
 type TargetState struct {
-	ID           string         `json:"id"`           // Unique ID: file:line:name
-	File         string         `json:"file"`
-	Name         string         `json:"name"`
-	Type         string         `json:"type"`         // function, method, class
-	Line         int            `json:"line"`
-	Status       TargetStatus   `json:"status"`
-	Covered      bool           `json:"covered"`      // Whether tests have been generated
-	SpecID       string         `json:"spec_id,omitempty"` // ID of generated spec
-	TestFile     string         `json:"test_file,omitempty"`
-	CommitSHA    string         `json:"commit_sha,omitempty"`
-	Error        string         `json:"error,omitempty"`
-	GeneratedAt  *time.Time     `json:"generated_at,omitempty"`
-	DSL          json.RawMessage `json:"dsl,omitempty"`
+	ID          string          `json:"id"` // Unique ID: file:line:name
+	File        string          `json:"file"`
+	Name        string          `json:"name"`
+	Type        string          `json:"type"` // function, method, class
+	Line        int             `json:"line"`
+	Status      TargetStatus    `json:"status"`
+	Covered     bool            `json:"covered"`           // Whether tests have been generated
+	SpecID      string          `json:"spec_id,omitempty"` // ID of generated spec
+	TestFile    string          `json:"test_file,omitempty"`
+	CommitSHA   string          `json:"commit_sha,omitempty"`
+	Error       string          `json:"error,omitempty"`
+	GeneratedAt *time.Time      `json:"generated_at,omitempty"`
+	DSL         json.RawMessage `json:"dsl,omitempty"`
 }
 
 // TargetStatus represents the status of a target

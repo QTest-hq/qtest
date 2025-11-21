@@ -12,31 +12,31 @@ import (
 
 // Contract represents an API contract
 type Contract struct {
-	Name        string              `json:"name"`
-	Version     string              `json:"version"`
-	Provider    string              `json:"provider"`    // The API provider
-	Consumer    string              `json:"consumer"`    // The API consumer
-	Endpoints   []EndpointContract  `json:"endpoints"`
+	Name      string             `json:"name"`
+	Version   string             `json:"version"`
+	Provider  string             `json:"provider"` // The API provider
+	Consumer  string             `json:"consumer"` // The API consumer
+	Endpoints []EndpointContract `json:"endpoints"`
 }
 
 // EndpointContract defines the contract for a single endpoint
 type EndpointContract struct {
-	ID          string                 `json:"id"`
-	Method      string                 `json:"method"`
-	Path        string                 `json:"path"`
-	Description string                 `json:"description,omitempty"`
-	Request     RequestContract        `json:"request"`
-	Response    ResponseContract       `json:"response"`
-	Examples    []InteractionExample   `json:"examples,omitempty"`
+	ID          string               `json:"id"`
+	Method      string               `json:"method"`
+	Path        string               `json:"path"`
+	Description string               `json:"description,omitempty"`
+	Request     RequestContract      `json:"request"`
+	Response    ResponseContract     `json:"response"`
+	Examples    []InteractionExample `json:"examples,omitempty"`
 }
 
 // RequestContract defines expected request structure
 type RequestContract struct {
-	Headers     map[string]HeaderSpec  `json:"headers,omitempty"`
-	Query       map[string]ParamSpec   `json:"query,omitempty"`
-	PathParams  map[string]ParamSpec   `json:"path_params,omitempty"`
-	Body        *SchemaSpec            `json:"body,omitempty"`
-	ContentType string                 `json:"content_type,omitempty"`
+	Headers     map[string]HeaderSpec `json:"headers,omitempty"`
+	Query       map[string]ParamSpec  `json:"query,omitempty"`
+	PathParams  map[string]ParamSpec  `json:"path_params,omitempty"`
+	Body        *SchemaSpec           `json:"body,omitempty"`
+	ContentType string                `json:"content_type,omitempty"`
 }
 
 // ResponseContract defines expected response structure
@@ -73,9 +73,9 @@ type SchemaSpec struct {
 
 // InteractionExample provides concrete examples
 type InteractionExample struct {
-	Name        string                 `json:"name"`
-	Request     map[string]interface{} `json:"request"`
-	Response    map[string]interface{} `json:"response"`
+	Name     string                 `json:"name"`
+	Request  map[string]interface{} `json:"request"`
+	Response map[string]interface{} `json:"response"`
 }
 
 // ContractGenerator generates contracts from SystemModel
@@ -188,15 +188,15 @@ func NewContractValidator() *ContractValidator {
 
 // ValidationResult holds validation results
 type ValidationResult struct {
-	Valid      bool              `json:"valid"`
-	Endpoint   string            `json:"endpoint"`
+	Valid      bool                `json:"valid"`
+	Endpoint   string              `json:"endpoint"`
 	Violations []ContractViolation `json:"violations,omitempty"`
 }
 
 // ContractViolation describes a contract violation
 type ContractViolation struct {
-	Type     string `json:"type"`     // "status", "header", "body", "schema"
-	Path     string `json:"path"`     // JSON path to violation
+	Type     string `json:"type"` // "status", "header", "body", "schema"
+	Path     string `json:"path"` // JSON path to violation
 	Expected string `json:"expected"`
 	Actual   string `json:"actual"`
 	Message  string `json:"message"`

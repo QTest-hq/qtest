@@ -83,10 +83,10 @@ func TestTestSpec_APIFields(t *testing.T) {
 
 func TestTestSpec_WithBody(t *testing.T) {
 	spec := TestSpec{
-		ID:         "api-test-002",
-		Level:      LevelAPI,
-		Method:     "POST",
-		Path:       "/users",
+		ID:     "api-test-002",
+		Level:  LevelAPI,
+		Method: "POST",
+		Path:   "/users",
 		Body: map[string]interface{}{
 			"name":  "John",
 			"email": "john@example.com",

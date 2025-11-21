@@ -43,12 +43,12 @@ func jobCmd() *cobra.Command {
 // jobSubmitCmd creates a new job or starts a pipeline
 func jobSubmitCmd() *cobra.Command {
 	var (
-		repoURL    string
-		branch     string
-		maxTests   int
-		llmTier    int
-		createPR   bool
-		jobType    string
+		repoURL  string
+		branch   string
+		maxTests int
+		llmTier  int
+		createPR bool
+		jobType  string
 	)
 
 	cmd := &cobra.Command{
@@ -133,9 +133,9 @@ Examples:
 // jobListCmd lists jobs
 func jobListCmd() *cobra.Command {
 	var (
-		status   string
-		jobType  string
-		limit    int
+		status  string
+		jobType string
+		limit   int
 	)
 
 	cmd := &cobra.Command{
@@ -305,19 +305,19 @@ func jobRetryCmd() *cobra.Command {
 
 // Response types
 type jobResponse struct {
-	ID              string  `json:"id"`
-	Type            string  `json:"type"`
-	Status          string  `json:"status"`
-	Priority        int     `json:"priority"`
-	RepositoryID    *string `json:"repository_id,omitempty"`
-	ErrorMessage    *string `json:"error_message,omitempty"`
-	RetryCount      int     `json:"retry_count"`
-	MaxRetries      int     `json:"max_retries"`
-	CreatedAt       string  `json:"created_at"`
-	UpdatedAt       string  `json:"updated_at"`
-	StartedAt       *string `json:"started_at,omitempty"`
-	CompletedAt     *string `json:"completed_at,omitempty"`
-	WorkerID        *string `json:"worker_id,omitempty"`
+	ID           string  `json:"id"`
+	Type         string  `json:"type"`
+	Status       string  `json:"status"`
+	Priority     int     `json:"priority"`
+	RepositoryID *string `json:"repository_id,omitempty"`
+	ErrorMessage *string `json:"error_message,omitempty"`
+	RetryCount   int     `json:"retry_count"`
+	MaxRetries   int     `json:"max_retries"`
+	CreatedAt    string  `json:"created_at"`
+	UpdatedAt    string  `json:"updated_at"`
+	StartedAt    *string `json:"started_at,omitempty"`
+	CompletedAt  *string `json:"completed_at,omitempty"`
+	WorkerID     *string `json:"worker_id,omitempty"`
 }
 
 type jobStatusResponse struct {

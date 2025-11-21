@@ -13,22 +13,22 @@ import (
 
 // TestResult holds the result of running a test
 type TestResult struct {
-	Passed    bool          `json:"passed"`
-	TestFile  string        `json:"test_file"`
-	Output    string        `json:"output"`
-	Errors    []TestError   `json:"errors,omitempty"`
-	Duration  time.Duration `json:"duration"`
-	ExitCode  int           `json:"exit_code"`
+	Passed   bool          `json:"passed"`
+	TestFile string        `json:"test_file"`
+	Output   string        `json:"output"`
+	Errors   []TestError   `json:"errors,omitempty"`
+	Duration time.Duration `json:"duration"`
+	ExitCode int           `json:"exit_code"`
 }
 
 // TestError represents a single test failure
 type TestError struct {
-	TestName    string `json:"test_name"`
-	Message     string `json:"message"`
-	Expected    string `json:"expected,omitempty"`
-	Actual      string `json:"actual,omitempty"`
-	StackTrace  string `json:"stack_trace,omitempty"`
-	Line        int    `json:"line,omitempty"`
+	TestName   string `json:"test_name"`
+	Message    string `json:"message"`
+	Expected   string `json:"expected,omitempty"`
+	Actual     string `json:"actual,omitempty"`
+	StackTrace string `json:"stack_trace,omitempty"`
+	Line       int    `json:"line,omitempty"`
 }
 
 // Validator runs and validates generated tests

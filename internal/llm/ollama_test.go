@@ -98,9 +98,9 @@ func TestOllamaClient_Complete(t *testing.T) {
 
 		// Return response
 		resp := ollamaResponse{
-			Model:   "test-model",
-			Message: ollamaMessage{Role: "assistant", Content: "test response"},
-			Done:    true,
+			Model:           "test-model",
+			Message:         ollamaMessage{Role: "assistant", Content: "test response"},
+			Done:            true,
 			PromptEvalCount: 10,
 			EvalCount:       20,
 		}
