@@ -26,6 +26,16 @@ type Config struct {
 
 	// GitHub
 	GitHubToken string
+
+	// GitHub OAuth
+	GitHubOAuth GitHubOAuthConfig
+}
+
+// GitHubOAuthConfig holds GitHub OAuth configuration
+type GitHubOAuthConfig struct {
+	ClientID     string
+	ClientSecret string
+	RedirectURL  string
 }
 
 // LLMConfig holds LLM-related configuration
@@ -55,6 +65,12 @@ func Load() (*Config, error) {
 		RedisURL:    getEnv("REDIS_URL", "redis://localhost:6379"),
 		NATSURL:     getEnv("NATS_URL", "nats://localhost:4222"),
 		GitHubToken: getEnv("GITHUB_TOKEN", ""),
+
+		GitHubOAuth: GitHubOAuthConfig{
+			ClientID:     getEnv("GITHUB_OAUTH_CLIENT_ID", ""),
+			ClientSecret: getEnv("GITHUB_OAUTH_CLIENT_SECRET", ""),
+			RedirectURL:  getEnv("GITHUB_OAUTH_REDIRECT_URL", "http://localhost:8080/auth/callback"),
+		},
 
 		LLM: LLMConfig{
 			DefaultProvider: getEnv("LLM_DEFAULT_PROVIDER", "ollama"),
