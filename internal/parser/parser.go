@@ -141,26 +141,47 @@ func (p *Parser) parseGoFunction(node *sitter.Node, source []byte) *Function {
 }
 
 func (p *Parser) parseGoMethod(node *sitter.Node, source []byte) *Function {
-	fn := p.parseGoFunction(node, source)
-	if fn == nil {
-		return nil
+	fn := &Function{
+		StartLine:  int(node.StartPoint().Row) + 1,
+		EndLine:    int(node.EndPoint().Row) + 1,
+		Parameters: make([]Parameter, 0),
+	}
+
+	// Method structure: (receiver) name (parameters) [return_type] body
+	// Use field names for reliable extraction
+	nameNode := node.ChildByFieldName("name")
+	if nameNode != nil {
+		fn.Name = nameNode.Content(source)
+		if len(fn.Name) > 0 {
+			fn.Exported = strings.ToUpper(fn.Name[:1]) == fn.Name[:1]
+		}
 	}
 
 	// Extract receiver type
-	for i := 0; i < int(node.ChildCount()); i++ {
-		child := node.Child(i)
-		if child.Type() == "parameter_list" && i == 0 {
-			// This is the receiver
-			for j := 0; j < int(child.ChildCount()); j++ {
-				param := child.Child(j)
-				if param.Type() == "parameter_declaration" {
-					typeNode := param.ChildByFieldName("type")
-					if typeNode != nil {
-						fn.Class = strings.TrimPrefix(typeNode.Content(source), "*")
-					}
+	receiverNode := node.ChildByFieldName("receiver")
+	if receiverNode != nil {
+		for i := 0; i < int(receiverNode.ChildCount()); i++ {
+			param := receiverNode.Child(i)
+			if param.Type() == "parameter_declaration" {
+				typeNode := param.ChildByFieldName("type")
+				if typeNode != nil {
+					typeName := typeNode.Content(source)
+					fn.Class = strings.TrimPrefix(typeName, "*")
 				}
 			}
 		}
+	}
+
+	// Extract parameters
+	paramsNode := node.ChildByFieldName("parameters")
+	if paramsNode != nil {
+		fn.Parameters = p.parseGoParameters(paramsNode, source)
+	}
+
+	// Extract body
+	bodyNode := node.ChildByFieldName("body")
+	if bodyNode != nil {
+		fn.Body = bodyNode.Content(source)
 	}
 
 	return fn

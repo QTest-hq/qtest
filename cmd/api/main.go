@@ -11,6 +11,7 @@ import (
 
 	"github.com/QTest-hq/qtest/internal/api"
 	"github.com/QTest-hq/qtest/internal/config"
+	"github.com/QTest-hq/qtest/internal/db"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -28,8 +29,16 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to load configuration")
 	}
 
+	// Connect to database
+	ctx := context.Background()
+	database, err := db.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to connect to database")
+	}
+	defer database.Close()
+
 	// Create server
-	srv, err := api.NewServer(cfg)
+	srv, err := api.NewServer(cfg, database)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create server")
 	}
