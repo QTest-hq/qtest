@@ -15,6 +15,7 @@ import (
 	"github.com/QTest-hq/qtest/internal/config"
 	"github.com/QTest-hq/qtest/internal/generator"
 	"github.com/QTest-hq/qtest/internal/llm"
+	"github.com/QTest-hq/qtest/internal/mutation"
 	"github.com/QTest-hq/qtest/internal/parser"
 	"github.com/QTest-hq/qtest/internal/supplements"
 	"github.com/QTest-hq/qtest/internal/workspace"
@@ -124,6 +125,7 @@ func main() {
 	rootCmd.AddCommand(contractCmd())
 	rootCmd.AddCommand(datagenCmd())
 	rootCmd.AddCommand(coverageCmd())
+	rootCmd.AddCommand(mutationCmd())
 	rootCmd.AddCommand(prCmd())
 	rootCmd.AddCommand(jobCmd())
 	rootCmd.AddCommand(configCmd())
@@ -136,11 +138,12 @@ func main() {
 
 func generateCmd() *cobra.Command {
 	var (
-		repoURL  string
-		tier     string
-		maxTests int
-		dryRun   bool
-		validate bool
+		repoURL     string
+		tier        string
+		maxTests    int
+		dryRun      bool
+		validate    bool
+		runMutation bool
 	)
 
 	cmd := &cobra.Command{
@@ -153,10 +156,12 @@ This command will:
 2. Build a system model to understand the codebase
 3. Generate tests using AI (requires Ollama)
 4. Optionally validate generated tests
+5. Optionally run mutation testing to evaluate test quality
 
 Examples:
   qtest generate -r https://github.com/user/repo
-  qtest generate -r ./local/path -t 1 --dry-run`,
+  qtest generate -r ./local/path -t 1 --dry-run
+  qtest generate -r ./local/path --mutation`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
@@ -243,6 +248,14 @@ Examples:
 			fmt.Printf("   Failed:    %d\n", summary["failed"])
 			fmt.Printf("   Output:    %s\n", ws.Path())
 
+			// Run mutation testing if requested
+			if runMutation && !dryRun {
+				fmt.Println("\n🧬 Running mutation testing...")
+				if err := runRepoMutationTesting(ctx, ws.Path()); err != nil {
+					fmt.Printf("⚠️  Mutation testing warning: %v\n", err)
+				}
+			}
+
 			return nil
 		},
 	}
@@ -252,6 +265,7 @@ Examples:
 	cmd.Flags().IntVarP(&maxTests, "max", "m", 0, "Maximum tests to generate (0=all)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Don't write test files")
 	cmd.Flags().BoolVar(&validate, "validate", false, "Run tests after generation")
+	cmd.Flags().BoolVar(&runMutation, "mutation", false, "Run mutation testing after generation")
 	cmd.MarkFlagRequired("repo")
 
 	return cmd
@@ -259,11 +273,12 @@ Examples:
 
 func generateFileCmd() *cobra.Command {
 	var (
-		filePath  string
-		outputDir string
-		tier      string
-		maxTests  int
-		write     bool
+		filePath    string
+		outputDir   string
+		tier        string
+		maxTests    int
+		write       bool
+		runMutation bool
 	)
 
 	cmd := &cobra.Command{
@@ -325,7 +340,15 @@ func generateFileCmd() *cobra.Command {
 
 			// Write test files if requested
 			if write {
-				return writeTestFiles(filePath, tests, outputDir)
+				if err := writeTestFiles(filePath, tests, outputDir); err != nil {
+					return err
+				}
+
+				// Run mutation testing if requested
+				if runMutation {
+					return runMutationTesting(ctx, filePath, outputDir)
+				}
+				return nil
 			}
 
 			// Otherwise just output DSL
@@ -345,6 +368,7 @@ func generateFileCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&tier, "tier", "t", "2", "LLM tier (1=fast, 2=balanced, 3=thorough)")
 	cmd.Flags().IntVarP(&maxTests, "max", "m", 5, "Maximum number of tests to generate")
 	cmd.Flags().BoolVarP(&write, "write", "w", false, "Write test files to disk")
+	cmd.Flags().BoolVar(&runMutation, "mutation", false, "Run mutation testing after generating tests (requires --write)")
 	cmd.MarkFlagRequired("file")
 
 	return cmd
@@ -689,6 +713,158 @@ func writeTestFiles(sourceFile string, tests []generator.GeneratedTest, outputDi
 
 	fmt.Printf("📝 Written: %s\n", testFile)
 	fmt.Printf("   Tests: %d steps\n", len(combinedDSL.Steps))
+
+	return nil
+}
+
+// runMutationTesting runs mutation testing on a source file after test generation
+func runMutationTesting(ctx context.Context, sourceFile, outputDir string) error {
+	fmt.Println("\n🧬 Running mutation testing...")
+
+	// Determine test file path
+	dir := outputDir
+	if dir == "" {
+		dir = filepath.Dir(sourceFile)
+	}
+
+	// Get adapter for test file naming
+	lang := parser.DetectLanguage(sourceFile)
+	registry := adapters.NewRegistry()
+	adapter, err := registry.GetForLanguage(lang)
+	if err != nil {
+		return fmt.Errorf("unsupported language for mutation testing: %s", lang)
+	}
+
+	base := filepath.Base(sourceFile)
+	ext := filepath.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+	testFile := filepath.Join(dir, name+adapter.TestFileSuffix()+adapter.FileExtension())
+
+	// Check test file exists
+	if _, err := os.Stat(testFile); os.IsNotExist(err) {
+		return fmt.Errorf("test file not found: %s", testFile)
+	}
+
+	// Create mutation runner
+	runner := mutation.NewRunner(
+		mutation.NewGoMutestingTool(),
+		mutation.NewSimpleMutationTool(),
+	)
+
+	// Run mutation testing
+	cfg := mutation.DefaultConfig()
+	result, err := runner.Run(ctx, sourceFile, testFile, cfg)
+	if err != nil {
+		fmt.Printf("⚠️  Mutation testing failed: %v\n", err)
+		return nil // Don't fail the command, just report
+	}
+
+	// Display results
+	fmt.Printf("\n📊 Mutation Score: %.1f%%", result.Score*100)
+	quality := result.Quality()
+	switch quality {
+	case "good":
+		fmt.Printf(" 🟢 (good)\n")
+	case "acceptable":
+		fmt.Printf(" 🟡 (acceptable)\n")
+	default:
+		fmt.Printf(" 🔴 (poor)\n")
+	}
+
+	fmt.Printf("   Mutants: %d total, %d killed, %d survived\n",
+		result.Total, result.Killed, result.Survived)
+
+	if result.Survived > 0 {
+		fmt.Println("   Tip: Consider adding tests for edge cases to improve mutation score")
+	}
+
+	return nil
+}
+
+// runRepoMutationTesting runs mutation testing on all source/test pairs in a repository
+func runRepoMutationTesting(ctx context.Context, repoPath string) error {
+	// Create mutation runner
+	runner := mutation.NewRunner(
+		mutation.NewGoMutestingTool(),
+		mutation.NewSimpleMutationTool(),
+	)
+
+	// Find all source files with corresponding test files
+	var pairs []struct{ source, test string }
+
+	err := filepath.Walk(repoPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+
+		// Skip non-source files and test files
+		ext := filepath.Ext(path)
+		if ext != ".go" {
+			return nil // For now, only support Go
+		}
+
+		// Skip test files themselves
+		if strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+
+		// Check if test file exists
+		dir := filepath.Dir(path)
+		base := filepath.Base(path)
+		name := strings.TrimSuffix(base, ext)
+		testFile := filepath.Join(dir, name+"_test.go")
+
+		if _, err := os.Stat(testFile); err == nil {
+			pairs = append(pairs, struct{ source, test string }{path, testFile})
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to scan repository: %w", err)
+	}
+
+	if len(pairs) == 0 {
+		fmt.Println("   No source/test pairs found for mutation testing")
+		return nil
+	}
+
+	fmt.Printf("   Found %d source/test pairs\n\n", len(pairs))
+
+	// Run mutation testing on each pair
+	cfg := mutation.DefaultConfig()
+	var totalScore float64
+	successCount := 0
+
+	for _, pair := range pairs {
+		relSource, _ := filepath.Rel(repoPath, pair.source)
+		fmt.Printf("   Testing: %s\n", relSource)
+
+		result, err := runner.Run(ctx, pair.source, pair.test, cfg)
+		if err != nil {
+			fmt.Printf("     ⚠️  Failed: %v\n", err)
+			continue
+		}
+
+		totalScore += result.Score
+		successCount++
+
+		icon := "🔴"
+		if result.Quality() == "good" {
+			icon = "🟢"
+		} else if result.Quality() == "acceptable" {
+			icon = "🟡"
+		}
+		fmt.Printf("     %s Score: %.1f%% (%d/%d killed)\n",
+			icon, result.Score*100, result.Killed, result.Total)
+	}
+
+	// Summary
+	if successCount > 0 {
+		avgScore := totalScore / float64(successCount)
+		fmt.Printf("\n📊 Average Mutation Score: %.1f%%\n", avgScore*100)
+	}
 
 	return nil
 }
