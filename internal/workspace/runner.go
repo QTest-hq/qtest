@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/QTest-hq/qtest/internal/adapters"
@@ -62,7 +64,7 @@ func DefaultRunConfig() *RunConfig {
 		BranchName:    "qtest/generated-tests",
 		TestDir:       "", // Same directory as source
 		DryRun:        false,
-		MaxConcurrent: 1, // Sequential for now
+		MaxConcurrent: 1, // 1 = sequential, >1 = parallel workers
 		FilePatterns:  []string{"*.go", "*.py", "*.ts", "*.js"},
 	}
 }
@@ -252,9 +254,48 @@ func (r *Runner) Run(ctx context.Context) error {
 	r.ws.State.StartedAt = &now
 	r.startTime = now
 
-	processed := 0
 	total := r.ws.State.TotalTargets
+	var processed int64
 
+	// Use parallel execution if configured
+	concurrency := r.cfg.MaxConcurrent
+	if concurrency < 1 {
+		concurrency = 1
+	}
+
+	if concurrency > 1 {
+		// Parallel execution using worker pool
+		if err := r.runParallel(ctx, concurrency, total, &processed); err != nil {
+			return err
+		}
+	} else {
+		// Sequential execution (original behavior)
+		if err := r.runSequential(ctx, total, &processed); err != nil {
+			return err
+		}
+	}
+
+	r.ws.SetPhase(PhaseCompleted)
+
+	// Validate tests if configured
+	if r.cfg.ValidateTests && !r.cfg.DryRun {
+		log.Info().Msg("validating generated tests")
+		validator := NewTestValidator(r.ws)
+		if _, err := validator.ValidateAll(ctx); err != nil {
+			log.Warn().Err(err).Msg("test validation failed")
+		}
+	}
+
+	// Generate summary artifact
+	if _, err := r.artifacts.GenerateSummary(r.startTime); err != nil {
+		log.Warn().Err(err).Msg("failed to generate summary artifact")
+	}
+
+	return r.ws.Save()
+}
+
+// runSequential runs test generation sequentially (original behavior)
+func (r *Runner) runSequential(ctx context.Context, total int, processed *int64) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -269,17 +310,17 @@ func (r *Runner) Run(ctx context.Context) error {
 			break // All done
 		}
 
-		processed++
+		current := int(atomic.AddInt64(processed, 1))
 		log.Info().
 			Str("target", target.Name).
 			Str("file", target.File).
-			Int("progress", processed).
+			Int("progress", current).
 			Int("total", total).
 			Msg("generating test")
 
 		// Callback for progress
 		if r.OnProgress != nil {
-			r.OnProgress(processed, total, target)
+			r.OnProgress(current, total, target)
 		}
 
 		// Mark as running
@@ -319,23 +360,120 @@ func (r *Runner) Run(ctx context.Context) error {
 			log.Warn().Err(err).Msg("failed to save workspace state")
 		}
 	}
+	return nil
+}
 
-	r.ws.SetPhase(PhaseCompleted)
+// runParallel runs test generation in parallel using a worker pool
+func (r *Runner) runParallel(ctx context.Context, workers int, total int, processed *int64) error {
+	log.Info().Int("workers", workers).Msg("starting parallel test generation")
 
-	// Validate tests if configured
-	if r.cfg.ValidateTests && !r.cfg.DryRun {
-		log.Info().Msg("validating generated tests")
-		validator := NewTestValidator(r.ws)
-		if _, err := validator.ValidateAll(ctx); err != nil {
-			log.Warn().Err(err).Msg("test validation failed")
+	// Collect all pending targets
+	var targets []*TargetState
+	for {
+		target := r.ws.GetNextTarget()
+		if target == nil {
+			break
 		}
+		targets = append(targets, target)
 	}
 
-	// Generate summary artifact
-	if _, err := r.artifacts.GenerateSummary(r.startTime); err != nil {
-		log.Warn().Err(err).Msg("failed to generate summary artifact")
+	if len(targets) == 0 {
+		return nil
 	}
 
+	// Create work channel and result channel
+	workChan := make(chan *TargetState, len(targets))
+	var wg sync.WaitGroup
+
+	// Mutex for thread-safe operations
+	var mu sync.Mutex
+	var commitMu sync.Mutex // Separate mutex for git commits
+
+	// Start workers
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+
+			for target := range workChan {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
+				current := int(atomic.AddInt64(processed, 1))
+				log.Info().
+					Int("worker", workerID).
+					Str("target", target.Name).
+					Int("progress", current).
+					Int("total", total).
+					Msg("generating test")
+
+				// Callback for progress (thread-safe)
+				if r.OnProgress != nil {
+					mu.Lock()
+					r.OnProgress(current, total, target)
+					mu.Unlock()
+				}
+
+				// Mark as running
+				mu.Lock()
+				r.ws.UpdateTarget(target.ID, StatusRunning, "", nil)
+				mu.Unlock()
+
+				// Generate test (this is the expensive LLM call)
+				testFile, err := r.generateTest(ctx, target)
+
+				mu.Lock()
+				if err != nil {
+					log.Warn().Err(err).Str("target", target.Name).Msg("generation failed")
+					r.ws.UpdateTarget(target.ID, StatusFailed, "", err)
+					if r.OnError != nil {
+						r.OnError(target, err)
+					}
+					mu.Unlock()
+					continue
+				}
+
+				// Update target
+				r.ws.UpdateTarget(target.ID, StatusCompleted, testFile, nil)
+				mu.Unlock()
+
+				// Commit if configured (serialize commits to avoid conflicts)
+				if r.cfg.CommitEach && testFile != "" && !r.cfg.DryRun {
+					commitMu.Lock()
+					commitSHA, err := r.git.CommitTest(testFile, target.Name)
+					if err != nil {
+						log.Warn().Err(err).Msg("failed to commit test")
+					} else {
+						mu.Lock()
+						target.CommitSHA = commitSHA
+						mu.Unlock()
+					}
+					commitMu.Unlock()
+				}
+
+				// Callback for completion
+				if r.OnComplete != nil {
+					mu.Lock()
+					r.OnComplete(target, testFile)
+					mu.Unlock()
+				}
+			}
+		}(i)
+	}
+
+	// Send work to workers
+	for _, target := range targets {
+		workChan <- target
+	}
+	close(workChan)
+
+	// Wait for all workers to complete
+	wg.Wait()
+
+	// Save final state
 	return r.ws.Save()
 }
 

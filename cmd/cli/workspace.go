@@ -147,6 +147,7 @@ func workspaceRunCmd() *cobra.Command {
 		dryRun     bool
 		validate   bool
 		coverage   bool
+		parallel   int
 	)
 
 	cmd := &cobra.Command{
@@ -182,6 +183,9 @@ func workspaceRunCmd() *cobra.Command {
 			runCfg.CommitEach = commitEach
 			runCfg.DryRun = dryRun
 			runCfg.ValidateTests = validate
+			if parallel > 0 {
+				runCfg.MaxConcurrent = parallel
+			}
 
 			runner := workspace.NewRunner(ws, router, cfg.GitHubToken, runCfg)
 
@@ -268,6 +272,7 @@ func workspaceRunCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Don't write test files")
 	cmd.Flags().BoolVar(&validate, "validate", false, "Run tests after generation to verify they pass")
 	cmd.Flags().BoolVar(&coverage, "coverage", false, "Collect code coverage after generation")
+	cmd.Flags().IntVarP(&parallel, "parallel", "p", 1, "Number of parallel workers (1=sequential)")
 
 	return cmd
 }
