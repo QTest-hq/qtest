@@ -628,6 +628,299 @@ All workers are stateless, containerized Go processes communicating via NATS.
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+## Workspace Architecture (CLI Mode)
+
+For local development, QTest supports a **workspace-based incremental workflow**:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           WORKSPACE ARCHITECTURE                             │
+│                                                                              │
+│  ~/.qtest/workspaces/<id>/                                                  │
+│  ├── workspace.json          # State machine + progress                      │
+│  ├── artifacts/                                                              │
+│  │   ├── test-plan.json      # What will be tested                          │
+│  │   ├── coverage.json       # Code coverage results                        │
+│  │   └── execution.json      # Test run results                             │
+│  └── repo/                   # Cloned repository                            │
+│      ├── src/                                                                │
+│      │   ├── config.go                                                       │
+│      │   └── config_test.go  # Generated test                               │
+│      └── .qtest.yaml         # Project config (optional)                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Workspace State Machine
+
+```
+┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
+│   init   │───▶│ cloning  │───▶│ parsing  │───▶│ planning │───▶│generating│
+└──────────┘    └──────────┘    └──────────┘    └──────────┘    └────┬─────┘
+                                                                      │
+                                                    ┌─────────────────┤
+                                                    │                 │
+                                                    ▼                 ▼
+                                              ┌──────────┐     ┌──────────┐
+                                              │  paused  │     │completed │
+                                              │ (Ctrl+C) │     └──────────┘
+                                              └──────────┘
+                                                    │
+                                                    ▼ (resume)
+                                              ┌──────────┐
+                                              │generating│
+                                              └──────────┘
+```
+
+### Incremental Processing
+
+Each target (function/method) is processed individually:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         TARGET PROCESSING FLOW                               │
+│                                                                              │
+│   pending ──▶ running ──▶ completed ──▶ committed                           │
+│                  │                                                           │
+│                  └──▶ failed (logged, continue to next)                     │
+│                                                                              │
+│   For each target:                                                          │
+│   1. Extract function code                                                  │
+│   2. Generate test via LLM                                                  │
+│   3. Parse DSL output                                                       │
+│   4. Convert to framework code (Go/Jest/Pytest)                             │
+│   5. Write test file                                                        │
+│   6. Git commit (optional)                                                  │
+│   7. Update workspace state                                                 │
+│   8. Report progress                                                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Artifacts
+
+QTest generates several artifacts throughout the pipeline:
+
+### 1. Test Plan (`artifacts/test-plan.json`)
+
+Generated during the **planning phase**, before any tests are created:
+
+```json
+{
+  "version": "1.0",
+  "repository": "github.com/user/repo",
+  "commit_sha": "abc123",
+  "created_at": "2024-01-15T10:00:00Z",
+  "summary": {
+    "total_targets": 45,
+    "by_type": {"function": 30, "method": 15},
+    "by_file": {"src/config.go": 5, "src/api.go": 10},
+    "estimated_time_minutes": 15
+  },
+  "targets": [
+    {
+      "id": "src/config.go:25:Load",
+      "name": "Load",
+      "file": "src/config.go",
+      "line": 25,
+      "type": "function",
+      "complexity": "medium",
+      "priority": 1,
+      "dependencies": ["os.Getenv", "strconv.Atoi"],
+      "suggested_test_types": ["unit", "integration"]
+    }
+  ]
+}
+```
+
+### 2. Coverage Report (`artifacts/coverage.json`)
+
+Generated after **running tests** against the codebase:
+
+```json
+{
+  "version": "1.0",
+  "generated_at": "2024-01-15T10:30:00Z",
+  "tool": "go cover",
+  "summary": {
+    "total_lines": 1500,
+    "covered_lines": 1200,
+    "coverage_percent": 80.0,
+    "by_package": {
+      "github.com/user/repo/config": 95.0,
+      "github.com/user/repo/api": 75.0
+    }
+  },
+  "files": [
+    {
+      "path": "src/config.go",
+      "total_lines": 100,
+      "covered_lines": 95,
+      "coverage_percent": 95.0,
+      "uncovered_lines": [45, 67, 89, 90, 91]
+    }
+  ]
+}
+```
+
+### 3. Execution Report (`artifacts/execution.json`)
+
+Generated after **running the generated tests**:
+
+```json
+{
+  "version": "1.0",
+  "executed_at": "2024-01-15T10:25:00Z",
+  "duration_seconds": 45,
+  "summary": {
+    "total": 30,
+    "passed": 28,
+    "failed": 1,
+    "skipped": 1,
+    "pass_rate": 93.3
+  },
+  "tests": [
+    {
+      "id": "src/config_test.go:TestLoad",
+      "name": "TestLoad",
+      "file": "src/config_test.go",
+      "target": "src/config.go:25:Load",
+      "status": "passed",
+      "duration_ms": 15,
+      "assertions": 5
+    },
+    {
+      "id": "src/api_test.go:TestHandler",
+      "name": "TestHandler",
+      "file": "src/api_test.go",
+      "target": "src/api.go:50:Handler",
+      "status": "failed",
+      "duration_ms": 120,
+      "error": "assertion failed: expected 200, got 500",
+      "stack_trace": "..."
+    }
+  ]
+}
+```
+
+### 4. Mutation Report (`artifacts/mutation.json`)
+
+Generated after **mutation testing** validates test quality:
+
+```json
+{
+  "version": "1.0",
+  "executed_at": "2024-01-15T10:35:00Z",
+  "duration_seconds": 180,
+  "summary": {
+    "total_mutants": 50,
+    "killed": 45,
+    "survived": 3,
+    "timeout": 2,
+    "mutation_score": 90.0
+  },
+  "by_test": [
+    {
+      "test_id": "src/config_test.go:TestLoad",
+      "mutants_tested": 10,
+      "killed": 10,
+      "score": 100.0
+    }
+  ],
+  "survivors": [
+    {
+      "id": "mutant_42",
+      "operator": "boundary",
+      "location": "src/api.go:67",
+      "original": "i < len(items)",
+      "mutated": "i <= len(items)",
+      "test_that_should_catch": "TestHandler"
+    }
+  ]
+}
+```
+
+## Project Configuration (`.qtest.yaml`)
+
+Optional configuration file in repository root:
+
+```yaml
+version: "1.0"
+
+# Language/framework settings
+language: go
+test_framework: go  # or jest, pytest, junit
+
+# File patterns
+include:
+  - "src/**/*.go"
+  - "pkg/**/*.go"
+exclude:
+  - "**/*_test.go"
+  - "**/vendor/**"
+  - "**/testdata/**"
+
+# Generation settings
+generation:
+  tier: 2                    # Default LLM tier
+  max_tests_per_function: 3  # Generate multiple test cases
+  test_types:
+    - unit
+    - integration
+
+# Test placement
+output:
+  strategy: same_directory   # or separate_directory
+  directory: ""              # If separate_directory, put tests here
+  suffix: "_test"            # File suffix
+
+# Git settings
+git:
+  branch: "qtest/generated-tests"
+  commit_each: true
+  commit_message_prefix: "test: "
+
+# Validation settings
+validation:
+  run_tests: true
+  require_pass: false        # Fail if tests don't pass
+  run_mutation: false        # Run mutation testing
+  min_mutation_score: 80     # Minimum acceptable score
+
+# Ignore patterns (like .gitignore)
+ignore:
+  - "**/*_generated.go"
+  - "**/mock_*.go"
+```
+
+## CLI Workflow
+
+```bash
+# Initialize workspace
+qtest workspace init https://github.com/user/repo
+
+# View test plan before generating
+qtest workspace plan <id>
+
+# Start incremental generation
+qtest workspace run <id>
+
+# Pause anytime (Ctrl+C) and resume later
+qtest workspace resume <id>
+
+# Check status and progress
+qtest workspace status <id>
+
+# View generated artifacts
+qtest workspace artifacts <id>
+
+# Run generated tests
+qtest workspace validate <id>
+
+# Create PR with generated tests
+qtest workspace pr <id>
+```
+
 ## Next Steps
 
 See [Tracker](tracker.md) for detailed implementation tasks.

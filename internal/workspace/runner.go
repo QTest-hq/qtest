@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/QTest-hq/qtest/internal/adapters"
+	"github.com/QTest-hq/qtest/internal/config"
 	"github.com/QTest-hq/qtest/internal/llm"
 	"github.com/QTest-hq/qtest/internal/parser"
 	"github.com/QTest-hq/qtest/pkg/dsl"
@@ -18,12 +19,15 @@ import (
 
 // Runner orchestrates incremental test generation
 type Runner struct {
-	ws         *Workspace
-	git        *GitManager
-	parser     *parser.Parser
-	llmRouter  *llm.Router
-	adapters   *adapters.Registry
-	cfg        *RunConfig
+	ws          *Workspace
+	git         *GitManager
+	parser      *parser.Parser
+	llmRouter   *llm.Router
+	adapters    *adapters.Registry
+	artifacts   *ArtifactManager
+	cfg         *RunConfig
+	projectCfg  *config.ProjectConfig
+	startTime   time.Time
 
 	// Callbacks for progress reporting
 	OnProgress func(current, total int, target *TargetState)
@@ -67,6 +71,7 @@ func NewRunner(ws *Workspace, llmRouter *llm.Router, gitToken string, cfg *RunCo
 		parser:    parser.NewParser(),
 		llmRouter: llmRouter,
 		adapters:  adapters.NewRegistry(),
+		artifacts: NewArtifactManager(ws),
 		cfg:       cfg,
 	}
 }
@@ -80,6 +85,17 @@ func (r *Runner) Initialize(ctx context.Context) error {
 		}
 	}
 
+	// Load project config from repo
+	projectCfg, err := config.LoadProjectConfig(r.ws.RepoPath)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to load project config, using defaults")
+		projectCfg = config.DefaultProjectConfig()
+	}
+	r.projectCfg = projectCfg
+
+	// Apply project config to run config
+	r.applyProjectConfig()
+
 	// Create test branch if configured
 	if r.cfg.BranchName != "" && r.ws.Branch == "" {
 		if err := r.git.CreateTestBranch(r.cfg.BranchName); err != nil {
@@ -92,7 +108,45 @@ func (r *Runner) Initialize(ctx context.Context) error {
 		return fmt.Errorf("parse failed: %w", err)
 	}
 
+	// Generate test plan artifact
+	if _, err := r.artifacts.GenerateTestPlan(); err != nil {
+		log.Warn().Err(err).Msg("failed to generate test plan artifact")
+	}
+
 	return nil
+}
+
+// applyProjectConfig applies project config settings to run config
+func (r *Runner) applyProjectConfig() {
+	if r.projectCfg == nil {
+		return
+	}
+
+	// Apply tier if specified in project config
+	if r.projectCfg.Generation.Tier != 0 {
+		r.cfg.Tier = llm.Tier(r.projectCfg.Generation.Tier)
+	}
+
+	// Apply test directory if specified
+	if r.projectCfg.Framework.TestDir != "" {
+		r.cfg.TestDir = r.projectCfg.Framework.TestDir
+	}
+
+	// Apply file patterns
+	if len(r.projectCfg.Include) > 0 {
+		r.cfg.FilePatterns = r.projectCfg.Include
+	}
+
+	// Apply language override
+	if r.projectCfg.Language != "" {
+		r.ws.Language = r.projectCfg.Language
+	}
+
+	log.Debug().
+		Int("tier", int(r.cfg.Tier)).
+		Str("testDir", r.cfg.TestDir).
+		Strs("patterns", r.cfg.FilePatterns).
+		Msg("applied project config")
 }
 
 // parse discovers all testable functions
@@ -188,6 +242,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	r.ws.SetPhase(PhaseGenerating)
 	now := time.Now()
 	r.ws.State.StartedAt = &now
+	r.startTime = now
 
 	processed := 0
 	total := r.ws.State.TotalTargets
@@ -258,6 +313,12 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 
 	r.ws.SetPhase(PhaseCompleted)
+
+	// Generate summary artifact
+	if _, err := r.artifacts.GenerateSummary(r.startTime); err != nil {
+		log.Warn().Err(err).Msg("failed to generate summary artifact")
+	}
+
 	return r.ws.Save()
 }
 
