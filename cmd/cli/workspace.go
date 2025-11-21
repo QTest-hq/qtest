@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/QTest-hq/qtest/internal/config"
@@ -533,54 +534,26 @@ func workspaceCoverageCmd() *cobra.Command {
 // Helper functions
 
 func extractRepoName(url string) string {
-	// Simple extraction from URL
-	parts := []string{}
-	for _, sep := range []string{"/", ":"} {
-		for _, p := range parts {
-			parts = append(parts, splitString(p, sep)...)
-		}
-		if len(parts) == 0 {
-			parts = splitString(url, sep)
+	// Extract repo name from URL like https://github.com/user/repo.git
+	// or git@github.com:user/repo.git
+	url = strings.TrimSuffix(url, ".git")
+
+	// Try splitting by / first (HTTP URLs)
+	parts := strings.Split(url, "/")
+	if len(parts) > 0 && parts[len(parts)-1] != "" {
+		return parts[len(parts)-1]
+	}
+
+	// Try splitting by : (SSH URLs like git@github.com:user/repo)
+	parts = strings.Split(url, ":")
+	if len(parts) > 1 {
+		subParts := strings.Split(parts[len(parts)-1], "/")
+		if len(subParts) > 0 {
+			return subParts[len(subParts)-1]
 		}
 	}
 
-	if len(parts) > 0 {
-		name := parts[len(parts)-1]
-		name = trimSuffix(name, ".git")
-		return name
-	}
 	return "unnamed"
-}
-
-func splitString(s, sep string) []string {
-	result := []string{}
-	for _, p := range split(s, sep) {
-		if p != "" {
-			result = append(result, p)
-		}
-	}
-	return result
-}
-
-func split(s, sep string) []string {
-	var result []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if i+len(sep) <= len(s) && s[i:i+len(sep)] == sep {
-			result = append(result, s[start:i])
-			start = i + len(sep)
-			i += len(sep) - 1
-		}
-	}
-	result = append(result, s[start:])
-	return result
-}
-
-func trimSuffix(s, suffix string) string {
-	if len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix {
-		return s[:len(s)-len(suffix)]
-	}
-	return s
 }
 
 func truncate(s string, n int) string {
@@ -590,11 +563,7 @@ func truncate(s string, n int) string {
 	return s
 }
 
-// repeatStr returns a string of n copies of s
+// repeatStr returns a string of n copies of s (kept for backward compatibility)
 func repeatStr(s string, n int) string {
-	result := ""
-	for i := 0; i < n; i++ {
-		result += s
-	}
-	return result
+	return strings.Repeat(s, n)
 }

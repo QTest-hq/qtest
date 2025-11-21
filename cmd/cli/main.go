@@ -2,19 +2,24 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QTest-hq/qtest/internal/adapters"
 	"github.com/QTest-hq/qtest/internal/config"
 	"github.com/QTest-hq/qtest/internal/generator"
 	"github.com/QTest-hq/qtest/internal/llm"
 	"github.com/QTest-hq/qtest/internal/parser"
+	"github.com/QTest-hq/qtest/internal/supplements"
+	"github.com/QTest-hq/qtest/internal/workspace"
 	"github.com/QTest-hq/qtest/pkg/dsl"
+	"github.com/QTest-hq/qtest/pkg/model"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -121,6 +126,7 @@ func main() {
 	rootCmd.AddCommand(coverageCmd())
 	rootCmd.AddCommand(prCmd())
 	rootCmd.AddCommand(jobCmd())
+	rootCmd.AddCommand(configCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -130,27 +136,122 @@ func main() {
 
 func generateCmd() *cobra.Command {
 	var (
-		repoURL   string
-		outputDir string
-		framework string
-		tier      string
+		repoURL  string
+		tier     string
+		maxTests int
+		dryRun   bool
+		validate bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "generate",
 		Short: "Generate tests for a repository",
+		Long: `Generate tests for an entire repository using the workspace system.
+
+This command will:
+1. Clone the repository (if URL provided) or use local path
+2. Build a system model to understand the codebase
+3. Generate tests using AI (requires Ollama)
+4. Optionally validate generated tests
+
+Examples:
+  qtest generate -r https://github.com/user/repo
+  qtest generate -r ./local/path -t 1 --dry-run`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("Generating tests for %s\n", repoURL)
-			fmt.Printf("Output: %s, Framework: %s, Tier: %s\n", outputDir, framework, tier)
-			// TODO: Implement full repo test generation
-			return fmt.Errorf("full repo generation not yet implemented, use 'generate-file' for single file")
+			ctx := cmd.Context()
+
+			// Determine if local path or remote URL
+			isLocal := !strings.HasPrefix(repoURL, "http")
+
+			if isLocal {
+				// Validate local path
+				validPath, err := validateDirPath(repoURL)
+				if err != nil {
+					return fmt.Errorf("invalid path: %w", err)
+				}
+				repoURL = validPath
+			}
+
+			// Load config
+			cfg, err := config.Load()
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			// Create LLM router
+			router, err := llm.NewRouter(cfg)
+			if err != nil {
+				return fmt.Errorf("failed to create LLM router: %w", err)
+			}
+
+			if err := router.HealthCheck(); err != nil {
+				return fmt.Errorf("LLM not available: %w\nMake sure Ollama is running: ollama serve", err)
+			}
+
+			// Create temporary workspace
+			wsName := "gen-" + strconv.FormatInt(time.Now().Unix(), 36)
+			ws, err := workspace.New(wsName, repoURL, nil)
+			if err != nil {
+				return fmt.Errorf("failed to create workspace: %w", err)
+			}
+
+			fmt.Printf("🚀 Generating tests for: %s\n", repoURL)
+			fmt.Printf("   Workspace: %s\n\n", ws.ID)
+
+			// Create runner config
+			tierNum, _ := strconv.Atoi(tier)
+			runCfg := workspace.DefaultRunConfig()
+			runCfg.Tier = llm.Tier(tierNum)
+			runCfg.DryRun = dryRun
+			runCfg.ValidateTests = validate
+			runCfg.MaxTests = maxTests
+
+			// Create v2 runner (uses SystemModel pipeline)
+			runner := workspace.NewRunnerV2(ws, router, cfg.GitHubToken, runCfg)
+
+			runner.OnProgress = func(phase string, current, total int, message string) {
+				if total > 0 {
+					fmt.Printf("\r[%s] %d/%d %s", phase, current, total, message)
+				} else {
+					fmt.Printf("\r[%s] %s", phase, message)
+				}
+			}
+
+			runner.OnComplete = func(testFile string, count int) {
+				fmt.Printf("\n✓ Written: %s (%d tests)\n", testFile, count)
+			}
+
+			// Initialize workspace
+			fmt.Println("🔍 Analyzing repository...")
+			if err := runner.Initialize(ctx); err != nil {
+				return fmt.Errorf("initialization failed: %w", err)
+			}
+
+			fmt.Printf("\n📊 Found %d test targets\n\n", ws.State.TotalTargets)
+
+			// Run generation
+			fmt.Println("⚡ Generating tests...")
+			if err := runner.Run(ctx); err != nil {
+				return fmt.Errorf("generation failed: %w", err)
+			}
+
+			// Summary
+			summary := ws.Summary()
+			fmt.Println("\n" + strings.Repeat("=", 50))
+			fmt.Printf("✅ Generation complete!\n")
+			fmt.Printf("   Completed: %d\n", summary["completed"])
+			fmt.Printf("   Failed:    %d\n", summary["failed"])
+			fmt.Printf("   Output:    %s\n", ws.Path())
+
+			return nil
 		},
 	}
 
-	cmd.Flags().StringVarP(&repoURL, "repo", "r", "", "GitHub repository URL")
-	cmd.Flags().StringVarP(&outputDir, "output", "o", "./tests", "Output directory for generated tests")
-	cmd.Flags().StringVarP(&framework, "framework", "f", "auto", "Test framework (jest, pytest, go, auto)")
+	cmd.Flags().StringVarP(&repoURL, "repo", "r", "", "Repository URL or local path")
 	cmd.Flags().StringVarP(&tier, "tier", "t", "2", "LLM tier (1=fast, 2=balanced, 3=thorough)")
+	cmd.Flags().IntVarP(&maxTests, "max", "m", 0, "Maximum tests to generate (0=all)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Don't write test files")
+	cmd.Flags().BoolVar(&validate, "validate", false, "Run tests after generation")
 	cmd.MarkFlagRequired("repo")
 
 	return cmd
@@ -250,21 +351,216 @@ func generateFileCmd() *cobra.Command {
 }
 
 func analyzeCmd() *cobra.Command {
-	var repoPath string
+	var (
+		repoPath   string
+		outputFile string
+		verbose    bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "analyze",
 		Short: "Analyze a repository and build system model",
+		Long: `Analyze a repository to understand its structure and detect testable code.
+
+This command scans the repository, parses all source files, detects frameworks
+(Express, FastAPI, Gin, etc.), and builds a Universal System Model.
+
+The output shows:
+- File and function counts by language
+- Detected API endpoints
+- Prioritized test targets
+
+Examples:
+  qtest analyze                     # Analyze current directory
+  qtest analyze -p ./my-project     # Analyze specific path
+  qtest analyze -p . -o model.json  # Save model to file`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("Analyzing repository at %s\n", repoPath)
-			// TODO: Implement analysis
+			ctx := context.Background()
+
+			// Validate path
+			validPath, err := validateDirPath(repoPath)
+			if err != nil {
+				return fmt.Errorf("invalid path: %w", err)
+			}
+
+			fmt.Printf("🔍 Analyzing: %s\n\n", validPath)
+
+			// Use the model package to build the system model
+			repoName := filepath.Base(validPath)
+			adapter := model.NewParserAdapter(repoName, "main", "")
+
+			// Register framework supplements
+			registry := supplements.NewRegistry()
+			for _, supp := range registry.GetAll() {
+				adapter.RegisterSupplement(supp)
+			}
+
+			// Parse all source files
+			p := parser.NewParser()
+			fileCount := 0
+			funcCount := 0
+
+			err = filepath.Walk(validPath, func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return nil
+				}
+
+				// Skip hidden/vendor directories
+				if info.IsDir() {
+					name := info.Name()
+					if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" || name == "__pycache__" {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+
+				// Only parse supported files
+				ext := strings.ToLower(filepath.Ext(path))
+				if !isSupportedExt(ext) {
+					return nil
+				}
+
+				parsed, err := p.ParseFile(ctx, path)
+				if err != nil {
+					if verbose {
+						fmt.Printf("  ⚠️  %s: %v\n", path, err)
+					}
+					return nil
+				}
+
+				// Add to model
+				pf := toModelFile(parsed)
+				adapter.AddFile(pf)
+				fileCount++
+				funcCount += len(parsed.Functions)
+
+				if verbose {
+					fmt.Printf("  ✓ %s (%d functions)\n", path, len(parsed.Functions))
+				}
+
+				return nil
+			})
+
+			if err != nil {
+				return fmt.Errorf("scan failed: %w", err)
+			}
+
+			fmt.Printf("📄 Scanned %d files, %d functions\n", fileCount, funcCount)
+			fmt.Println("🔌 Detecting frameworks...")
+
+			// Build the model
+			sysModel, err := adapter.Build()
+			if err != nil {
+				return fmt.Errorf("failed to build model: %w", err)
+			}
+
+			// Print summary
+			stats := sysModel.Stats()
+			fmt.Println()
+			fmt.Println("📊 Analysis Summary")
+			fmt.Println(strings.Repeat("─", 40))
+			fmt.Printf("   Languages:    %s\n", strings.Join(sysModel.Languages, ", "))
+			fmt.Printf("   Modules:      %d\n", stats["modules"])
+			fmt.Printf("   Functions:    %d\n", stats["functions"])
+			fmt.Printf("   Types:        %d\n", stats["types"])
+			fmt.Printf("   Endpoints:    %d\n", stats["endpoints"])
+			fmt.Printf("   Test Targets: %d\n", stats["test_targets"])
+
+			// Show endpoints
+			if len(sysModel.Endpoints) > 0 {
+				fmt.Println()
+				fmt.Println("🌐 API Endpoints:")
+				for _, ep := range sysModel.Endpoints {
+					fmt.Printf("   %s %s → %s\n", ep.Method, ep.Path, ep.Handler)
+				}
+			}
+
+			// Show top test targets
+			if len(sysModel.TestTargets) > 0 {
+				fmt.Println()
+				fmt.Println("🎯 Priority Test Targets:")
+				maxShow := 5
+				if len(sysModel.TestTargets) < maxShow {
+					maxShow = len(sysModel.TestTargets)
+				}
+				for i := 0; i < maxShow; i++ {
+					t := sysModel.TestTargets[i]
+					fmt.Printf("   %d. [%s] %s\n", i+1, t.Kind, t.Reason)
+				}
+				if len(sysModel.TestTargets) > maxShow {
+					fmt.Printf("   ... and %d more\n", len(sysModel.TestTargets)-maxShow)
+				}
+			}
+
+			// Save to file if requested
+			if outputFile != "" {
+				data, err := json.MarshalIndent(sysModel, "", "  ")
+				if err != nil {
+					return fmt.Errorf("failed to marshal: %w", err)
+				}
+				if err := os.WriteFile(outputFile, data, 0644); err != nil {
+					return fmt.Errorf("failed to write: %w", err)
+				}
+				fmt.Printf("\n💾 Model saved: %s\n", outputFile)
+			}
+
+			fmt.Println()
+			fmt.Println("Next steps:")
+			fmt.Printf("  qtest generate -r %s    # Generate tests\n", validPath)
+
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVarP(&repoPath, "path", "p", ".", "Path to repository")
+	cmd.Flags().StringVarP(&outputFile, "output", "o", "", "Save model to JSON file")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show verbose output")
 
 	return cmd
+}
+
+// isSupportedExt checks if file extension is supported for parsing
+func isSupportedExt(ext string) bool {
+	switch ext {
+	case ".go", ".py", ".js", ".jsx", ".ts", ".tsx", ".java":
+		return true
+	}
+	return false
+}
+
+// toModelFile converts parser.ParsedFile to model.ParsedFile
+func toModelFile(pf *parser.ParsedFile) *model.ParsedFile {
+	result := &model.ParsedFile{
+		Path:     pf.Path,
+		Language: string(pf.Language),
+	}
+
+	for _, fn := range pf.Functions {
+		params := make([]model.ParserParameter, len(fn.Parameters))
+		for i, p := range fn.Parameters {
+			params[i] = model.ParserParameter{
+				Name:     p.Name,
+				Type:     p.Type,
+				Default:  p.Default,
+				Optional: p.Optional,
+			}
+		}
+		result.Functions = append(result.Functions, model.ParserFunction{
+			ID:         fn.ID,
+			Name:       fn.Name,
+			StartLine:  fn.StartLine,
+			EndLine:    fn.EndLine,
+			Parameters: params,
+			ReturnType: fn.ReturnType,
+			Body:       fn.Body,
+			Comments:   fn.Comments,
+			Exported:   fn.Exported,
+			Async:      fn.Async,
+			Class:      fn.Class,
+		})
+	}
+
+	return result
 }
 
 func parseCmd() *cobra.Command {
@@ -395,4 +691,91 @@ func writeTestFiles(sourceFile string, tests []generator.GeneratedTest, outputDi
 	fmt.Printf("   Tests: %d steps\n", len(combinedDSL.Steps))
 
 	return nil
+}
+
+func configCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "config",
+		Short: "Show current configuration",
+		Long: `Display current QTest configuration settings.
+
+Configuration is loaded from environment variables. Set these to customize behavior:
+
+  PORT              Server port (default: 8080)
+  DATABASE_URL      PostgreSQL connection string
+  NATS_URL          NATS server URL
+  OLLAMA_URL        Ollama server URL (default: http://localhost:11434)
+  OLLAMA_TIER1_MODEL   Fast model (default: qwen2.5-coder:7b)
+  OLLAMA_TIER2_MODEL   Balanced model (default: deepseek-coder-v2:16b)
+  ANTHROPIC_API_KEY    Anthropic API key for Tier 3
+  GITHUB_TOKEN         GitHub token for private repos`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			fmt.Println("⚙️  QTest Configuration")
+			fmt.Println(strings.Repeat("─", 50))
+
+			// Server
+			fmt.Println("\n📡 Server:")
+			fmt.Printf("   Port: %d\n", cfg.Port)
+			fmt.Printf("   Env:  %s\n", cfg.Env)
+
+			// LLM
+			fmt.Println("\n🤖 LLM:")
+			fmt.Printf("   Provider: %s\n", cfg.LLM.DefaultProvider)
+			fmt.Printf("   Ollama URL: %s\n", cfg.LLM.OllamaURL)
+			fmt.Printf("   Tier 1 Model: %s\n", cfg.LLM.OllamaTier1)
+			fmt.Printf("   Tier 2 Model: %s\n", cfg.LLM.OllamaTier2)
+			if cfg.LLM.AnthropicKey != "" {
+				fmt.Printf("   Tier 3 Model: %s (Anthropic)\n", cfg.LLM.AnthropicTier3)
+				fmt.Printf("   Anthropic Key: %s...%s\n", cfg.LLM.AnthropicKey[:4], cfg.LLM.AnthropicKey[len(cfg.LLM.AnthropicKey)-4:])
+			} else {
+				fmt.Println("   Anthropic: not configured")
+			}
+
+			// Infrastructure
+			fmt.Println("\n🗄️  Infrastructure:")
+			fmt.Printf("   Database: %s\n", maskConnectionString(cfg.DatabaseURL))
+			fmt.Printf("   NATS: %s\n", cfg.NATSURL)
+			fmt.Printf("   Redis: %s\n", cfg.RedisURL)
+
+			// GitHub
+			fmt.Println("\n🐙 GitHub:")
+			if cfg.GitHubToken != "" {
+				fmt.Printf("   Token: %s...%s\n", cfg.GitHubToken[:4], cfg.GitHubToken[len(cfg.GitHubToken)-4:])
+			} else {
+				fmt.Println("   Token: not configured")
+			}
+
+			// Validate
+			if err := cfg.Validate(); err != nil {
+				fmt.Printf("\n⚠️  Warning: %s\n", err)
+			}
+
+			return nil
+		},
+	}
+
+	return cmd
+}
+
+// maskConnectionString masks password in connection strings
+func maskConnectionString(connStr string) string {
+	// Simple masking for postgres://user:pass@host format
+	if strings.Contains(connStr, "@") && strings.Contains(connStr, ":") {
+		parts := strings.SplitN(connStr, "://", 2)
+		if len(parts) == 2 {
+			userHost := strings.SplitN(parts[1], "@", 2)
+			if len(userHost) == 2 {
+				userPass := strings.SplitN(userHost[0], ":", 2)
+				if len(userPass) == 2 {
+					return parts[0] + "://" + userPass[0] + ":****@" + userHost[1]
+				}
+			}
+		}
+	}
+	return connStr
 }
