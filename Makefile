@@ -67,6 +67,25 @@ test-coverage: test
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 
+test-integration: docker-test-up
+	@echo "Running integration tests..."
+	@sleep 3  # Wait for services to be ready
+	go test -v -tags=integration -coverprofile=coverage-integration.out ./...
+
+test-integration-only:
+	@echo "Running integration tests (assumes services are running)..."
+	go test -v -tags=integration ./...
+
+docker-test-up:
+	@echo "Starting test Docker services..."
+	docker-compose -f docker-compose.test.yml up -d
+	@echo "Waiting for services to be healthy..."
+	@sleep 5
+
+docker-test-down:
+	@echo "Stopping test Docker services..."
+	docker-compose -f docker-compose.test.yml down -v
+
 # Linting
 lint:
 	@echo "Running linters..."
@@ -172,6 +191,10 @@ help:
 	@echo "  test           Run all tests with coverage"
 	@echo "  test-short     Run short tests only"
 	@echo "  test-coverage  Generate HTML coverage report"
+	@echo "  test-integration Start test containers and run integration tests"
+	@echo "  test-integration-only Run integration tests (assumes containers running)"
+	@echo "  docker-test-up Start test containers"
+	@echo "  docker-test-down Stop test containers"
 	@echo "  lint           Run linters"
 	@echo "  lint-fix       Fix lint issues"
 	@echo "  fmt            Format code"

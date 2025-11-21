@@ -1,0 +1,37 @@
+version: '3.8'
+
+# Docker Compose for integration tests
+# Uses different ports to avoid conflicts with development services
+
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: qtest-postgres-test
+    environment:
+      POSTGRES_DB: qtest_test
+      POSTGRES_USER: qtest
+      POSTGRES_PASSWORD: qtest
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qtest -d qtest_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  nats-test:
+    image: nats:2.10-alpine
+    container_name: qtest-nats-test
+    command: ["-js", "-m", "8223"]
+    ports:
+      - "4223:4222"
+      - "8223:8222"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8222/healthz"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
