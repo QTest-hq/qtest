@@ -122,6 +122,16 @@ func (s *Server) setupRoutes() {
 			r.Put("/{testID}/accept", s.acceptTest)
 			r.Put("/{testID}/reject", s.rejectTest)
 		})
+
+		// Mutation testing
+		r.Route("/mutation", func(r chi.Router) {
+			r.Post("/", s.createMutationRun)
+			r.Get("/", s.listMutationRuns)
+			r.Get("/{mutationID}", s.getMutationRun)
+		})
+
+		// Repo-specific mutation runs
+		r.Get("/repos/{repoID}/mutation", s.listRepoMutationRuns)
 	})
 }
 
