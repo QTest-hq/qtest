@@ -265,16 +265,19 @@ func formatGoArg(arg interface{}) string {
 
 	switch v := arg.(type) {
 	case string:
-		// Check if it's a variable reference like ${a}, $a, or *a
-		if strings.HasPrefix(v, "${") || strings.HasPrefix(v, "$") || strings.HasPrefix(v, "*") {
-			// This is a variable reference that wasn't resolved - use a default
-			return "0"
+		// Check if it's a variable reference that wasn't resolved
+		if isUnresolvedVariable(v) {
+			return getDefaultForVariable(v)
 		}
 		// Check if it's a number stored as string
 		if _, err := fmt.Sscanf(v, "%d", new(int)); err == nil {
 			return v
 		}
 		if _, err := fmt.Sscanf(v, "%f", new(float64)); err == nil {
+			return v
+		}
+		// Check for boolean strings
+		if v == "true" || v == "false" {
 			return v
 		}
 		// It's a string literal
@@ -285,7 +288,70 @@ func formatGoArg(arg interface{}) string {
 		return fmt.Sprintf("%v", v)
 	case bool:
 		return fmt.Sprintf("%t", v)
+	case []interface{}:
+		// Handle slice arguments
+		elements := make([]string, len(v))
+		for i, elem := range v {
+			elements[i] = formatGoArg(elem)
+		}
+		return fmt.Sprintf("[]interface{}{%s}", strings.Join(elements, ", "))
+	case map[string]interface{}:
+		// Handle map arguments
+		return "map[string]interface{}{}" // Empty map as safe default
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+// isUnresolvedVariable checks if a string looks like an unresolved variable reference
+func isUnresolvedVariable(s string) bool {
+	return strings.HasPrefix(s, "${") ||
+		strings.HasPrefix(s, "$") ||
+		strings.HasPrefix(s, "*") ||
+		strings.HasPrefix(s, "&")
+}
+
+// getDefaultForVariable returns a type-appropriate default for an unresolved variable
+func getDefaultForVariable(v string) string {
+	// Extract variable name for type hints
+	varName := strings.ToLower(v)
+
+	// Remove variable markers
+	varName = strings.TrimPrefix(varName, "${")
+	varName = strings.TrimSuffix(varName, "}")
+	varName = strings.TrimPrefix(varName, "$")
+	varName = strings.TrimPrefix(varName, "*")
+	varName = strings.TrimPrefix(varName, "&")
+
+	// Pointer patterns - return nil
+	if strings.HasPrefix(v, "*") || strings.HasPrefix(v, "&") {
+		return "nil"
+	}
+
+	// String-like variable names
+	stringHints := []string{"str", "string", "name", "text", "msg", "message", "path", "url", "key", "value", "id", "err"}
+	for _, hint := range stringHints {
+		if strings.Contains(varName, hint) {
+			return `""`
+		}
+	}
+
+	// Boolean-like variable names
+	boolHints := []string{"is", "has", "can", "should", "enable", "disable", "flag", "bool", "ok", "valid"}
+	for _, hint := range boolHints {
+		if strings.HasPrefix(varName, hint) || strings.Contains(varName, hint) {
+			return "false"
+		}
+	}
+
+	// Slice/array-like variable names
+	sliceHints := []string{"list", "array", "slice", "items", "elements", "values"}
+	for _, hint := range sliceHints {
+		if strings.Contains(varName, hint) {
+			return "nil"
+		}
+	}
+
+	// Default to 0 for numeric-looking or unknown variables
+	return "0"
 }

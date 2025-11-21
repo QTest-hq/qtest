@@ -135,18 +135,34 @@ func (c *OllamaClient) Complete(ctx context.Context, req *Request) (*Response, e
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
+		// Check if context was cancelled
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("request cancelled: %w", ctx.Err())
+		}
 		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
 	defer resp.Body.Close()
 
+	// Check context after request completes
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("context cancelled after request: %w", ctx.Err())
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
+		// Limit error body reading to 1KB to prevent memory issues
+		limitedReader := io.LimitReader(resp.Body, 1024)
+		bodyBytes, _ := io.ReadAll(limitedReader)
 		return nil, fmt.Errorf("ollama returned status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	// Parse response
+	// Parse response with context awareness
 	var ollamaResp ollamaResponse
-	if err := json.NewDecoder(resp.Body).Decode(&ollamaResp); err != nil {
+	decoder := json.NewDecoder(resp.Body)
+	if err := decoder.Decode(&ollamaResp); err != nil {
+		// Check if decoding failed due to context cancellation
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("decoding interrupted: %w", ctx.Err())
+		}
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 

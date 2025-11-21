@@ -2,10 +2,22 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
+	"strings"
+	"time"
 
 	"github.com/QTest-hq/qtest/internal/config"
 	"github.com/rs/zerolog/log"
+)
+
+// Retry configuration
+const (
+	defaultMaxRetries = 3
+	initialBackoff    = 2 * time.Second
+	maxBackoff        = 30 * time.Second
+	backoffMultiplier = 2.0
 )
 
 // Router routes LLM requests to appropriate providers based on tier and availability
@@ -80,7 +92,7 @@ func NewRouter(cfg *config.Config) (*Router, error) {
 	return r, nil
 }
 
-// Complete sends a completion request, routing to appropriate provider
+// Complete sends a completion request, routing to appropriate provider with retry logic
 func (r *Router) Complete(ctx context.Context, req *Request) (*Response, error) {
 	// Get providers that support this tier
 	providers := r.getProvidersForTier(req.Tier)
@@ -106,12 +118,13 @@ func (r *Router) Complete(ctx context.Context, req *Request) (*Response, error) 
 			Int("tier", int(req.Tier)).
 			Msg("routing request to provider")
 
-		resp, err := client.Complete(ctx, req)
+		// Try with retries
+		resp, err := r.completeWithRetry(ctx, client, provider, req)
 		if err != nil {
 			log.Warn().
 				Err(err).
 				Str("provider", string(provider)).
-				Msg("provider failed, trying next")
+				Msg("provider failed after retries, trying next")
 			lastErr = err
 			continue
 		}
@@ -124,6 +137,112 @@ func (r *Router) Complete(ctx context.Context, req *Request) (*Response, error) 
 	}
 
 	return nil, fmt.Errorf("no available providers for tier %d", req.Tier)
+}
+
+// completeWithRetry attempts completion with exponential backoff retry
+func (r *Router) completeWithRetry(ctx context.Context, client Client, provider Provider, req *Request) (*Response, error) {
+	var lastErr error
+	backoff := initialBackoff
+
+	for attempt := 0; attempt <= defaultMaxRetries; attempt++ {
+		if attempt > 0 {
+			log.Debug().
+				Str("provider", string(provider)).
+				Int("attempt", attempt+1).
+				Dur("backoff", backoff).
+				Msg("retrying after backoff")
+
+			// Wait with context awareness
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoff):
+			}
+
+			// Increase backoff for next attempt
+			backoff = time.Duration(float64(backoff) * backoffMultiplier)
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		}
+
+		resp, err := client.Complete(ctx, req)
+		if err == nil {
+			return resp, nil
+		}
+
+		lastErr = err
+
+		// Check if error is retryable
+		if !isRetryableError(err) {
+			log.Debug().
+				Err(err).
+				Str("provider", string(provider)).
+				Msg("non-retryable error, stopping retries")
+			return nil, err
+		}
+
+		log.Debug().
+			Err(err).
+			Str("provider", string(provider)).
+			Int("attempt", attempt+1).
+			Int("max_retries", defaultMaxRetries).
+			Msg("retryable error occurred")
+	}
+
+	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
+}
+
+// isRetryableError determines if an error warrants a retry
+func isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errStr := err.Error()
+
+	// Network errors are retryable
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+
+	// Timeout errors are retryable
+	if strings.Contains(errStr, "timeout") ||
+		strings.Contains(errStr, "deadline exceeded") ||
+		strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "connection reset") ||
+		strings.Contains(errStr, "EOF") {
+		return true
+	}
+
+	// 5xx server errors are retryable
+	if strings.Contains(errStr, "500") ||
+		strings.Contains(errStr, "502") ||
+		strings.Contains(errStr, "503") ||
+		strings.Contains(errStr, "504") ||
+		strings.Contains(errStr, "server error") ||
+		strings.Contains(errStr, "internal error") {
+		return true
+	}
+
+	// Rate limiting is retryable
+	if strings.Contains(errStr, "429") ||
+		strings.Contains(errStr, "rate limit") ||
+		strings.Contains(errStr, "too many requests") {
+		return true
+	}
+
+	// 4xx client errors are NOT retryable (except 429)
+	if strings.Contains(errStr, "400") ||
+		strings.Contains(errStr, "401") ||
+		strings.Contains(errStr, "403") ||
+		strings.Contains(errStr, "404") {
+		return false
+	}
+
+	// Default: retry unknown errors
+	return true
 }
 
 // getProvidersForTier returns providers that can handle the given tier, in priority order

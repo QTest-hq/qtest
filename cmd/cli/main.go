@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +19,77 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
+
+// validateFilePath validates and normalizes a file path for security and correctness
+func validateFilePath(path string) (string, error) {
+	if path == "" {
+		return "", errors.New("file path cannot be empty")
+	}
+
+	// Clean the path to remove . and .. components
+	cleanPath := filepath.Clean(path)
+
+	// Convert to absolute path
+	absPath, err := filepath.Abs(cleanPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid file path: %w", err)
+	}
+
+	// Check if file exists
+	info, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("file does not exist: %s", absPath)
+		}
+		return "", fmt.Errorf("cannot access file: %w", err)
+	}
+
+	// Ensure it's a file, not a directory
+	if info.IsDir() {
+		return "", fmt.Errorf("path is a directory, not a file: %s", absPath)
+	}
+
+	// Check if file is readable
+	file, err := os.Open(absPath)
+	if err != nil {
+		return "", fmt.Errorf("cannot read file: %w", err)
+	}
+	file.Close()
+
+	return absPath, nil
+}
+
+// validateDirPath validates and normalizes a directory path
+func validateDirPath(path string) (string, error) {
+	if path == "" {
+		return "", errors.New("directory path cannot be empty")
+	}
+
+	// Clean the path
+	cleanPath := filepath.Clean(path)
+
+	// Convert to absolute path
+	absPath, err := filepath.Abs(cleanPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid directory path: %w", err)
+	}
+
+	// Check if path exists
+	info, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("directory does not exist: %s", absPath)
+		}
+		return "", fmt.Errorf("cannot access directory: %w", err)
+	}
+
+	// Ensure it's a directory
+	if !info.IsDir() {
+		return "", fmt.Errorf("path is not a directory: %s", absPath)
+	}
+
+	return absPath, nil
+}
 
 var version = "dev"
 
@@ -88,6 +160,13 @@ func generateFileCmd() *cobra.Command {
 		Short: "Generate tests for a single source file",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
+
+			// Validate file path
+			validPath, err := validateFilePath(filePath)
+			if err != nil {
+				return fmt.Errorf("invalid file path: %w", err)
+			}
+			filePath = validPath
 
 			// Load config
 			cfg, err := config.Load()
@@ -186,6 +265,13 @@ func parseCmd() *cobra.Command {
 		Short: "Parse a source file and show extracted functions",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
+
+			// Validate file path
+			validPath, err := validateFilePath(filePath)
+			if err != nil {
+				return fmt.Errorf("invalid file path: %w", err)
+			}
+			filePath = validPath
 
 			p := parser.NewParser()
 			parsed, err := p.ParseFile(ctx, filePath)

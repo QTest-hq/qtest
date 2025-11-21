@@ -7,10 +7,28 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"time"
 )
 
 const anthropicAPIURL = "https://api.anthropic.com/v1/messages"
+
+// sanitizeErrorBody removes potentially sensitive data from error responses
+func sanitizeErrorBody(body string) string {
+	// Remove anything that looks like an API key (sk-ant-*, sk-*, api key patterns)
+	patterns := []string{
+		`sk-ant-[a-zA-Z0-9_-]+`,
+		`sk-[a-zA-Z0-9_-]{20,}`,
+		`"x-api-key"\s*:\s*"[^"]+"`}
+
+	result := body
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		result = re.ReplaceAllString(result, "[REDACTED]")
+	}
+
+	return result
+}
 
 // AnthropicClient implements the Client interface for Anthropic
 type AnthropicClient struct {
@@ -117,18 +135,35 @@ func (c *AnthropicClient) Complete(ctx context.Context, req *Request) (*Response
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
+		// Check if context was cancelled
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("request cancelled: %w", ctx.Err())
+		}
 		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("anthropic returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	// Check context after request completes
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("context cancelled after request: %w", ctx.Err())
 	}
 
-	// Parse response
+	if resp.StatusCode != http.StatusOK {
+		// Limit error body reading to 1KB to prevent memory issues
+		limitedReader := io.LimitReader(resp.Body, 1024)
+		bodyBytes, _ := io.ReadAll(limitedReader)
+		// Sanitize error message (don't include full request details that might have API key)
+		return nil, fmt.Errorf("anthropic API error (status %d): %s", resp.StatusCode, sanitizeErrorBody(string(bodyBytes)))
+	}
+
+	// Parse response with context awareness
 	var anthropicResp anthropicResponse
-	if err := json.NewDecoder(resp.Body).Decode(&anthropicResp); err != nil {
+	decoder := json.NewDecoder(resp.Body)
+	if err := decoder.Decode(&anthropicResp); err != nil {
+		// Check if decoding failed due to context cancellation
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("decoding interrupted: %w", ctx.Err())
+		}
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 

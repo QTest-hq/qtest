@@ -131,7 +131,18 @@ func (g *Generator) generateTestForFunction(ctx context.Context, fn *parser.Func
 	// Convert LLM output to DSL (handles multiple formats)
 	testDSL, err := ConvertToDSL(yamlContent, fn.Name, file.Path, string(file.Language))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse DSL: %w (content: %s)", err, yamlContent[:min(200, len(yamlContent))])
+		// Log full YAML content at debug level for troubleshooting
+		log.Debug().
+			Str("function", fn.Name).
+			Str("yaml_content", yamlContent).
+			Msg("full LLM response for failed parse")
+
+		// Provide helpful error message with more context
+		contentPreview := yamlContent
+		if len(contentPreview) > 500 {
+			contentPreview = contentPreview[:500] + "... (truncated, see debug logs for full content)"
+		}
+		return nil, fmt.Errorf("failed to parse LLM response as test DSL: %w\n\nLLM Output:\n%s", err, contentPreview)
 	}
 
 	// Fill in defaults
