@@ -224,7 +224,7 @@ func workspaceRunCmd() *cobra.Command {
 
 			// Run generation
 			fmt.Println("Starting test generation...")
-			fmt.Println("Press Ctrl+C to pause\n")
+			fmt.Println("Press Ctrl+C to pause")
 
 			if err := runner.Run(ctx); err != nil {
 				if ctx.Err() != nil {
