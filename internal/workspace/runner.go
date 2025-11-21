@@ -38,12 +38,13 @@ type Runner struct {
 // RunConfig holds configuration for a generation run
 type RunConfig struct {
 	Tier            llm.Tier
-	CommitEach      bool   // Commit after each test
-	BranchName      string // Branch for tests
-	TestDir         string // Directory for test files
-	DryRun          bool   // Don't write files
-	MaxConcurrent   int    // Max parallel generations
+	CommitEach      bool     // Commit after each test
+	BranchName      string   // Branch for tests
+	TestDir         string   // Directory for test files
+	DryRun          bool     // Don't write files
+	MaxConcurrent   int      // Max parallel generations
 	FilePatterns    []string // Files to include
+	ValidateTests   bool     // Run tests after generation
 }
 
 // DefaultRunConfig returns sensible defaults
@@ -313,6 +314,15 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 
 	r.ws.SetPhase(PhaseCompleted)
+
+	// Validate tests if configured
+	if r.cfg.ValidateTests && !r.cfg.DryRun {
+		log.Info().Msg("validating generated tests")
+		validator := NewTestValidator(r.ws)
+		if _, err := validator.ValidateAll(ctx); err != nil {
+			log.Warn().Err(err).Msg("test validation failed")
+		}
+	}
 
 	// Generate summary artifact
 	if _, err := r.artifacts.GenerateSummary(r.startTime); err != nil {

@@ -26,6 +26,7 @@ func workspaceCmd() *cobra.Command {
 	cmd.AddCommand(workspaceStatusCmd())
 	cmd.AddCommand(workspaceRunCmd())
 	cmd.AddCommand(workspaceResumeCmd())
+	cmd.AddCommand(workspaceValidateCmd())
 
 	return cmd
 }
@@ -141,6 +142,7 @@ func workspaceRunCmd() *cobra.Command {
 		tier       int
 		commitEach bool
 		dryRun     bool
+		validate   bool
 	)
 
 	cmd := &cobra.Command{
@@ -175,6 +177,7 @@ func workspaceRunCmd() *cobra.Command {
 			runCfg.Tier = llm.Tier(tier)
 			runCfg.CommitEach = commitEach
 			runCfg.DryRun = dryRun
+			runCfg.ValidateTests = validate
 
 			runner := workspace.NewRunner(ws, router, cfg.GitHubToken, runCfg)
 
@@ -244,6 +247,7 @@ func workspaceRunCmd() *cobra.Command {
 	cmd.Flags().IntVarP(&tier, "tier", "t", 2, "LLM tier (1=fast, 2=balanced, 3=thorough)")
 	cmd.Flags().BoolVar(&commitEach, "commit", true, "Commit after each test")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Don't write test files")
+	cmd.Flags().BoolVar(&validate, "validate", false, "Run tests after generation to verify they pass")
 
 	return cmd
 }
@@ -256,6 +260,77 @@ func workspaceResumeCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Delegate to run command
 			return workspaceRunCmd().RunE(cmd, args)
+		},
+	}
+}
+
+func workspaceValidateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "validate <workspace-id>",
+		Short: "Run and validate generated tests",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
+			// Load workspace
+			ws, err := workspace.LoadByID(args[0], nil)
+			if err != nil {
+				return fmt.Errorf("workspace not found: %w", err)
+			}
+
+			// Check if there are tests to validate
+			testsToValidate := 0
+			for _, target := range ws.State.Targets {
+				if target.TestFile != "" && target.Status == workspace.StatusCompleted {
+					testsToValidate++
+				}
+			}
+
+			if testsToValidate == 0 {
+				fmt.Println("No tests to validate.")
+				fmt.Println("Generate tests first with: qtest workspace run", ws.ID)
+				return nil
+			}
+
+			fmt.Printf("Validating %d generated tests...\n\n", testsToValidate)
+
+			// Create validator and run
+			validator := workspace.NewTestValidator(ws)
+			results, err := validator.ValidateAll(ctx)
+			if err != nil {
+				return fmt.Errorf("validation failed: %w", err)
+			}
+
+			// Print results
+			for _, r := range results {
+				status := "✓"
+				if !r.Passed {
+					status = "✗"
+				}
+				fmt.Printf("%s %s (%dms)\n", status, r.Target, r.Duration.Milliseconds())
+				if !r.Passed && r.Error != "" {
+					fmt.Printf("  Error: %s\n", r.Error)
+				}
+			}
+
+			// Print summary
+			summary := workspace.Summarize(results)
+			fmt.Println()
+			fmt.Println(repeatStr("=", 50))
+			fmt.Printf("Validation complete!\n")
+			fmt.Printf("  Total:   %d\n", summary.Total)
+			fmt.Printf("  Passed:  %d\n", summary.Passed)
+			fmt.Printf("  Failed:  %d\n", summary.Failed)
+			fmt.Printf("  Pass Rate: %.1f%%\n", summary.PassRate)
+
+			if len(summary.FailedTests) > 0 {
+				fmt.Println("\nFailed tests:")
+				for _, f := range summary.FailedTests {
+					fmt.Printf("  - %s\n", f)
+				}
+			}
+
+			return nil
 		},
 	}
 }
