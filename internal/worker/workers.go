@@ -18,6 +18,7 @@ import (
 	"github.com/QTest-hq/qtest/internal/generator"
 	"github.com/QTest-hq/qtest/internal/jobs"
 	"github.com/QTest-hq/qtest/internal/llm"
+	"github.com/QTest-hq/qtest/internal/mutation"
 	"github.com/QTest-hq/qtest/internal/parser"
 	"github.com/QTest-hq/qtest/pkg/dsl"
 )
@@ -724,10 +725,24 @@ func detectFramework(testPath string) string {
 // MutationWorker runs mutation testing on generated tests
 type MutationWorker struct {
 	*BaseWorker
+	store  *db.Store
+	cfg    *config.Config
+	runner *mutation.Runner
 }
 
-func NewMutationWorker(base *BaseWorker) *MutationWorker {
-	w := &MutationWorker{BaseWorker: base}
+func NewMutationWorker(base *BaseWorker, store *db.Store, cfg *config.Config) *MutationWorker {
+	// Create mutation runner with available tools
+	runner := mutation.NewRunner(
+		mutation.NewGoMutestingTool(),
+		mutation.NewSimpleMutationTool(), // Fallback
+	)
+
+	w := &MutationWorker{
+		BaseWorker: base,
+		store:      store,
+		cfg:        cfg,
+		runner:     runner,
+	}
 	base.handler = w.handleJob
 	return w
 }
@@ -743,25 +758,115 @@ func (w *MutationWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 	log.Info().
 		Str("test_file", payload.TestFilePath).
 		Str("source_file", payload.SourceFilePath).
+		Str("repo_id", payload.RepositoryID.String()).
 		Msg("running mutation testing")
 
-	// In real implementation, would:
-	// 1. Generate mutants for source file
-	// 2. Run test file against each mutant
-	// 3. Calculate mutation score
-
-	result := jobs.MutationResult{
-		MutantsTotal:  100,
-		MutantsKilled: 85,
-		MutantsLived:  15,
-		MutationScore: 0.85,
+	// Validate files exist
+	if _, err := os.Stat(payload.SourceFilePath); os.IsNotExist(err) {
+		return fmt.Errorf("source file not found: %s", payload.SourceFilePath)
 	}
+	if _, err := os.Stat(payload.TestFilePath); os.IsNotExist(err) {
+		return fmt.Errorf("test file not found: %s", payload.TestFilePath)
+	}
+
+	// Configure mutation testing
+	mutationCfg := mutation.DefaultConfig()
+
+	// Run mutation testing
+	mutResult, err := w.runner.Run(ctx, payload.SourceFilePath, payload.TestFilePath, mutationCfg)
+	if err != nil {
+		log.Warn().Err(err).Msg("mutation testing failed")
+		// Complete job with error result rather than failing
+		result := jobs.MutationResult{
+			MutantsTotal:  0,
+			MutantsKilled: 0,
+			MutantsLived:  0,
+			MutationScore: 0,
+		}
+		return w.Repository().Complete(ctx, job.ID, result)
+	}
+
+	// Convert to job result
+	result := jobs.MutationResult{
+		MutantsTotal:  mutResult.Total,
+		MutantsKilled: mutResult.Killed,
+		MutantsLived:  mutResult.Survived,
+		MutationScore: mutResult.Score,
+	}
+
+	// Generate report file if there are results
+	if mutResult.Total > 0 {
+		reportPath := w.generateReport(payload.SourceFilePath, mutResult)
+		if reportPath != "" {
+			result.ReportFilePath = reportPath
+		}
+	}
+
+	log.Info().
+		Int("total", result.MutantsTotal).
+		Int("killed", result.MutantsKilled).
+		Int("lived", result.MutantsLived).
+		Float64("score", result.MutationScore).
+		Str("quality", mutResult.Quality()).
+		Msg("mutation testing completed")
+
+	// Update test mutation score in database if available
+	w.updateTestMutationScore(ctx, payload, result.MutationScore)
 
 	if err := w.Repository().Complete(ctx, job.ID, result); err != nil {
 		return fmt.Errorf("failed to complete job: %w", err)
 	}
 
 	return nil
+}
+
+// generateReport creates a mutation testing report file
+func (w *MutationWorker) generateReport(sourceFile string, result *mutation.Result) string {
+	dir := filepath.Dir(sourceFile)
+	base := filepath.Base(sourceFile)
+	ext := filepath.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+
+	reportPath := filepath.Join(dir, name+"_mutation_report.json")
+
+	reportData, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to marshal mutation report")
+		return ""
+	}
+
+	if err := os.WriteFile(reportPath, reportData, 0644); err != nil {
+		log.Warn().Err(err).Msg("failed to write mutation report")
+		return ""
+	}
+
+	log.Debug().Str("path", reportPath).Msg("wrote mutation report")
+	return reportPath
+}
+
+// updateTestMutationScore updates the mutation score for the test in the database
+func (w *MutationWorker) updateTestMutationScore(ctx context.Context, payload jobs.MutationPayload, score float64) {
+	if w.store == nil {
+		return
+	}
+
+	// Find tests associated with this run and source file
+	tests, err := w.store.ListTestsByRun(ctx, payload.GenerationRunID)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to list tests for mutation score update")
+		return
+	}
+
+	// Update mutation score for matching tests
+	for _, test := range tests {
+		if test.TargetFile == payload.SourceFilePath ||
+			(test.TargetFunction != nil && strings.Contains(payload.TestFilePath, *test.TargetFunction)) {
+			// Update test with mutation score
+			if err := w.store.UpdateTestMutationScore(ctx, test.ID, score); err != nil {
+				log.Warn().Err(err).Str("test_id", test.ID.String()).Msg("failed to update test mutation score")
+			}
+		}
+	}
 }
 
 // IntegrationWorker integrates generated tests into the repository

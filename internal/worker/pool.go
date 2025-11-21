@@ -132,7 +132,7 @@ func (p *Pool) addWorker(jobType jobs.JobType) {
 	case jobs.JobTypeGeneration:
 		worker = NewGenerationWorker(base, p.cfg, p.store, p.llmRouter)
 	case jobs.JobTypeMutation:
-		worker = NewMutationWorker(base)
+		worker = NewMutationWorker(base, p.store, p.cfg)
 	case jobs.JobTypeIntegration:
 		worker = NewIntegrationWorker(base, p.store)
 	}

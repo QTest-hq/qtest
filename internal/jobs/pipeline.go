@@ -178,6 +178,24 @@ func (p *Pipeline) CreateIntegrationJob(ctx context.Context, parentID uuid.UUID,
 	return p.ChainJob(ctx, parentID, JobTypeIntegration, payload)
 }
 
+// CreateMutationJob creates a mutation testing job for a specific test/source pair
+func (p *Pipeline) CreateMutationJob(ctx context.Context, parentID uuid.UUID, repoID, runID uuid.UUID, testFilePath, sourceFilePath string) (*Job, error) {
+	payload := MutationPayload{
+		RepositoryID:    repoID,
+		GenerationRunID: runID,
+		TestFilePath:    testFilePath,
+		SourceFilePath:  sourceFilePath,
+	}
+
+	job, err := p.ChainJob(ctx, parentID, JobTypeMutation, payload)
+	if err != nil {
+		return nil, err
+	}
+	job.GenerationRunID = &runID
+
+	return job, nil
+}
+
 // publishJob publishes a job notification to NATS
 func (p *Pipeline) publishJob(ctx context.Context, job *Job) error {
 	if p.nats == nil {

@@ -57,7 +57,7 @@ func TestMutationWorker_Name(t *testing.T) {
 	base := NewBaseWorker(BaseWorkerConfig{
 		JobType: jobs.JobTypeMutation,
 	})
-	worker := NewMutationWorker(base)
+	worker := NewMutationWorker(base, nil, nil)
 
 	if worker.Name() != "mutation" {
 		t.Errorf("Name() = %s, want mutation", worker.Name())
@@ -84,7 +84,7 @@ func TestWorker_Interface(t *testing.T) {
 		NewModelingWorker(NewBaseWorker(BaseWorkerConfig{JobType: jobs.JobTypeModeling}), nil),
 		NewPlanningWorker(NewBaseWorker(BaseWorkerConfig{JobType: jobs.JobTypePlanning}), nil),
 		NewGenerationWorker(NewBaseWorker(BaseWorkerConfig{Config: cfg, JobType: jobs.JobTypeGeneration}), cfg, nil, nil),
-		NewMutationWorker(NewBaseWorker(BaseWorkerConfig{JobType: jobs.JobTypeMutation})),
+		NewMutationWorker(NewBaseWorker(BaseWorkerConfig{JobType: jobs.JobTypeMutation}), nil, nil),
 		NewIntegrationWorker(NewBaseWorker(BaseWorkerConfig{JobType: jobs.JobTypeIntegration}), nil),
 	}
 
