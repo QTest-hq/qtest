@@ -144,9 +144,31 @@ LLM returns YAML that converter transforms to `pkg/dsl/types.go` structures:
 **Not yet implemented:**
 - API test generation (from detected endpoints)
 - E2E test generation (Playwright)
-- Worker system (async processing)
-- GitHub integration (PR creation)
 - Mutation testing validation
+
+## Jobs API & Worker System
+
+Async job processing via NATS JetStream with REST API:
+
+```bash
+# Start test generation pipeline
+curl -X POST http://localhost:8080/api/v1/jobs/pipeline \
+  -d '{"repository_url": "https://github.com/user/repo", "max_tests": 50}'
+
+# List jobs
+curl "http://localhost:8080/api/v1/jobs?status=running"
+
+# Get job with children
+curl http://localhost:8080/api/v1/jobs/{id}
+
+# Cancel/retry
+curl -X POST http://localhost:8080/api/v1/jobs/{id}/cancel
+curl -X POST http://localhost:8080/api/v1/jobs/{id}/retry
+```
+
+**Job Pipeline:** `ingestion → modeling → planning → generation → integration`
+
+**Worker types:** Run with `WORKER_TYPE=all` (default) or specific: `ingestion`, `modeling`, `planning`, `generation`, `mutation`, `integration`
 
 ## Key Files When Debugging Test Generation
 
