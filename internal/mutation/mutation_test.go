@@ -1,7 +1,10 @@
 package mutation
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"os"
 	"testing"
 	"time"
 )
@@ -226,5 +229,207 @@ func TestThresholds(t *testing.T) {
 	}
 	if ThresholdAcceptable != 0.50 {
 		t.Errorf("ThresholdAcceptable = %f, want 0.50", ThresholdAcceptable)
+	}
+}
+
+func TestNewReporter(t *testing.T) {
+	reporter := NewReporter("/tmp/reports")
+	if reporter == nil {
+		t.Error("NewReporter should not return nil")
+	}
+	if reporter.outputDir != "/tmp/reports" {
+		t.Errorf("outputDir = %s, want /tmp/reports", reporter.outputDir)
+	}
+}
+
+func TestReporter_GenerateHTMLReport(t *testing.T) {
+	dir := t.TempDir()
+	reporter := NewReporter(dir)
+
+	result := &Result{
+		SourceFile: "calculator.go",
+		TestFile:   "calculator_test.go",
+		Total:      10,
+		Killed:     7,
+		Survived:   2,
+		Timeout:    1,
+		Score:      0.70,
+		Duration:   5 * time.Second,
+		Mutants: []Mutant{
+			{ID: "1", Type: "arithmetic", Line: 10, Status: StatusKilled, Description: "Replaced + with -"},
+			{ID: "2", Type: "comparison", Line: 15, Status: StatusSurvived, Description: "Replaced == with !="},
+		},
+	}
+
+	path, err := reporter.GenerateReport(result, FormatHTML)
+	if err != nil {
+		t.Fatalf("GenerateReport() error: %v", err)
+	}
+	if path == "" {
+		t.Error("GenerateReport() returned empty path")
+	}
+
+	// Verify file exists
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		t.Errorf("report file does not exist: %s", path)
+	}
+
+	// Read and verify content
+	content, _ := os.ReadFile(path)
+	if !bytes.Contains(content, []byte("calculator.go")) {
+		t.Error("HTML report should contain source file name")
+	}
+	if !bytes.Contains(content, []byte("70.0%")) {
+		t.Error("HTML report should contain score")
+	}
+	if !bytes.Contains(content, []byte("good")) {
+		t.Error("HTML report should contain quality")
+	}
+}
+
+func TestReporter_GenerateJSONReport(t *testing.T) {
+	dir := t.TempDir()
+	reporter := NewReporter(dir)
+
+	result := &Result{
+		SourceFile: "service.go",
+		TestFile:   "service_test.go",
+		Total:      5,
+		Killed:     4,
+		Survived:   1,
+		Score:      0.80,
+	}
+
+	path, err := reporter.GenerateReport(result, FormatJSON)
+	if err != nil {
+		t.Fatalf("GenerateReport() error: %v", err)
+	}
+
+	// Verify file exists
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		t.Errorf("report file does not exist: %s", path)
+	}
+
+	// Verify JSON content
+	content, _ := os.ReadFile(path)
+	var parsed Result
+	if err := json.Unmarshal(content, &parsed); err != nil {
+		t.Fatalf("failed to parse JSON report: %v", err)
+	}
+	if parsed.SourceFile != "service.go" {
+		t.Errorf("SourceFile = %s, want service.go", parsed.SourceFile)
+	}
+	if parsed.Score != 0.80 {
+		t.Errorf("Score = %f, want 0.80", parsed.Score)
+	}
+}
+
+func TestReporter_GenerateTextReport(t *testing.T) {
+	dir := t.TempDir()
+	reporter := NewReporter(dir)
+
+	result := &Result{
+		SourceFile: "handler.go",
+		TestFile:   "handler_test.go",
+		Total:      8,
+		Killed:     6,
+		Survived:   1,
+		Timeout:    1,
+		Score:      0.75,
+		Duration:   3 * time.Second,
+		Mutants: []Mutant{
+			{ID: "1", Type: "boolean", Line: 20, Status: StatusKilled, Description: "Replaced true with false"},
+		},
+	}
+
+	path, err := reporter.GenerateReport(result, FormatText)
+	if err != nil {
+		t.Fatalf("GenerateReport() error: %v", err)
+	}
+
+	// Verify file exists
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		t.Errorf("report file does not exist: %s", path)
+	}
+
+	// Verify text content
+	content, _ := os.ReadFile(path)
+	if !bytes.Contains(content, []byte("MUTATION TESTING REPORT")) {
+		t.Error("text report should contain header")
+	}
+	if !bytes.Contains(content, []byte("handler.go")) {
+		t.Error("text report should contain source file")
+	}
+	if !bytes.Contains(content, []byte("75.0%")) {
+		t.Error("text report should contain score")
+	}
+}
+
+func TestReporter_UnsupportedFormat(t *testing.T) {
+	reporter := NewReporter(t.TempDir())
+
+	_, err := reporter.GenerateReport(&Result{}, "invalid")
+	if err == nil {
+		t.Error("expected error for unsupported format")
+	}
+}
+
+func TestQualityClass(t *testing.T) {
+	tests := []struct {
+		quality string
+		want    string
+	}{
+		{"good", "quality-good"},
+		{"acceptable", "quality-acceptable"},
+		{"poor", "quality-poor"},
+		{"unknown", "quality-poor"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.quality, func(t *testing.T) {
+			if got := qualityClass(tt.quality); got != tt.want {
+				t.Errorf("qualityClass(%s) = %s, want %s", tt.quality, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStatusIcon(t *testing.T) {
+	tests := []struct {
+		status string
+		want   string
+	}{
+		{StatusKilled, "✓"},
+		{StatusSurvived, "✗"},
+		{StatusTimeout, "⏱"},
+		{StatusError, "?"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.status, func(t *testing.T) {
+			if got := statusIcon(tt.status); got != tt.want {
+				t.Errorf("statusIcon(%s) = %s, want %s", tt.status, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStatusClass(t *testing.T) {
+	tests := []struct {
+		status string
+		want   string
+	}{
+		{StatusKilled, "status-killed"},
+		{StatusSurvived, "status-survived"},
+		{StatusTimeout, "status-timeout"},
+		{StatusError, "status-error"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.status, func(t *testing.T) {
+			if got := statusClass(tt.status); got != tt.want {
+				t.Errorf("statusClass(%s) = %s, want %s", tt.status, got, tt.want)
+			}
+		})
 	}
 }

@@ -411,3 +411,356 @@ func TestIntegration_DBNew(t *testing.T) {
 		t.Errorf("HealthCheck() error: %v", err)
 	}
 }
+
+func TestIntegration_CreateAndGetMutationRun(t *testing.T) {
+	testDB := testutil.RequireDB(t)
+
+	db := &DB{pool: testDB.Pool}
+	store := NewStore(db)
+	ctx := context.Background()
+
+	// Create repository first
+	repo := &Repository{
+		URL:           "https://github.com/test/mutation-run-test",
+		Name:          "mutation-run-test",
+		Owner:         "test",
+		DefaultBranch: "main",
+	}
+	if err := store.CreateRepository(ctx, repo); err != nil {
+		t.Fatalf("CreateRepository() error: %v", err)
+	}
+
+	// Create mutation run
+	run := &MutationRun{
+		RepositoryID: &repo.ID,
+		SourceFile:   "internal/service/user.go",
+		TestFile:     "internal/service/user_test.go",
+		TotalMutants: 10,
+		Killed:       7,
+		Survived:     2,
+		Timeout:      1,
+		Score:        0.70,
+		Quality:      "good",
+	}
+
+	err := store.CreateMutationRun(ctx, run)
+	if err != nil {
+		t.Fatalf("CreateMutationRun() error: %v", err)
+	}
+
+	if run.ID == uuid.Nil {
+		t.Error("CreateMutationRun() should set ID")
+	}
+
+	// Get by ID
+	fetched, err := store.GetMutationRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetMutationRun() error: %v", err)
+	}
+	if fetched == nil {
+		t.Fatal("GetMutationRun() returned nil")
+	}
+	if fetched.SourceFile != run.SourceFile {
+		t.Errorf("SourceFile = %s, want %s", fetched.SourceFile, run.SourceFile)
+	}
+	if fetched.TestFile != run.TestFile {
+		t.Errorf("TestFile = %s, want %s", fetched.TestFile, run.TestFile)
+	}
+	if fetched.TotalMutants != 10 {
+		t.Errorf("TotalMutants = %d, want 10", fetched.TotalMutants)
+	}
+	if fetched.Score != 0.70 {
+		t.Errorf("Score = %f, want 0.70", fetched.Score)
+	}
+	if fetched.Quality != "good" {
+		t.Errorf("Quality = %s, want good", fetched.Quality)
+	}
+}
+
+func TestIntegration_ListMutationRunsByRepository(t *testing.T) {
+	testDB := testutil.RequireDB(t)
+
+	db := &DB{pool: testDB.Pool}
+	store := NewStore(db)
+	ctx := context.Background()
+
+	// Create repository
+	repo := &Repository{
+		URL:           "https://github.com/test/mutation-list-test",
+		Name:          "mutation-list-test",
+		Owner:         "test",
+		DefaultBranch: "main",
+	}
+	if err := store.CreateRepository(ctx, repo); err != nil {
+		t.Fatalf("CreateRepository() error: %v", err)
+	}
+
+	// Create multiple mutation runs
+	files := []string{"user.go", "order.go", "product.go"}
+	for _, f := range files {
+		run := &MutationRun{
+			RepositoryID: &repo.ID,
+			SourceFile:   "internal/" + f,
+			TestFile:     "internal/" + f[:len(f)-3] + "_test.go",
+			TotalMutants: 5,
+			Killed:       4,
+			Survived:     1,
+			Score:        0.80,
+			Quality:      "good",
+		}
+		if err := store.CreateMutationRun(ctx, run); err != nil {
+			t.Fatalf("CreateMutationRun() error: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// List runs
+	runs, err := store.ListMutationRunsByRepository(ctx, repo.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("ListMutationRunsByRepository() error: %v", err)
+	}
+	if len(runs) != 3 {
+		t.Errorf("len(runs) = %d, want 3", len(runs))
+	}
+
+	// Verify all belong to the repository
+	for _, run := range runs {
+		if *run.RepositoryID != repo.ID {
+			t.Errorf("RepositoryID = %s, want %s", *run.RepositoryID, repo.ID)
+		}
+	}
+}
+
+func TestIntegration_UpdateMutationRunResults(t *testing.T) {
+	testDB := testutil.RequireDB(t)
+
+	db := &DB{pool: testDB.Pool}
+	store := NewStore(db)
+	ctx := context.Background()
+
+	// Create repository
+	repo := &Repository{
+		URL:           "https://github.com/test/mutation-update-test",
+		Name:          "mutation-update-test",
+		Owner:         "test",
+		DefaultBranch: "main",
+	}
+	if err := store.CreateRepository(ctx, repo); err != nil {
+		t.Fatalf("CreateRepository() error: %v", err)
+	}
+
+	// Create mutation run with pending status
+	run := &MutationRun{
+		RepositoryID: &repo.ID,
+		SourceFile:   "service.go",
+		TestFile:     "service_test.go",
+	}
+	if err := store.CreateMutationRun(ctx, run); err != nil {
+		t.Fatalf("CreateMutationRun() error: %v", err)
+	}
+
+	// Update with results
+	err := store.UpdateMutationRunResults(ctx, run.ID, 15, 12, 2, 1, 0.80, "good")
+	if err != nil {
+		t.Fatalf("UpdateMutationRunResults() error: %v", err)
+	}
+
+	// Verify
+	fetched, _ := store.GetMutationRun(ctx, run.ID)
+	if fetched.TotalMutants != 15 {
+		t.Errorf("TotalMutants = %d, want 15", fetched.TotalMutants)
+	}
+	if fetched.Killed != 12 {
+		t.Errorf("Killed = %d, want 12", fetched.Killed)
+	}
+	if fetched.Survived != 2 {
+		t.Errorf("Survived = %d, want 2", fetched.Survived)
+	}
+	if fetched.Timeout != 1 {
+		t.Errorf("Timeout = %d, want 1", fetched.Timeout)
+	}
+	if fetched.Score != 0.80 {
+		t.Errorf("Score = %f, want 0.80", fetched.Score)
+	}
+	if fetched.Quality != "good" {
+		t.Errorf("Quality = %s, want good", fetched.Quality)
+	}
+	if fetched.CompletedAt == nil {
+		t.Error("CompletedAt should be set after update")
+	}
+}
+
+func TestIntegration_CreateAndListMutants(t *testing.T) {
+	testDB := testutil.RequireDB(t)
+
+	db := &DB{pool: testDB.Pool}
+	store := NewStore(db)
+	ctx := context.Background()
+
+	// Create repository
+	repo := &Repository{
+		URL:           "https://github.com/test/mutants-test",
+		Name:          "mutants-test",
+		Owner:         "test",
+		DefaultBranch: "main",
+	}
+	if err := store.CreateRepository(ctx, repo); err != nil {
+		t.Fatalf("CreateRepository() error: %v", err)
+	}
+
+	// Create mutation run
+	run := &MutationRun{
+		RepositoryID: &repo.ID,
+		SourceFile:   "calc.go",
+		TestFile:     "calc_test.go",
+	}
+	if err := store.CreateMutationRun(ctx, run); err != nil {
+		t.Fatalf("CreateMutationRun() error: %v", err)
+	}
+
+	// Create mutants
+	mutantsData := []struct {
+		line    int
+		mutType string
+		status  string
+	}{
+		{10, "arithmetic", "killed"},
+		{15, "comparison", "killed"},
+		{20, "boolean", "survived"},
+		{25, "return", "killed"},
+		{30, "statement", "timeout"},
+	}
+
+	for _, m := range mutantsData {
+		desc := "mutation at line " + string(rune('0'+m.line%10))
+		mutant := &Mutant{
+			MutationRunID: run.ID,
+			LineNumber:    m.line,
+			MutationType:  m.mutType,
+			Status:        m.status,
+			Description:   &desc,
+		}
+		if err := store.CreateMutant(ctx, mutant); err != nil {
+			t.Fatalf("CreateMutant() error: %v", err)
+		}
+	}
+
+	// List mutants
+	mutants, err := store.ListMutantsByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("ListMutantsByRun() error: %v", err)
+	}
+	if len(mutants) != 5 {
+		t.Errorf("len(mutants) = %d, want 5", len(mutants))
+	}
+
+	// Verify they are ordered by line number
+	for i := 1; i < len(mutants); i++ {
+		if mutants[i].LineNumber < mutants[i-1].LineNumber {
+			t.Errorf("mutants not ordered by line number")
+		}
+	}
+
+	// Count statuses
+	killedCount := 0
+	survivedCount := 0
+	timeoutCount := 0
+	for _, m := range mutants {
+		switch m.Status {
+		case "killed":
+			killedCount++
+		case "survived":
+			survivedCount++
+		case "timeout":
+			timeoutCount++
+		}
+	}
+	if killedCount != 3 {
+		t.Errorf("killed count = %d, want 3", killedCount)
+	}
+	if survivedCount != 1 {
+		t.Errorf("survived count = %d, want 1", survivedCount)
+	}
+	if timeoutCount != 1 {
+		t.Errorf("timeout count = %d, want 1", timeoutCount)
+	}
+}
+
+func TestIntegration_GetNonExistentMutationRun(t *testing.T) {
+	testDB := testutil.RequireDB(t)
+
+	db := &DB{pool: testDB.Pool}
+	store := NewStore(db)
+	ctx := context.Background()
+
+	// Get non-existent
+	run, err := store.GetMutationRun(ctx, uuid.New())
+	if err != nil {
+		t.Fatalf("GetMutationRun() error: %v", err)
+	}
+	if run != nil {
+		t.Error("GetMutationRun() should return nil for non-existent ID")
+	}
+}
+
+func TestIntegration_MutationRunWithGenerationRun(t *testing.T) {
+	testDB := testutil.RequireDB(t)
+
+	db := &DB{pool: testDB.Pool}
+	store := NewStore(db)
+	ctx := context.Background()
+
+	// Create repository
+	repo := &Repository{
+		URL:           "https://github.com/test/mutation-gen-run-test",
+		Name:          "mutation-gen-run-test",
+		Owner:         "test",
+		DefaultBranch: "main",
+	}
+	if err := store.CreateRepository(ctx, repo); err != nil {
+		t.Fatalf("CreateRepository() error: %v", err)
+	}
+
+	// Create generation run
+	genRun := &GenerationRun{
+		RepositoryID: repo.ID,
+		Config:       json.RawMessage(`{}`),
+	}
+	if err := store.CreateGenerationRun(ctx, genRun); err != nil {
+		t.Fatalf("CreateGenerationRun() error: %v", err)
+	}
+
+	// Create mutation runs linked to generation run
+	for i := 0; i < 3; i++ {
+		run := &MutationRun{
+			RepositoryID:    &repo.ID,
+			GenerationRunID: &genRun.ID,
+			SourceFile:      "file" + string(rune('a'+i)) + ".go",
+			TestFile:        "file" + string(rune('a'+i)) + "_test.go",
+			TotalMutants:    5,
+			Killed:          4,
+			Survived:        1,
+			Score:           0.80,
+			Quality:         "good",
+		}
+		if err := store.CreateMutationRun(ctx, run); err != nil {
+			t.Fatalf("CreateMutationRun() error: %v", err)
+		}
+	}
+
+	// List by generation run
+	runs, err := store.ListMutationRunsByGenerationRun(ctx, genRun.ID)
+	if err != nil {
+		t.Fatalf("ListMutationRunsByGenerationRun() error: %v", err)
+	}
+	if len(runs) != 3 {
+		t.Errorf("len(runs) = %d, want 3", len(runs))
+	}
+
+	// Verify all belong to the generation run
+	for _, run := range runs {
+		if *run.GenerationRunID != genRun.ID {
+			t.Errorf("GenerationRunID = %s, want %s", *run.GenerationRunID, genRun.ID)
+		}
+	}
+}

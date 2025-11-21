@@ -406,3 +406,252 @@ func (s *Store) ListRunsByRepository(ctx context.Context, repoID uuid.UUID, limi
 
 	return runs, nil
 }
+
+// MutationRun represents a mutation testing run
+type MutationRun struct {
+	ID              uuid.UUID        `json:"id"`
+	JobID           *uuid.UUID       `json:"job_id,omitempty"`
+	RepositoryID    *uuid.UUID       `json:"repository_id,omitempty"`
+	GenerationRunID *uuid.UUID       `json:"generation_run_id,omitempty"`
+	SourceFile      string           `json:"source_file"`
+	TestFile        string           `json:"test_file"`
+	TotalMutants    int              `json:"total_mutants"`
+	Killed          int              `json:"killed"`
+	Survived        int              `json:"survived"`
+	Timeout         int              `json:"timeout"`
+	Score           float64          `json:"score"`
+	Quality         string           `json:"quality"`
+	ReportData      *json.RawMessage `json:"report_data,omitempty"`
+	ReportFilePath  *string          `json:"report_file_path,omitempty"`
+	DurationMs      *int             `json:"duration_ms,omitempty"`
+	StartedAt       *time.Time       `json:"started_at,omitempty"`
+	CompletedAt     *time.Time       `json:"completed_at,omitempty"`
+	CreatedAt       time.Time        `json:"created_at"`
+}
+
+// Mutant represents an individual mutant from a mutation run
+type Mutant struct {
+	ID            uuid.UUID  `json:"id"`
+	MutationRunID uuid.UUID  `json:"mutation_run_id"`
+	LineNumber    int        `json:"line_number"`
+	MutationType  string     `json:"mutation_type"`
+	Status        string     `json:"status"`
+	Description   *string    `json:"description,omitempty"`
+	OriginalCode  *string    `json:"original_code,omitempty"`
+	MutatedCode   *string    `json:"mutated_code,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+}
+
+// CreateMutationRun creates a new mutation run
+func (s *Store) CreateMutationRun(ctx context.Context, run *MutationRun) error {
+	if run.ID == uuid.Nil {
+		run.ID = uuid.New()
+	}
+	if run.Quality == "" {
+		run.Quality = "pending"
+	}
+	run.CreatedAt = time.Now()
+
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO mutation_runs (id, job_id, repository_id, generation_run_id, source_file, test_file,
+			total_mutants, killed, survived, timeout, score, quality, report_data, report_file_path,
+			duration_ms, started_at, completed_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+	`, run.ID, run.JobID, run.RepositoryID, run.GenerationRunID, run.SourceFile, run.TestFile,
+		run.TotalMutants, run.Killed, run.Survived, run.Timeout, run.Score, run.Quality,
+		run.ReportData, run.ReportFilePath, run.DurationMs, run.StartedAt, run.CompletedAt, run.CreatedAt)
+
+	if err != nil {
+		return fmt.Errorf("failed to create mutation run: %w", err)
+	}
+
+	return nil
+}
+
+// GetMutationRun gets a mutation run by ID
+func (s *Store) GetMutationRun(ctx context.Context, id uuid.UUID) (*MutationRun, error) {
+	run := &MutationRun{}
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, job_id, repository_id, generation_run_id, source_file, test_file,
+			total_mutants, killed, survived, timeout, score, quality, report_data, report_file_path,
+			duration_ms, started_at, completed_at, created_at
+		FROM mutation_runs WHERE id = $1
+	`, id).Scan(&run.ID, &run.JobID, &run.RepositoryID, &run.GenerationRunID, &run.SourceFile, &run.TestFile,
+		&run.TotalMutants, &run.Killed, &run.Survived, &run.Timeout, &run.Score, &run.Quality,
+		&run.ReportData, &run.ReportFilePath, &run.DurationMs, &run.StartedAt, &run.CompletedAt, &run.CreatedAt)
+
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get mutation run: %w", err)
+	}
+
+	return run, nil
+}
+
+// ListMutationRunsByRepository lists mutation runs for a repository
+func (s *Store) ListMutationRunsByRepository(ctx context.Context, repoID uuid.UUID, limit, offset int) ([]MutationRun, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, job_id, repository_id, generation_run_id, source_file, test_file,
+			total_mutants, killed, survived, timeout, score, quality, report_data, report_file_path,
+			duration_ms, started_at, completed_at, created_at
+		FROM mutation_runs
+		WHERE repository_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`, repoID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list mutation runs: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]MutationRun, 0)
+	for rows.Next() {
+		var run MutationRun
+		if err := rows.Scan(&run.ID, &run.JobID, &run.RepositoryID, &run.GenerationRunID, &run.SourceFile, &run.TestFile,
+			&run.TotalMutants, &run.Killed, &run.Survived, &run.Timeout, &run.Score, &run.Quality,
+			&run.ReportData, &run.ReportFilePath, &run.DurationMs, &run.StartedAt, &run.CompletedAt, &run.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan mutation run: %w", err)
+		}
+		runs = append(runs, run)
+	}
+
+	return runs, nil
+}
+
+// ListMutationRunsByGenerationRun lists mutation runs for a generation run
+func (s *Store) ListMutationRunsByGenerationRun(ctx context.Context, genRunID uuid.UUID) ([]MutationRun, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, job_id, repository_id, generation_run_id, source_file, test_file,
+			total_mutants, killed, survived, timeout, score, quality, report_data, report_file_path,
+			duration_ms, started_at, completed_at, created_at
+		FROM mutation_runs
+		WHERE generation_run_id = $1
+		ORDER BY created_at DESC
+	`, genRunID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list mutation runs: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]MutationRun, 0)
+	for rows.Next() {
+		var run MutationRun
+		if err := rows.Scan(&run.ID, &run.JobID, &run.RepositoryID, &run.GenerationRunID, &run.SourceFile, &run.TestFile,
+			&run.TotalMutants, &run.Killed, &run.Survived, &run.Timeout, &run.Score, &run.Quality,
+			&run.ReportData, &run.ReportFilePath, &run.DurationMs, &run.StartedAt, &run.CompletedAt, &run.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan mutation run: %w", err)
+		}
+		runs = append(runs, run)
+	}
+
+	return runs, nil
+}
+
+// UpdateMutationRunResults updates a mutation run with results
+func (s *Store) UpdateMutationRunResults(ctx context.Context, id uuid.UUID, total, killed, survived, timeout int, score float64, quality string) error {
+	now := time.Now()
+	_, err := s.pool.Exec(ctx, `
+		UPDATE mutation_runs
+		SET total_mutants = $2, killed = $3, survived = $4, timeout = $5,
+			score = $6, quality = $7, completed_at = $8
+		WHERE id = $1
+	`, id, total, killed, survived, timeout, score, quality, now)
+
+	if err != nil {
+		return fmt.Errorf("failed to update mutation run results: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateMutationRunReport updates a mutation run with report data
+func (s *Store) UpdateMutationRunReport(ctx context.Context, id uuid.UUID, reportData json.RawMessage, reportFilePath string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE mutation_runs
+		SET report_data = $2, report_file_path = $3
+		WHERE id = $1
+	`, id, reportData, reportFilePath)
+
+	if err != nil {
+		return fmt.Errorf("failed to update mutation run report: %w", err)
+	}
+
+	return nil
+}
+
+// CreateMutant creates a new mutant record
+func (s *Store) CreateMutant(ctx context.Context, mutant *Mutant) error {
+	if mutant.ID == uuid.Nil {
+		mutant.ID = uuid.New()
+	}
+	mutant.CreatedAt = time.Now()
+
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO mutants (id, mutation_run_id, line_number, mutation_type, status, description, original_code, mutated_code, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, mutant.ID, mutant.MutationRunID, mutant.LineNumber, mutant.MutationType, mutant.Status,
+		mutant.Description, mutant.OriginalCode, mutant.MutatedCode, mutant.CreatedAt)
+
+	if err != nil {
+		return fmt.Errorf("failed to create mutant: %w", err)
+	}
+
+	return nil
+}
+
+// ListMutantsByRun lists all mutants for a mutation run
+func (s *Store) ListMutantsByRun(ctx context.Context, runID uuid.UUID) ([]Mutant, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, mutation_run_id, line_number, mutation_type, status, description, original_code, mutated_code, created_at
+		FROM mutants
+		WHERE mutation_run_id = $1
+		ORDER BY line_number
+	`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list mutants: %w", err)
+	}
+	defer rows.Close()
+
+	mutants := make([]Mutant, 0)
+	for rows.Next() {
+		var m Mutant
+		if err := rows.Scan(&m.ID, &m.MutationRunID, &m.LineNumber, &m.MutationType, &m.Status,
+			&m.Description, &m.OriginalCode, &m.MutatedCode, &m.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan mutant: %w", err)
+		}
+		mutants = append(mutants, m)
+	}
+
+	return mutants, nil
+}
+
+// GetMutationRunSummaryByRepo returns aggregated mutation stats for a repository
+func (s *Store) GetMutationRunSummaryByRepo(ctx context.Context, repoID uuid.UUID) (map[string]interface{}, error) {
+	var totalRuns, totalMutants, totalKilled, totalSurvived int
+	var avgScore float64
+
+	err := s.pool.QueryRow(ctx, `
+		SELECT
+			COUNT(*) as total_runs,
+			COALESCE(SUM(total_mutants), 0) as total_mutants,
+			COALESCE(SUM(killed), 0) as total_killed,
+			COALESCE(SUM(survived), 0) as total_survived,
+			COALESCE(AVG(score), 0) as avg_score
+		FROM mutation_runs
+		WHERE repository_id = $1 AND quality != 'pending'
+	`, repoID).Scan(&totalRuns, &totalMutants, &totalKilled, &totalSurvived, &avgScore)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get mutation summary: %w", err)
+	}
+
+	return map[string]interface{}{
+		"total_runs":     totalRuns,
+		"total_mutants":  totalMutants,
+		"total_killed":   totalKilled,
+		"total_survived": totalSurvived,
+		"avg_score":      avgScore,
+	}, nil
+}

@@ -140,11 +140,12 @@ LLM returns YAML that converter transforms to `pkg/dsl/types.go` structures:
 - Go test adapter with assertions
 - Workspace management
 - Risk scoring and test target prioritization
+- Mutation testing with HTML/JSON/text reports
+- Pipeline integration with `run_mutation` flag
 
 **Not yet implemented:**
 - API test generation (from detected endpoints)
 - E2E test generation (Playwright)
-- Mutation testing validation
 
 ## Jobs API & Worker System
 
@@ -166,9 +167,66 @@ curl -X POST http://localhost:8080/api/v1/jobs/{id}/cancel
 curl -X POST http://localhost:8080/api/v1/jobs/{id}/retry
 ```
 
-**Job Pipeline:** `ingestion → modeling → planning → generation → integration`
+**Job Pipeline:** `ingestion → modeling → planning → generation → [mutation] → integration`
 
 **Worker types:** Run with `WORKER_TYPE=all` (default) or specific: `ingestion`, `modeling`, `planning`, `generation`, `mutation`, `integration`
+
+## Mutation Testing
+
+QTest includes mutation testing to evaluate test quality. Mutation testing introduces small changes (mutations) to source code and verifies tests can detect them.
+
+### CLI Commands
+
+```bash
+# Run mutation testing on a single file
+./bin/qtest mutation run -s calculator.go -t calculator_test.go
+
+# Thorough mode with more mutants
+./bin/qtest mutation run -s calculator.go --mode thorough
+
+# Save report (format detected by extension)
+./bin/qtest mutation run -s calculator.go -o report.json
+./bin/qtest mutation run -s calculator.go -o report.html
+
+# View/convert existing reports
+./bin/qtest mutation report -f report.json                   # Text view
+./bin/qtest mutation report -f report.json --format html -o ./reports  # Generate HTML
+```
+
+### Quality Thresholds
+
+- **Good (70%+):** Tests effectively detect mutations
+- **Acceptable (50-70%):** Room for improvement
+- **Poor (<50%):** Tests need significant enhancement
+
+### Pipeline Integration
+
+Enable mutation testing in the pipeline by setting `run_mutation: true`:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/jobs/pipeline \
+  -d '{"repository_url": "https://github.com/user/repo", "run_mutation": true}'
+```
+
+### API Endpoints
+
+```bash
+# Start mutation testing
+curl -X POST http://localhost:8080/api/v1/mutation \
+  -d '{"source_file_path": "calc.go", "test_file_path": "calc_test.go"}'
+
+# Get mutation run results
+curl http://localhost:8080/api/v1/mutation/{id}
+
+# List mutation runs for a repository
+curl http://localhost:8080/api/v1/repos/{repo_id}/mutation
+```
+
+### Report Formats
+
+- **JSON:** Machine-readable, includes all mutant details
+- **HTML:** Visual report with score visualization and mutant breakdown
+- **Text:** Terminal-friendly summary with surviving mutant highlights
 
 ## Key Files When Debugging Test Generation
 

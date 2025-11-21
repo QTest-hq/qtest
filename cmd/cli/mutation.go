@@ -119,10 +119,34 @@ Examples:
 
 			// Save report if requested
 			if outputFile != "" {
-				if err := saveMutationReport(result, outputFile); err != nil {
-					return fmt.Errorf("failed to save report: %w", err)
+				// Determine format from extension
+				ext := filepath.Ext(outputFile)
+				var reportFormat mutation.ReportFormat
+				switch ext {
+				case ".html", ".htm":
+					reportFormat = mutation.FormatHTML
+				case ".txt":
+					reportFormat = mutation.FormatText
+				default:
+					reportFormat = mutation.FormatJSON
 				}
-				fmt.Printf("\n📄 Report saved: %s\n", outputFile)
+
+				if reportFormat == mutation.FormatJSON {
+					// Save JSON directly
+					if err := saveMutationReport(result, outputFile); err != nil {
+						return fmt.Errorf("failed to save report: %w", err)
+					}
+					fmt.Printf("\n📄 Report saved: %s\n", outputFile)
+				} else {
+					// Use reporter for HTML/text formats
+					dir := filepath.Dir(outputFile)
+					reporter := mutation.NewReporter(dir)
+					path, err := reporter.GenerateReport(result, reportFormat)
+					if err != nil {
+						return fmt.Errorf("failed to generate report: %w", err)
+					}
+					fmt.Printf("\n📄 Report generated: %s\n", path)
+				}
 			}
 
 			return nil
@@ -134,7 +158,7 @@ Examples:
 	cmd.Flags().StringVarP(&mode, "mode", "m", "fast", "Mode: fast or thorough")
 	cmd.Flags().IntVar(&timeout, "timeout", 120, "Timeout in seconds")
 	cmd.Flags().IntVar(&maxMutants, "max", 0, "Maximum mutants per function (0=use default)")
-	cmd.Flags().StringVarP(&outputFile, "output", "o", "", "Save report to file")
+	cmd.Flags().StringVarP(&outputFile, "output", "o", "", "Save report to file (.json, .html, or .txt)")
 	cmd.MarkFlagRequired("source")
 
 	return cmd
@@ -144,11 +168,18 @@ func mutationReportCmd() *cobra.Command {
 	var (
 		reportFile string
 		format     string
+		outputDir  string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "report",
-		Short: "View a mutation testing report",
+		Short: "View or generate a mutation testing report",
+		Long: `View an existing JSON mutation report or generate reports in different formats.
+
+Examples:
+  qtest mutation report -f result.json                  # View report as text
+  qtest mutation report -f result.json --format json    # View as formatted JSON
+  qtest mutation report -f result.json --format html -o ./reports  # Generate HTML report`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Validate report file
 			reportAbs, err := validateFilePath(reportFile)
@@ -167,11 +198,25 @@ func mutationReportCmd() *cobra.Command {
 				return fmt.Errorf("failed to parse report: %w", err)
 			}
 
-			if format == "json" {
+			switch format {
+			case "json":
 				// Pretty print JSON
 				pretty, _ := json.MarshalIndent(result, "", "  ")
 				fmt.Println(string(pretty))
-			} else {
+
+			case "html":
+				// Generate HTML report
+				if outputDir == "" {
+					outputDir = "."
+				}
+				reporter := mutation.NewReporter(outputDir)
+				path, err := reporter.GenerateReport(&result, mutation.FormatHTML)
+				if err != nil {
+					return fmt.Errorf("failed to generate HTML report: %w", err)
+				}
+				fmt.Printf("📄 HTML report generated: %s\n", path)
+
+			default:
 				displayMutationResult(&result)
 			}
 
@@ -180,7 +225,8 @@ func mutationReportCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&reportFile, "file", "f", "", "Report file to view")
-	cmd.Flags().StringVar(&format, "format", "text", "Output format: text or json")
+	cmd.Flags().StringVar(&format, "format", "text", "Output format: text, json, or html")
+	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "Output directory for HTML reports")
 	cmd.MarkFlagRequired("file")
 
 	return cmd
