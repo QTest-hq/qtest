@@ -143,8 +143,8 @@ Cloud APIs (Claude, OpenAI) are optional fallbacks.
 
 | Tier | Local (Ollama) | VRAM | Cloud (Fallback) | Use Case |
 |------|----------------|------|------------------|----------|
-| Tier 1 | Qwen2.5 7B | ~5GB | Claude Haiku, GPT-4o-mini | Boilerplate, summaries |
-| Tier 2 | Qwen2.5 14B | ~9GB | Claude Sonnet, GPT-4o | Test logic, assertions |
+| Tier 1 | qwen2.5-coder:7b | ~5GB | Claude Haiku | Boilerplate, summaries |
+| Tier 2 | deepseek-coder-v2:16b | ~9GB | Claude Sonnet | Test logic, assertions |
 | Tier 3 | *Cloud only* | N/A | Claude Sonnet 3.5 | Complex reasoning, critics |
 
 **For 24GB+ VRAM GPUs (RTX 4090, RTX 3090, A100):**
@@ -237,11 +237,11 @@ var DefaultConfig = LLMRouterConfig{
     },
     TierModels: map[LLMTier]map[LLMProvider]string{
         LLMTier1: {
-            ProviderOllama:    "qwen2.5:7b",      // ~5GB VRAM
+            ProviderOllama:    "qwen2.5-coder:7b",      // ~5GB VRAM, code-optimized
             ProviderAnthropic: "claude-3-haiku-20240307",
         },
         LLMTier2: {
-            ProviderOllama:    "qwen2.5:14b",     // ~9GB VRAM (fits 16GB GPUs)
+            ProviderOllama:    "deepseek-coder-v2:16b", // ~9GB VRAM, excellent for code
             ProviderAnthropic: "claude-3-5-sonnet-20241022",
         },
         LLMTier3: {
