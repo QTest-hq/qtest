@@ -14,6 +14,22 @@ type SimpleTest struct {
 	Setup      map[string]interface{} `yaml:"setup,omitempty"`
 	Action     interface{}            `yaml:"action"` // Can be string or map
 	Assertions interface{}            `yaml:"assertions"` // Can be map or list
+	Assert     interface{}            `yaml:"assert"`     // Alternative name for assertions
+	Expected   interface{}            `yaml:"expected"`   // Another alternative
+}
+
+// GetAssertions returns assertions from whichever field is populated
+func (t *SimpleTest) GetAssertions() interface{} {
+	if t.Assertions != nil {
+		return t.Assertions
+	}
+	if t.Assert != nil {
+		return t.Assert
+	}
+	if t.Expected != nil {
+		return t.Expected
+	}
+	return nil
 }
 
 // SimpleTestList is a list of simple tests (what LLM typically returns)
@@ -93,7 +109,7 @@ func convertSimpleListToDSL(tests []SimpleTest, funcName, filePath, language str
 		}
 
 		// Parse assertions as expected
-		step.Expected = parseAssertions(test.Assertions)
+		step.Expected = parseAssertions(test.GetAssertions())
 
 		result.Steps = append(result.Steps, step)
 	}
@@ -201,9 +217,15 @@ func parseAssertions(assertions interface{}) *dsl.Expected {
 
 	switch v := assertions.(type) {
 	case map[string]interface{}:
-		// Direct map: {result: 5}
+		// Direct map: {result: 5} or {expect: "result == 5"}
 		if result, ok := v["result"]; ok {
 			expected.Value = result
+		}
+		// Handle expect: "result == value" format
+		if expect, ok := v["expect"]; ok {
+			if val := parseExpectExpression(expect); val != nil {
+				expected.Value = val
+			}
 		}
 		expected.Properties = v
 
@@ -213,6 +235,12 @@ func parseAssertions(assertions interface{}) *dsl.Expected {
 			if m, ok := item.(map[string]interface{}); ok {
 				if result, ok := m["result"]; ok {
 					expected.Value = result
+				}
+				// Handle expect: "result == value" format
+				if expect, ok := m["expect"]; ok {
+					if val := parseExpectExpression(expect); val != nil {
+						expected.Value = val
+					}
 				}
 				for k, val := range m {
 					expected.Properties[k] = val
@@ -225,4 +253,33 @@ func parseAssertions(assertions interface{}) *dsl.Expected {
 	}
 
 	return expected
+}
+
+// parseExpectExpression extracts value from expressions like "result == 8"
+func parseExpectExpression(expr interface{}) interface{} {
+	str, ok := expr.(string)
+	if !ok {
+		return nil
+	}
+
+	// Handle "result == value" format
+	if strings.Contains(str, "==") {
+		parts := strings.Split(str, "==")
+		if len(parts) == 2 {
+			valueStr := strings.TrimSpace(parts[1])
+			// Try to parse as number
+			var intVal int
+			if _, err := fmt.Sscanf(valueStr, "%d", &intVal); err == nil {
+				return intVal
+			}
+			var floatVal float64
+			if _, err := fmt.Sscanf(valueStr, "%f", &floatVal); err == nil {
+				return floatVal
+			}
+			// Return as string if not a number
+			return valueStr
+		}
+	}
+
+	return nil
 }

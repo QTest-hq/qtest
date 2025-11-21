@@ -1,0 +1,9 @@
+{
+  "name": "express-api-example",
+  "version": "1.0.0",
+  "description": "Sample Express API for QTest demonstration",
+  "main": "app.js",
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

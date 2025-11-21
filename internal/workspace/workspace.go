@@ -68,6 +68,8 @@ type TargetState struct {
 	Type         string         `json:"type"`         // function, method, class
 	Line         int            `json:"line"`
 	Status       TargetStatus   `json:"status"`
+	Covered      bool           `json:"covered"`      // Whether tests have been generated
+	SpecID       string         `json:"spec_id,omitempty"` // ID of generated spec
 	TestFile     string         `json:"test_file,omitempty"`
 	CommitSHA    string         `json:"commit_sha,omitempty"`
 	Error        string         `json:"error,omitempty"`
@@ -261,6 +263,23 @@ func (ws *Workspace) UpdateTarget(id string, status TargetStatus, testFile strin
 	case StatusSkipped:
 		ws.State.Skipped++
 	}
+}
+
+// UpdateTargetCovered marks a target as covered with the generated spec ID
+func (ws *Workspace) UpdateTargetCovered(id string, specID string) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+
+	target, ok := ws.State.Targets[id]
+	if !ok {
+		return
+	}
+
+	target.Status = StatusCompleted
+	target.Covered = true
+	target.SpecID = specID
+	now := time.Now()
+	target.GeneratedAt = &now
 }
 
 // Progress returns current progress as a percentage

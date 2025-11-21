@@ -25,6 +25,7 @@ func workspaceCmd() *cobra.Command {
 	cmd.AddCommand(workspaceListCmd())
 	cmd.AddCommand(workspaceStatusCmd())
 	cmd.AddCommand(workspaceRunCmd())
+	cmd.AddCommand(workspaceRunV2Cmd()) // New pipeline
 	cmd.AddCommand(workspaceResumeCmd())
 	cmd.AddCommand(workspaceValidateCmd())
 	cmd.AddCommand(workspaceCoverageCmd())
@@ -266,6 +267,127 @@ func workspaceRunCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Don't write test files")
 	cmd.Flags().BoolVar(&validate, "validate", false, "Run tests after generation to verify they pass")
 	cmd.Flags().BoolVar(&coverage, "coverage", false, "Collect code coverage after generation")
+
+	return cmd
+}
+
+func workspaceRunV2Cmd() *cobra.Command {
+	var (
+		tier       int
+		commitEach bool
+		dryRun     bool
+		maxTests   int
+	)
+
+	cmd := &cobra.Command{
+		Use:   "run-v2 <workspace-id>",
+		Short: "Run test generation with new SystemModel pipeline",
+		Long: `Runs the new SystemModel-based test generation pipeline:
+
+1. Builds Universal System Model from repository
+2. Detects API endpoints (Express, FastAPI, Gin)
+3. Generates prioritized test plan
+4. Uses LLM to create test specifications
+5. Emits test code (supertest, pytest, go-http)
+
+This is the recommended command for generating complete test suites.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Load workspace
+			ws, err := workspace.LoadByID(args[0], nil)
+			if err != nil {
+				return fmt.Errorf("workspace not found: %w", err)
+			}
+
+			// Load config
+			cfg, err := config.Load()
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			// Create LLM router
+			router, err := llm.NewRouter(cfg)
+			if err != nil {
+				return fmt.Errorf("failed to create LLM router: %w", err)
+			}
+
+			if err := router.HealthCheck(); err != nil {
+				return fmt.Errorf("LLM not available: %w\nMake sure Ollama is running", err)
+			}
+
+			// Create runner config
+			runCfg := workspace.DefaultRunConfig()
+			runCfg.Tier = llm.Tier(tier)
+			runCfg.CommitEach = commitEach
+			runCfg.DryRun = dryRun
+			runCfg.MaxTests = maxTests
+
+			// Create v2 runner
+			runner := workspace.NewRunnerV2(ws, router, cfg.GitHubToken, runCfg)
+
+			// Setup progress callback
+			runner.OnProgress = func(phase string, current, total int, message string) {
+				if total > 0 {
+					fmt.Printf("\r[%s] %d/%d %s", phase, current, total, message)
+				} else {
+					fmt.Printf("\r[%s] %s", phase, message)
+				}
+			}
+
+			runner.OnComplete = func(testFile string, count int) {
+				fmt.Printf("\n✓ Written: %s (%d tests)\n", testFile, count)
+			}
+
+			// Setup graceful shutdown
+			ctx, cancel := context.WithCancel(context.Background())
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+			go func() {
+				<-sigCh
+				fmt.Println("\n\nPausing... (progress saved)")
+				runner.Pause()
+				cancel()
+			}()
+
+			// Initialize if needed
+			if ws.State.Phase == workspace.PhaseInit || ws.State.Phase == "" {
+				fmt.Println("🔍 Initializing workspace (building model, planning tests)...")
+				if err := runner.Initialize(ctx); err != nil {
+					return fmt.Errorf("initialization failed: %w", err)
+				}
+				fmt.Println()
+			}
+
+			// Run generation
+			fmt.Printf("\n🚀 Starting test generation (%d targets)...\n", ws.State.TotalTargets)
+			fmt.Println("Press Ctrl+C to pause\n")
+
+			if err := runner.Run(ctx); err != nil {
+				if ctx.Err() != nil {
+					fmt.Println("\nWorkspace paused. Resume with:")
+					fmt.Printf("  qtest workspace run-v2 %s\n", ws.ID)
+					return nil
+				}
+				return err
+			}
+
+			// Summary
+			fmt.Println("\n" + repeatStr("=", 50))
+			summary := ws.Summary()
+			fmt.Printf("Generation complete!\n")
+			fmt.Printf("  Completed: %d\n", summary["completed"])
+			fmt.Printf("  Failed:    %d\n", summary["failed"])
+			fmt.Printf("  Artifacts: %s/artifacts/\n", ws.Path())
+
+			return nil
+		},
+	}
+
+	cmd.Flags().IntVarP(&tier, "tier", "t", 1, "LLM tier (1=fast, 2=balanced, 3=thorough)")
+	cmd.Flags().BoolVar(&commitEach, "commit", true, "Commit after each batch")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Don't write test files")
+	cmd.Flags().IntVar(&maxTests, "max", 0, "Maximum tests to generate (0=all)")
 
 	return cmd
 }

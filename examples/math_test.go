@@ -1,53 +1,79 @@
 package math
 
 import (
-	"math"
 	"testing"
+
 )
 
+
 func TestMathCombined(t *testing.T) {
+	
 	var result interface{}
 	_ = result
-
-	// Add two positive integers
-	result = Add(2, 3)
-
-	// Add zero to a positive integer
+	
+	// Add positive numbers
+	result = Add(5, 3)
+	
+	if result != 8 {
+		t.Errorf("expected %v, got %v", 8, result)
+	}
+	
+	
+	// Add negative numbers
+	result = Add(-2, -4)
+	
+	if result != -6 {
+		t.Errorf("expected %v, got %v", -6, result)
+	}
+	
+	
+	// Add zero and positive number
 	result = Add(0, 7)
-
-	// Add two negative integers
-	result = Add(-4, -6)
-
-	// Add a positive integer to zero
-	result = Add(5, 0)
-
-	// Add the maximum int value to itself (using actual constants)
-	result = Add(math.MaxInt32, math.MaxInt32)
-
-	// Add the minimum int value to itself
-	result = Add(math.MinInt32, math.MinInt32)
-
-	// Add a positive integer to the maximum int value
-	result = Add(math.MaxInt32, 1)
-
-	// Add a negative integer to the minimum int value
-	result = Add(math.MinInt32, -1)
-
-	// Add two very large positive integers
-	result = Add(1000000000, 2000000000)
-
-	// Add two very large negative integers
-	result = Add(-1000000000, -2000000000)
-
-	// Add a positive integer to the maximum int value and handle overflow
-	result = Add(math.MaxInt32, 1)
-
-	// Add a negative integer to the minimum int value and handle underflow
-	result = Add(math.MinInt32, -1)
-
-	// Add two very large integers with different signs
-	result = Add(1000000000, -500000000)
-
-	// Add two very small integers with different signs
-	result = Add(-1, 1)
+	
+	if result != 7 {
+		t.Errorf("expected %v, got %v", 7, result)
+	}
+	
+	
+	// Add zero and negative number
+	result = Add(0, -3)
+	
+	if result != -3 {
+		t.Errorf("expected %v, got %v", -3, result)
+	}
+	
+	
+	// Multiply positive numbers
+	result = Multiply(5, 3)
+	
+	if result != 15 {
+		t.Errorf("expected %v, got %v", 15, result)
+	}
+	
+	
+	// Multiply negative and positive numbers
+	result = Multiply(-4, 6)
+	
+	if result != -24 {
+		t.Errorf("expected %v, got %v", -24, result)
+	}
+	
+	
+	// Multiply zero with positive number
+	result = Multiply(0, 7)
+	
+	if result != 0 {
+		t.Errorf("expected %v, got %v", 0, result)
+	}
+	
+	
+	// Multiply two negative numbers
+	result = Multiply(-3, -2)
+	
+	if result != 6 {
+		t.Errorf("expected %v, got %v", 6, result)
+	}
+	
+	
 }
+

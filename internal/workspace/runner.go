@@ -45,6 +45,7 @@ type RunConfig struct {
 	MaxConcurrent   int      // Max parallel generations
 	FilePatterns    []string // Files to include
 	ValidateTests   bool     // Run tests after generation
+	MaxTests        int      // Max tests to generate (0=unlimited)
 }
 
 // DefaultRunConfig returns sensible defaults

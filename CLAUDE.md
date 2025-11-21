@@ -1,76 +1,123 @@
-# QTest - AI-Powered Test Generation Platform
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-QTest generates comprehensive test suites using AI (Ollama LLMs). It parses source code, sends functions to LLMs for test specification generation, and converts the output to language-specific test code.
+QTest is an AI-powered test generation platform. It parses source code using Tree-sitter, sends functions to LLMs (Ollama by default) for test specification generation, and converts the YAML output to language-specific test code.
 
-## Quick Start
+## Build & Development Commands
 
 ```bash
-# Build
+# Build CLI
 go build -o ./bin/qtest ./cmd/cli/
 
-# Parse a file
-./bin/qtest parse -f <source-file>
+# Build all (api, worker, cli)
+make build
 
-# Generate tests (requires: ollama serve)
+# Run tests
+go test ./...                           # All tests
+go test -v ./internal/generator/...     # Single package
+go test -v -run TestConvertToDSL ./internal/generator/...  # Single test
+
+# Lint
+make lint
+
+# Generate tests using QTest itself (requires: ollama serve)
 ./bin/qtest generate-file -f <source-file> -t 1 -m 5 --write
 
-# Workspace management
-./bin/qtest workspace init <repo-url>
-./bin/qtest workspace list
-./bin/qtest workspace status <name>
+# Parse a file to see extracted functions
+./bin/qtest parse -f <source-file>
 ```
 
 ## Architecture
 
+### Universal System Model (The Core IR)
+
+QTest uses a **Universal System Model** as its language-agnostic intermediate representation:
+
 ```
-cmd/cli/main.go              # CLI entry (cobra)
-internal/
-  adapters/                  # Framework adapters
-    go_adapter.go            # Go test generation
-    python_adapter.go        # pytest generation
-    jest_adapter.go          # Jest generation
-  generator/
-    generator.go             # LLM orchestration
-    converter.go             # YAML to DSL conversion
-  llm/
-    router.go                # Tier-based LLM routing
-    ollama.go                # Ollama client
-    prompts.go               # System prompts
-  parser/parser.go           # Tree-sitter parsing
-  workspace/                 # Workspace management
-pkg/dsl/types.go             # DSL type definitions
+Source Files → Tree-sitter Parser → System Model ← Framework Supplements
+                                         ↓
+                                   Test Targets
+                                         ↓
+                                  LLM Generation
+                                         ↓
+                              Framework Adapters
+                                         ↓
+                                   Test Code
 ```
 
-## LLM Tiers
+**Key packages:**
+- `pkg/model/` - Universal System Model schema and builder
+- `internal/supplements/` - Framework-specific endpoint detectors (Express, FastAPI, Gin)
 
-- **Tier 1** (fast): qwen2.5-coder:7b
-- **Tier 2** (balanced): deepseek-coder-v2:16b
-- **Tier 3** (thorough): deepseek-coder-v2:16b
-
-## Key Commands
-
-| Command | Description |
-|---------|-------------|
-| `qtest parse -f FILE` | Parse source, show functions |
-| `qtest generate-file -f FILE -t TIER -m MAX --write` | Generate tests |
-| `qtest workspace init URL` | Initialize workspace from repo |
-| `qtest workspace list` | List workspaces |
-| `qtest analyze -p PATH` | Analyze repository |
-
-## Testing
-
+**Full Test Generation Pipeline:**
 ```bash
-# Test with example file
-./bin/qtest generate-file -f examples/math.go -t 1 -m 2 --write
-cd examples && go test -v
+# 1. Build system model (parse code, detect endpoints)
+./bin/qtest model build -d <directory> -o model.json
+
+# 2. Generate test plan (prioritize what to test)
+./bin/qtest plan generate -m model.json -o plan.json
+
+# 3. Generate test specs via LLM
+./bin/qtest generate-specs -m model.json -p plan.json -o specs.json -t 1
+
+# 4. Emit test code from specs
+./bin/qtest emit-tests -s specs.json -o ./tests --emitter supertest  # Jest
+./bin/qtest emit-tests -s specs.json -o ./tests --emitter pytest     # pytest
+./bin/qtest emit-tests -s specs.json -o ./tests --emitter go-http    # Go
 ```
 
-## Development Notes
+### Pipeline Flow
+```
+Source Files → Tree-sitter → SystemModel → Planner → TestIntents → LLM → TestSpecs → Adapters → Test Code
+```
+
+### Key Components
+
+**Universal System Model** (`pkg/model/`):
+- `model.go` - Schema for modules, functions, endpoints, types, test targets
+- `builder.go` - Builds model from parsed files, runs supplements, computes risk scores
+- `adapter.go` - Bridges parser output to model builder
+- `intent.go` - TestIntent (what to test) and TestPlan types
+- `spec.go` - TestSpec (detailed test specification) with assertions
+- `planner.go` - Generates prioritized TestIntents from SystemModel
+
+**Spec Generator** (`internal/specgen/`):
+- `generator.go` - Uses LLM to convert TestIntent → TestSpec
+
+**Test Emitters** (`internal/emitter/`):
+- `supertest.go` - Jest + Supertest for Express/Node.js APIs
+- `pytest.go` - pytest + httpx for FastAPI/Python APIs
+- `go_http.go` - Go net/http testing
+
+**Framework Supplements** (`internal/supplements/`):
+- `express.go` - Detects Express.js routes (app.get, router.post, etc.)
+- `fastapi.go` - Detects FastAPI routes (@app.get decorators)
+- `gin.go` - Detects Gin routes (r.GET, router.POST)
+- `registry.go` - Auto-detects which supplements to run
+
+**Generator Pipeline** (`internal/generator/`):
+- `generator.go` - Orchestrates LLM calls, builds context from parsed functions
+- `converter.go` - Converts LLM YAML output to internal DSL. Handles multiple YAML formats (`assertions:`, `assert:`, `expected:`, `expect: "result == X"`)
+
+**LLM Layer** (`internal/llm/`):
+- `router.go` - Tier-based routing with retry logic and exponential backoff
+- `ollama.go` / `anthropic.go` - Provider clients
+- `prompts.go` - System prompts for test generation
+
+**Framework Adapters** (`internal/adapters/`):
+- `go_adapter.go` - Generates Go test code from DSL
+- Uses `var result interface{}` pattern to avoid redeclaration errors
+- `formatGoArg()` handles type conversion and unresolved variable defaults
+
+**Parser** (`internal/parser/`):
+- Tree-sitter based parsing for Go, Python, JavaScript, TypeScript
+- Extracts functions, methods, classes, parameters
 
 ### DSL Format
-LLM returns simple YAML that `converter.go` transforms to full DSL:
+LLM returns YAML that converter transforms to `pkg/dsl/types.go` structures:
 ```yaml
 - name: "Test case name"
   setup: {a: 1, b: 2}
@@ -78,12 +125,32 @@ LLM returns simple YAML that `converter.go` transforms to full DSL:
   assertions: {result: 3}
 ```
 
-### Go Adapter Template
-Uses `var result interface{}` with `result =` assignments to avoid redeclaration errors.
+### LLM Tiers
+- **Tier 1** (fast): qwen2.5-coder:7b - use for most generation
+- **Tier 2** (balanced): deepseek-coder-v2:16b
+- **Tier 3** (thorough): claude-3-opus - complex reasoning
 
-### Variable Handling
-`formatGoArg()` in go_adapter.go handles unresolved `${var}` references by defaulting to `0`.
+## Current Implementation Status
 
-## Current Status
+**Working (Phase 1):**
+- Universal System Model with framework supplements
+- API endpoint detection (Express, FastAPI, Gin)
+- CLI parsing and test generation for Go files
+- LLM integration with Ollama (local) and Anthropic
+- Go test adapter with assertions
+- Workspace management
+- Risk scoring and test target prioritization
 
-See `CONTEXT.md` for detailed development state and pending tasks.
+**Not yet implemented:**
+- API test generation (from detected endpoints)
+- E2E test generation (Playwright)
+- Worker system (async processing)
+- GitHub integration (PR creation)
+- Mutation testing validation
+
+## Key Files When Debugging Test Generation
+
+1. `internal/llm/prompts.go` - What we ask the LLM
+2. `internal/generator/converter.go` - YAML parsing, variable resolution
+3. `internal/adapters/go_adapter.go` - Code generation, assertion rendering
+4. `cmd/cli/main.go:writeTestFiles()` - How tests get combined and written

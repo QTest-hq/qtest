@@ -14,6 +14,12 @@ Your task is to generate high-quality, meaningful tests that:
 3. Are maintainable and readable
 4. Follow the conventions of the target testing framework
 
+IMPORTANT:
+- Use realistic, reasonable test values (avoid extreme values that cause overflow)
+- Generate 4-6 test cases maximum - quality over quantity
+- For numeric types, use values within safe ranges (e.g., -1000000 to 1000000)
+- Each test should have a clear expected result assertion
+
 Output tests in the specified DSL format (YAML). Be precise and thorough.`
 
 const SystemPromptCritic = `You are a test quality expert. Analyze the given test and determine if it:

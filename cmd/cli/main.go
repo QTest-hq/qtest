@@ -111,6 +111,13 @@ func main() {
 	rootCmd.AddCommand(analyzeCmd())
 	rootCmd.AddCommand(parseCmd())
 	rootCmd.AddCommand(workspaceCmd())
+	rootCmd.AddCommand(modelCmd())
+	rootCmd.AddCommand(planCmd())
+	rootCmd.AddCommand(generateSpecsCmd())
+	rootCmd.AddCommand(emitTestsCmd())
+	rootCmd.AddCommand(validateCmd())
+	rootCmd.AddCommand(contractCmd())
+	rootCmd.AddCommand(datagenCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

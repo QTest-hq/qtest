@@ -128,6 +128,12 @@ func (g *Generator) generateTestForFunction(ctx context.Context, fn *parser.Func
 	// Parse the response
 	yamlContent := llm.ParseDSLOutput(resp.Content)
 
+	// DEBUG: Log raw YAML for troubleshooting
+	log.Debug().
+		Str("function", fn.Name).
+		Str("raw_yaml", yamlContent).
+		Msg("LLM YAML response")
+
 	// Convert LLM output to DSL (handles multiple formats)
 	testDSL, err := ConvertToDSL(yamlContent, fn.Name, file.Path, string(file.Language))
 	if err != nil {
@@ -143,6 +149,26 @@ func (g *Generator) generateTestForFunction(ctx context.Context, fn *parser.Func
 			contentPreview = contentPreview[:500] + "... (truncated, see debug logs for full content)"
 		}
 		return nil, fmt.Errorf("failed to parse LLM response as test DSL: %w\n\nLLM Output:\n%s", err, contentPreview)
+	}
+
+	// DEBUG: Log parsed DSL
+	log.Debug().
+		Str("function", fn.Name).
+		Int("steps", len(testDSL.Steps)).
+		Msg("converted DSL")
+	for i, step := range testDSL.Steps {
+		hasExpected := step.Expected != nil
+		var expectedVal interface{}
+		if hasExpected && step.Expected.Value != nil {
+			expectedVal = step.Expected.Value
+		}
+		log.Debug().
+			Int("step", i).
+			Str("desc", step.Description).
+			Interface("args", step.Action.Args).
+			Bool("has_expected", hasExpected).
+			Interface("expected_value", expectedVal).
+			Msg("DSL step")
 	}
 
 	// Fill in defaults
