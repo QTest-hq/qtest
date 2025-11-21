@@ -183,14 +183,80 @@ git clone https://github.com/your-org/qtest.git
 cd qtest
 
 # Build
-go build -o qtest ./cmd/cli
+go build -o ./bin/qtest ./cmd/cli
 
-# Generate tests for a repo
-./qtest generate --repo https://github.com/user/repo
+# Analyze a repository
+./bin/qtest analyze -p ./my-project
 
-# Generate tests for a website
-./qtest generate --url https://example.com
+# Generate tests for a single file
+./bin/qtest generate-file -f ./path/to/source.go -t 1 -m 5 --write
+
+# Generate tests for a full repo
+./bin/qtest generate -r ./my-project
+
+# Run mutation testing
+./bin/qtest mutation run -s calculator.go -t calculator_test.go
 ```
+
+## CLI Commands
+
+### Analysis & Generation
+
+| Command | Description |
+|---------|-------------|
+| `qtest analyze -p PATH` | Analyze repository structure and detect test targets |
+| `qtest analyze --json` | Output analysis as JSON |
+| `qtest analyze --coverage` | Include coverage analysis |
+| `qtest generate -r REPO` | Generate tests for entire repository |
+| `qtest generate-file -f FILE` | Generate tests for single file |
+| `qtest parse -f FILE` | Parse source file and show functions |
+
+### Coverage
+
+| Command | Description |
+|---------|-------------|
+| `qtest coverage collect` | Run tests and collect coverage |
+| `qtest coverage collect --json` | Output coverage as JSON |
+| `qtest coverage collect --html DIR` | Generate HTML report |
+| `qtest coverage analyze -r FILE` | Analyze coverage gaps |
+| `qtest coverage gaps -r FILE` | Generate test intents for gaps |
+| `qtest coverage generate` | Generate tests to improve coverage |
+| `qtest coverage report -r FILE` | View/export coverage report |
+| `qtest coverage ci -t 80` | CI check with threshold enforcement |
+
+### Mutation Testing
+
+| Command | Description |
+|---------|-------------|
+| `qtest mutation run -s SRC -t TEST` | Run mutation testing |
+| `qtest mutation run --mode thorough` | Thorough mutation analysis |
+| `qtest mutation report -f FILE` | View mutation report |
+
+### Workspace Management
+
+| Command | Description |
+|---------|-------------|
+| `qtest workspace init URL` | Initialize workspace from repo |
+| `qtest workspace list` | List all workspaces |
+| `qtest workspace status NAME` | Show workspace status |
+| `qtest workspace run NAME` | Run test generation |
+
+### Configuration
+
+| Command | Description |
+|---------|-------------|
+| `qtest config` | Show current configuration |
+| `qtest validate -f FILE` | Validate generated tests |
+
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OLLAMA_URL` | Ollama server URL | `http://localhost:11434` |
+| `OLLAMA_TIER1_MODEL` | Fast model | `qwen2.5-coder:7b` |
+| `OLLAMA_TIER2_MODEL` | Balanced model | `deepseek-coder-v2:16b` |
+| `ANTHROPIC_API_KEY` | Anthropic API key (Tier 3) | - |
+| `GITHUB_TOKEN` | GitHub token for private repos | - |
 
 ## License
 
