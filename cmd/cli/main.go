@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/QTest-hq/qtest/internal/adapters"
+	"github.com/QTest-hq/qtest/internal/codecov"
 	"github.com/QTest-hq/qtest/internal/config"
 	"github.com/QTest-hq/qtest/internal/generator"
 	"github.com/QTest-hq/qtest/internal/llm"
@@ -376,9 +377,12 @@ func generateFileCmd() *cobra.Command {
 
 func analyzeCmd() *cobra.Command {
 	var (
-		repoPath   string
-		outputFile string
-		verbose    bool
+		repoPath    string
+		outputFile  string
+		verbose     bool
+		jsonOut     bool
+		withCoverage bool
+		showAll     bool
 	)
 
 	cmd := &cobra.Command{
@@ -393,11 +397,15 @@ The output shows:
 - File and function counts by language
 - Detected API endpoints
 - Prioritized test targets
+- Code complexity metrics
 
 Examples:
-  qtest analyze                     # Analyze current directory
-  qtest analyze -p ./my-project     # Analyze specific path
-  qtest analyze -p . -o model.json  # Save model to file`,
+  qtest analyze                        # Analyze current directory
+  qtest analyze -p ./my-project        # Analyze specific path
+  qtest analyze -p . -o model.json     # Save model to file
+  qtest analyze --json                 # Output as JSON
+  qtest analyze --coverage             # Include coverage analysis
+  qtest analyze --all                  # Show all test targets`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 
@@ -478,8 +486,25 @@ Examples:
 				return fmt.Errorf("failed to build model: %w", err)
 			}
 
-			// Print summary
+			// Build stats
 			stats := sysModel.Stats()
+
+			// JSON output mode
+			if jsonOut {
+				result := map[string]interface{}{
+					"path":        validPath,
+					"languages":   sysModel.Languages,
+					"stats":       stats,
+					"endpoints":   sysModel.Endpoints,
+					"testTargets": sysModel.TestTargets,
+					"modules":     len(sysModel.Modules),
+				}
+				data, _ := json.MarshalIndent(result, "", "  ")
+				fmt.Println(string(data))
+				return nil
+			}
+
+			// Print summary
 			fmt.Println()
 			fmt.Println("📊 Analysis Summary")
 			fmt.Println(strings.Repeat("─", 40))
@@ -490,29 +515,69 @@ Examples:
 			fmt.Printf("   Endpoints:    %d\n", stats["endpoints"])
 			fmt.Printf("   Test Targets: %d\n", stats["test_targets"])
 
-			// Show endpoints
+			// Show endpoints with method colors
 			if len(sysModel.Endpoints) > 0 {
 				fmt.Println()
 				fmt.Println("🌐 API Endpoints:")
 				for _, ep := range sysModel.Endpoints {
-					fmt.Printf("   %s %s → %s\n", ep.Method, ep.Path, ep.Handler)
+					methodIcon := getMethodIcon(ep.Method)
+					fmt.Printf("   %s %-6s %s → %s\n", methodIcon, ep.Method, ep.Path, ep.Handler)
 				}
 			}
 
-			// Show top test targets
+			// Show test targets with priority indicators
 			if len(sysModel.TestTargets) > 0 {
 				fmt.Println()
 				fmt.Println("🎯 Priority Test Targets:")
-				maxShow := 5
-				if len(sysModel.TestTargets) < maxShow {
+
+				maxShow := 10
+				if showAll {
+					maxShow = len(sysModel.TestTargets)
+				} else if len(sysModel.TestTargets) < maxShow {
 					maxShow = len(sysModel.TestTargets)
 				}
+
 				for i := 0; i < maxShow; i++ {
 					t := sysModel.TestTargets[i]
-					fmt.Printf("   %d. [%s] %s\n", i+1, t.Kind, t.Reason)
+					priorityIcon := getPriorityIcon(t.Priority)
+					kindLabel := formatTargetKind(string(t.Kind))
+					fmt.Printf("   %s %d. [%s] %s\n", priorityIcon, i+1, kindLabel, t.Reason)
 				}
-				if len(sysModel.TestTargets) > maxShow {
-					fmt.Printf("   ... and %d more\n", len(sysModel.TestTargets)-maxShow)
+
+				if !showAll && len(sysModel.TestTargets) > maxShow {
+					fmt.Printf("   ... and %d more (use --all to show all)\n", len(sysModel.TestTargets)-maxShow)
+				}
+			}
+
+			// Coverage analysis if requested
+			if withCoverage {
+				fmt.Println()
+				fmt.Println("📈 Coverage Analysis:")
+				lang := detectProjectLanguage(validPath)
+				collector := codecov.NewCollector(validPath, lang)
+				report, err := collector.Collect(ctx)
+				if err != nil {
+					fmt.Printf("   ⚠️  Could not collect coverage: %v\n", err)
+				} else {
+					qualityIcon := "🔴"
+					if report.Percentage >= 80 {
+						qualityIcon = "🟢"
+					} else if report.Percentage >= 50 {
+						qualityIcon = "🟡"
+					}
+					fmt.Printf("   %s Coverage: %.1f%% (%d/%d lines)\n",
+						qualityIcon, report.Percentage, report.CoveredLines, report.TotalLines)
+
+					// Show low coverage files
+					lowCovFiles := 0
+					for _, f := range report.Files {
+						if f.Percentage < 50 {
+							lowCovFiles++
+						}
+					}
+					if lowCovFiles > 0 {
+						fmt.Printf("   ⚠️  %d files with <50%% coverage\n", lowCovFiles)
+					}
 				}
 			}
 
@@ -531,6 +596,9 @@ Examples:
 			fmt.Println()
 			fmt.Println("Next steps:")
 			fmt.Printf("  qtest generate -r %s    # Generate tests\n", validPath)
+			if !withCoverage {
+				fmt.Printf("  qtest analyze -p %s --coverage  # Analyze with coverage\n", validPath)
+			}
 
 			return nil
 		},
@@ -539,8 +607,57 @@ Examples:
 	cmd.Flags().StringVarP(&repoPath, "path", "p", ".", "Path to repository")
 	cmd.Flags().StringVarP(&outputFile, "output", "o", "", "Save model to JSON file")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show verbose output")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&withCoverage, "coverage", false, "Include coverage analysis")
+	cmd.Flags().BoolVar(&showAll, "all", false, "Show all test targets")
 
 	return cmd
+}
+
+// getMethodIcon returns an icon for HTTP method
+func getMethodIcon(method string) string {
+	switch method {
+	case "GET":
+		return "🔵"
+	case "POST":
+		return "🟢"
+	case "PUT", "PATCH":
+		return "🟡"
+	case "DELETE":
+		return "🔴"
+	default:
+		return "⚪"
+	}
+}
+
+// getPriorityIcon returns an icon for priority level
+func getPriorityIcon(priority int) string {
+	switch {
+	case priority >= 90:
+		return "🔴"
+	case priority >= 70:
+		return "🟠"
+	case priority >= 50:
+		return "🟡"
+	default:
+		return "🟢"
+	}
+}
+
+// formatTargetKind formats the target kind for display
+func formatTargetKind(kind string) string {
+	switch kind {
+	case "endpoint":
+		return "API"
+	case "function":
+		return "FN"
+	case "method":
+		return "MTH"
+	case "class":
+		return "CLS"
+	default:
+		return kind
+	}
 }
 
 // isSupportedExt checks if file extension is supported for parsing

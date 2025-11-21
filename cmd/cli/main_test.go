@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -120,5 +121,74 @@ func TestValidateDirPath_CurrentDir(t *testing.T) {
 	}
 	if path == "" {
 		t.Error("validateDirPath('.') should return non-empty path")
+	}
+}
+
+func TestGetMethodIcon(t *testing.T) {
+	tests := []struct {
+		method string
+		want   string
+	}{
+		{"GET", "🔵"},
+		{"POST", "🟢"},
+		{"PUT", "🟡"},
+		{"PATCH", "🟡"},
+		{"DELETE", "🔴"},
+		{"OPTIONS", "⚪"},
+		{"", "⚪"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method, func(t *testing.T) {
+			if got := getMethodIcon(tt.method); got != tt.want {
+				t.Errorf("getMethodIcon(%s) = %s, want %s", tt.method, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPriorityIcon(t *testing.T) {
+	tests := []struct {
+		priority int
+		want     string
+	}{
+		{100, "🔴"},
+		{90, "🔴"},
+		{80, "🟠"},
+		{70, "🟠"},
+		{60, "🟡"},
+		{50, "🟡"},
+		{40, "🟢"},
+		{0, "🟢"},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("priority_%d", tt.priority), func(t *testing.T) {
+			if got := getPriorityIcon(tt.priority); got != tt.want {
+				t.Errorf("getPriorityIcon(%d) = %s, want %s", tt.priority, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatTargetKind(t *testing.T) {
+	tests := []struct {
+		kind string
+		want string
+	}{
+		{"endpoint", "API"},
+		{"function", "FN"},
+		{"method", "MTH"},
+		{"class", "CLS"},
+		{"unknown", "unknown"},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.kind, func(t *testing.T) {
+			if got := formatTargetKind(tt.kind); got != tt.want {
+				t.Errorf("formatTargetKind(%s) = %s, want %s", tt.kind, got, tt.want)
+			}
+		})
 	}
 }
