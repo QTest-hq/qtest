@@ -19,63 +19,63 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-001 | Initialize Go module | 🔴 | P0 | - | `go mod init github.com/qtest/qtest` |
-| P1-002 | Set up project directory structure | 🔴 | P0 | P1-001 | cmd/, internal/, pkg/, web/ |
-| P1-003 | Configure linting (golangci-lint) | 🔴 | P0 | P1-001 | .golangci.yml |
-| P1-004 | Set up Makefile | 🔴 | P0 | P1-001 | build, test, lint, run targets |
-| P1-005 | Create Docker Compose for local dev | 🔴 | P0 | - | postgres, redis, nats |
-| P1-006 | Set up GitHub Actions CI | 🔴 | P1 | P1-003 | test, lint, build on PR |
-| P1-007 | Configure environment variables | 🔴 | P0 | P1-001 | .env.example, viper config |
-| P1-008 | Set up logging (zerolog) | 🔴 | P0 | P1-001 | Structured JSON logging |
+| P1-001 | Initialize Go module | 🟢 | P0 | - | `github.com/QTest-hq/qtest` |
+| P1-002 | Set up project directory structure | 🟢 | P0 | P1-001 | cmd/, internal/, pkg/ complete |
+| P1-003 | Configure linting (golangci-lint) | 🟢 | P0 | P1-001 | .golangci.yml exists |
+| P1-004 | Set up Makefile | 🟢 | P0 | P1-001 | build, test, lint, run targets |
+| P1-005 | Create Docker Compose for local dev | 🟢 | P0 | - | postgres, redis, nats configured |
+| P1-006 | Set up GitHub Actions CI | 🟢 | P1 | P1-003 | .github/workflows/ci.yml |
+| P1-007 | Configure environment variables | 🟢 | P0 | P1-001 | config/config.go with env loading |
+| P1-008 | Set up logging (zerolog) | 🟢 | P0 | P1-001 | Structured logging throughout |
 
 ### 1.2 Database Layer
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-010 | Design database schema | 🔴 | P0 | - | See data-schemas.md |
-| P1-011 | Set up sqlc for type-safe queries | 🔴 | P0 | P1-001 | sqlc.yaml configuration |
-| P1-012 | Write migration files | 🔴 | P0 | P1-010 | goose or golang-migrate |
-| P1-013 | Implement repositories table CRUD | 🔴 | P0 | P1-011, P1-012 | |
-| P1-014 | Implement system_models table CRUD | 🔴 | P0 | P1-011, P1-012 | |
-| P1-015 | Implement generation_runs table CRUD | 🔴 | P0 | P1-011, P1-012 | |
-| P1-016 | Implement test_results table CRUD | 🔴 | P0 | P1-011, P1-012 | |
-| P1-017 | Set up connection pooling (pgx) | 🔴 | P1 | P1-011 | |
-| P1-018 | Write database integration tests | 🔴 | P1 | P1-013-016 | testcontainers |
+| P1-010 | Design database schema | 🟢 | P0 | - | migrations/init.sql - 6+ tables |
+| P1-011 | Set up sqlc for type-safe queries | 🟢 | P0 | P1-001 | sqlc.yaml configured |
+| P1-012 | Write migration files | 🟢 | P0 | P1-010 | migrations/ directory |
+| P1-013 | Implement repositories table CRUD | 🟢 | P0 | P1-011, P1-012 | internal/db/store.go |
+| P1-014 | Implement system_models table CRUD | 🟢 | P0 | P1-011, P1-012 | internal/db/store.go |
+| P1-015 | Implement generation_runs table CRUD | 🟢 | P0 | P1-011, P1-012 | internal/db/store.go |
+| P1-016 | Implement test_results table CRUD | 🟢 | P0 | P1-011, P1-012 | internal/db/store.go |
+| P1-017 | Set up connection pooling (pgx) | 🟢 | P1 | P1-011 | min=5, max=25 in db.go |
+| P1-018 | Write database integration tests | 🔴 | P1 | P1-013-016 | testcontainers needed |
 
 ### 1.3 Repository Ingestion
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
 | P1-020 | Implement GitHub OAuth flow | 🔴 | P0 | - | OAuth2 for private repos |
-| P1-021 | Implement repository cloner (go-git) | 🔴 | P0 | - | Clone public repos |
-| P1-022 | Add private repo clone support | 🔴 | P0 | P1-020, P1-021 | With auth token |
-| P1-023 | Implement language detection | 🔴 | P0 | P1-021 | Detect TS/JS/Python/Go/Java |
-| P1-024 | Implement framework detection | 🔴 | P1 | P1-023 | Express, FastAPI, Spring, etc. |
-| P1-025 | Build file tree extraction | 🔴 | P0 | P1-021 | Respect .gitignore |
-| P1-026 | Implement clone timeout handling | 🔴 | P1 | P1-021 | 5 minute max |
-| P1-027 | Add repo size validation | 🔴 | P1 | P1-021 | 500MB max |
-| P1-028 | Write ingestion unit tests | 🔴 | P1 | P1-021-027 | |
+| P1-021 | Implement repository cloner (go-git) | 🟢 | P0 | - | internal/github/repo.go |
+| P1-022 | Add private repo clone support | 🟡 | P0 | P1-020, P1-021 | Token support exists, OAuth missing |
+| P1-023 | Implement language detection | 🟢 | P0 | P1-021 | internal/parser/languages.go |
+| P1-024 | Implement framework detection | 🔴 | P1 | P1-023 | Express, FastAPI, Spring missing |
+| P1-025 | Build file tree extraction | 🟢 | P0 | P1-021 | workspace/targets.go |
+| P1-026 | Implement clone timeout handling | 🟡 | P1 | P1-021 | Basic timeout, needs hardening |
+| P1-027 | Add repo size validation | 🔴 | P1 | P1-021 | Not implemented |
+| P1-028 | Write ingestion unit tests | 🔴 | P1 | P1-021-027 | No tests |
 
 ### 1.4 AST Parsing (Tree-sitter)
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-030 | Set up tree-sitter Go bindings | 🔴 | P0 | - | go-tree-sitter |
-| P1-031 | Add TypeScript grammar | 🔴 | P0 | P1-030 | tree-sitter-typescript |
-| P1-032 | Add JavaScript grammar | 🔴 | P0 | P1-030 | tree-sitter-javascript |
-| P1-033 | Implement function extractor (TS/JS) | 🔴 | P0 | P1-031, P1-032 | Name, params, return type |
-| P1-034 | Implement class extractor (TS/JS) | 🔴 | P0 | P1-031, P1-032 | Properties, methods |
-| P1-035 | Implement export extractor (TS/JS) | 🔴 | P0 | P1-031, P1-032 | ES modules, CommonJS |
-| P1-036 | Implement branch extractor | 🔴 | P1 | P1-033 | if/else, switch, ternary |
-| P1-037 | Implement call site extractor | 🔴 | P1 | P1-033 | Function calls |
-| P1-038 | Build unified AST adapter | 🔴 | P0 | P1-033-037 | Common representation |
-| P1-039 | Write parser unit tests | 🔴 | P1 | P1-033-038 | |
+| P1-030 | Set up tree-sitter Go bindings | 🟢 | P0 | - | smacker/go-tree-sitter in go.mod |
+| P1-031 | Add TypeScript grammar | 🟢 | P0 | P1-030 | tree-sitter-typescript |
+| P1-032 | Add JavaScript grammar | 🟢 | P0 | P1-030 | tree-sitter-javascript |
+| P1-033 | Implement function extractor (TS/JS) | 🟢 | P0 | P1-031, P1-032 | internal/parser/parser.go |
+| P1-034 | Implement class extractor (TS/JS) | 🟢 | P0 | P1-031, P1-032 | internal/parser/parser.go |
+| P1-035 | Implement export extractor (TS/JS) | 🟡 | P0 | P1-031, P1-032 | Basic, needs improvement |
+| P1-036 | Implement branch extractor | 🔴 | P1 | P1-033 | if/else, switch not extracted |
+| P1-037 | Implement call site extractor | 🔴 | P1 | P1-033 | Function calls not tracked |
+| P1-038 | Build unified AST adapter | 🟢 | P0 | P1-033-037 | ParsedFile, Function, Class types |
+| P1-039 | Write parser unit tests | 🔴 | P1 | P1-033-038 | No tests |
 
 ### 1.5 Endpoint Detection (Express/TS)
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-040 | Implement Express route detector | 🔴 | P0 | P1-033 | app.get/post/put/delete |
+| P1-040 | Implement Express route detector | 🔴 | P0 | P1-033 | **NOT STARTED** - Critical gap |
 | P1-041 | Implement Fastify route detector | 🔴 | P1 | P1-033 | |
 | P1-042 | Implement NestJS route detector | 🔴 | P1 | P1-034 | Decorators @Get, @Post |
 | P1-043 | Extract route parameters | 🔴 | P0 | P1-040 | Path params, query params |
@@ -87,19 +87,19 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-050 | Define SystemModel Go struct | 🔴 | P0 | - | See data-schemas.md |
-| P1-051 | Implement model builder orchestrator | 🔴 | P0 | P1-038 | Coordinate extractors |
-| P1-052 | Build dependency graph | 🔴 | P0 | P1-037 | Import relationships |
-| P1-053 | Calculate complexity metrics | 🔴 | P1 | P1-036 | Cyclomatic complexity |
-| P1-054 | Calculate risk scores | 🔴 | P1 | P1-052, P1-053 | Based on complexity, deps |
-| P1-055 | Serialize model to JSON | 🔴 | P0 | P1-050 | JSONB for PostgreSQL |
-| P1-056 | Write model builder tests | 🔴 | P1 | P1-051-055 | |
+| P1-050 | Define SystemModel Go struct | 🟢 | P0 | - | internal/parser/types.go |
+| P1-051 | Implement model builder orchestrator | 🟡 | P0 | P1-038 | Basic in workspace/ |
+| P1-052 | Build dependency graph | 🟡 | P0 | P1-037 | Imports tracked, graph incomplete |
+| P1-053 | Calculate complexity metrics | 🔴 | P1 | P1-036 | Not implemented |
+| P1-054 | Calculate risk scores | 🔴 | P1 | P1-052, P1-053 | Not implemented |
+| P1-055 | Serialize model to JSON | 🟢 | P0 | P1-050 | JSON marshaling works |
+| P1-056 | Write model builder tests | 🔴 | P1 | P1-051-055 | No tests |
 
 ### 1.7 Test Planner
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-060 | Define TestPlan Go struct | 🔴 | P0 | - | See data-schemas.md |
+| P1-060 | Define TestPlan Go struct | 🔴 | P0 | - | **NOT STARTED** - Critical gap |
 | P1-061 | Implement target classifier | 🔴 | P0 | P1-050 | Function → unit, endpoint → API |
 | P1-062 | Implement priority ranker | 🔴 | P0 | P1-054 | Based on risk score |
 | P1-063 | Implement pyramid distributor | 🔴 | P0 | P1-061 | Balance unit/integration/API |
@@ -111,113 +111,113 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-070 | Define LLMClient interface | 🔴 | P0 | - | Complete, Stream methods |
-| P1-071 | Implement Anthropic Claude client | 🔴 | P0 | P1-070 | Haiku, Sonnet, Opus |
-| P1-072 | Implement OpenAI client | 🔴 | P1 | P1-070 | GPT-4o, GPT-4o-mini |
-| P1-073 | Implement tiered model router | 🔴 | P0 | P1-071 | Route by task type |
-| P1-074 | Implement request cache (Redis) | 🔴 | P0 | P1-071 | Hash prompt → response |
-| P1-075 | Implement budget manager | 🔴 | P0 | P1-071 | Per-user/repo limits |
-| P1-076 | Implement usage tracker | 🔴 | P0 | P1-071 | Log all token usage |
-| P1-077 | Implement fallback logic | 🔴 | P1 | P1-071, P1-072 | Provider and tier fallback |
-| P1-078 | Write LLM integration tests | 🔴 | P1 | P1-071-077 | Mock responses |
+| P1-070 | Define LLMClient interface | 🟢 | P0 | - | internal/llm/types.go |
+| P1-071 | Implement Anthropic Claude client | 🟢 | P0 | P1-070 | internal/llm/anthropic.go |
+| P1-072 | Implement OpenAI client | 🔴 | P1 | P1-070 | Not implemented |
+| P1-073 | Implement tiered model router | 🟢 | P0 | P1-071 | internal/llm/router.go - Tier1/2/3 |
+| P1-074 | Implement request cache (Redis) | 🔴 | P0 | P1-071 | Redis configured, not integrated |
+| P1-075 | Implement budget manager | 🔴 | P0 | P1-071 | Not implemented |
+| P1-076 | Implement usage tracker | 🔴 | P0 | P1-071 | Not implemented |
+| P1-077 | Implement fallback logic | 🟢 | P1 | P1-071, P1-072 | router.go with retry + backoff |
+| P1-078 | Write LLM integration tests | 🔴 | P1 | P1-071-077 | No tests |
 
 ### 1.9 Test DSL Generator
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-080 | Define TestDSL Go struct | 🔴 | P0 | - | See test-dsl-spec.md |
-| P1-081 | Implement context builder | 🔴 | P0 | P1-050 | Assemble function context |
-| P1-082 | Design generation prompts | 🔴 | P0 | - | Unit, API test prompts |
-| P1-083 | Implement unit test DSL generator | 🔴 | P0 | P1-081, P1-082 | LLM → DSL |
-| P1-084 | Implement API test DSL generator | 🔴 | P0 | P1-081, P1-082 | LLM → DSL |
-| P1-085 | Implement DSL validator | 🔴 | P0 | P1-080 | Schema validation |
-| P1-086 | Implement batch generation | 🔴 | P1 | P1-083 | Multiple functions at once |
-| P1-087 | Write DSL generator tests | 🔴 | P1 | P1-083-086 | |
+| P1-080 | Define TestDSL Go struct | 🟢 | P0 | - | pkg/dsl/types.go (147 lines) |
+| P1-081 | Implement context builder | 🟢 | P0 | P1-050 | generator/generator.go buildContext |
+| P1-082 | Design generation prompts | 🟢 | P0 | - | internal/llm/prompts.go |
+| P1-083 | Implement unit test DSL generator | 🟢 | P0 | P1-081, P1-082 | generator.go + converter.go |
+| P1-084 | Implement API test DSL generator | 🔴 | P0 | P1-081, P1-082 | Unit only, API missing |
+| P1-085 | Implement DSL validator | 🟡 | P0 | P1-080 | Basic validation in converter |
+| P1-086 | Implement batch generation | 🔴 | P1 | P1-083 | Sequential only |
+| P1-087 | Write DSL generator tests | 🔴 | P1 | P1-083-086 | No tests |
 
 ### 1.10 Framework Adapters
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-090 | Define Adapter interface | 🔴 | P0 | - | DSL → Code |
-| P1-091 | Implement Jest adapter | 🔴 | P0 | P1-090 | For unit tests |
-| P1-092 | Implement Supertest adapter | 🔴 | P0 | P1-090 | For API tests |
-| P1-093 | Design adapter templates | 🔴 | P0 | P1-091 | Go templates |
-| P1-094 | Handle imports generation | 🔴 | P0 | P1-091 | Automatic imports |
-| P1-095 | Handle mock generation | 🔴 | P1 | P1-091 | jest.mock() |
-| P1-096 | Write adapter unit tests | 🔴 | P1 | P1-091-095 | |
+| P1-090 | Define Adapter interface | 🟢 | P0 | - | internal/adapters/adapter.go |
+| P1-091 | Implement Jest adapter | 🟡 | P0 | P1-090 | jest_adapter.go - basic |
+| P1-092 | Implement Supertest adapter | 🔴 | P0 | P1-090 | Not implemented |
+| P1-093 | Design adapter templates | 🟢 | P0 | P1-091 | Go templates in adapters |
+| P1-094 | Handle imports generation | 🟢 | P0 | P1-091 | Auto imports in templates |
+| P1-095 | Handle mock generation | 🔴 | P1 | P1-091 | Not implemented |
+| P1-096 | Write adapter unit tests | 🔴 | P1 | P1-091-095 | No tests |
 
 ### 1.11 Quality Gates (Basic)
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-100 | Implement compilation checker | 🔴 | P0 | P1-091 | Run tsc/eslint |
-| P1-101 | Implement runtime validator | 🔴 | P0 | P1-091 | Run test, check pass |
-| P1-102 | Design sandboxed execution | 🔴 | P0 | - | Docker container |
-| P1-103 | Implement test runner service | 🔴 | P0 | P1-102 | Execute in sandbox |
-| P1-104 | Handle test failures | 🔴 | P0 | P1-103 | Retry logic |
-| P1-105 | Record gate results | 🔴 | P0 | P1-016 | Store in database |
-| P1-106 | Write quality gate tests | 🔴 | P1 | P1-100-105 | |
+| P1-100 | Implement compilation checker | 🟢 | P0 | P1-091 | workspace/validator.go |
+| P1-101 | Implement runtime validator | 🟢 | P0 | P1-091 | workspace/runner.go |
+| P1-102 | Design sandboxed execution | 🟡 | P0 | - | Basic, no Docker isolation |
+| P1-103 | Implement test runner service | 🟢 | P0 | P1-102 | workspace/runner.go |
+| P1-104 | Handle test failures | 🟡 | P0 | P1-103 | Basic retry, needs improvement |
+| P1-105 | Record gate results | 🟢 | P0 | P1-016 | db/store.go |
+| P1-106 | Write quality gate tests | 🔴 | P1 | P1-100-105 | No tests |
 
 ### 1.12 GitHub Integration
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-110 | Create GitHub App configuration | 🔴 | P0 | - | Manifest file |
-| P1-111 | Implement GitHub App auth | 🔴 | P0 | P1-110 | JWT, installation tokens |
-| P1-112 | Implement branch creation | 🔴 | P0 | P1-111 | go-github |
-| P1-113 | Implement file commit | 🔴 | P0 | P1-111 | Commit generated tests |
-| P1-114 | Implement PR creation | 🔴 | P0 | P1-112, P1-113 | With description |
-| P1-115 | Design PR template | 🔴 | P1 | - | Summary, metrics |
-| P1-116 | Implement webhook receiver | 🔴 | P1 | P1-111 | Push/PR events |
-| P1-117 | Write GitHub integration tests | 🔴 | P1 | P1-111-116 | Mock GitHub API |
+| P1-110 | Create GitHub App configuration | 🔴 | P0 | - | Not started |
+| P1-111 | Implement GitHub App auth | 🔴 | P0 | P1-110 | Token only, no App auth |
+| P1-112 | Implement branch creation | 🔴 | P0 | P1-111 | Not implemented |
+| P1-113 | Implement file commit | 🔴 | P0 | P1-111 | Not implemented |
+| P1-114 | Implement PR creation | 🔴 | P0 | P1-112, P1-113 | Not implemented |
+| P1-115 | Design PR template | 🔴 | P1 | - | Not started |
+| P1-116 | Implement webhook receiver | 🔴 | P1 | P1-111 | Not implemented |
+| P1-117 | Write GitHub integration tests | 🔴 | P1 | P1-111-116 | No tests |
 
 ### 1.13 CI Pipeline Generator
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-120 | Design workflow template | 🔴 | P0 | - | GitHub Actions YAML |
-| P1-121 | Implement workflow generator | 🔴 | P0 | P1-120 | Based on detected framework |
-| P1-122 | Add coverage collection | 🔴 | P1 | P1-121 | Jest --coverage |
-| P1-123 | Write CI generator tests | 🔴 | P1 | P1-121-122 | |
+| P1-120 | Design workflow template | 🟢 | P0 | - | .github/workflows/ci.yml exists |
+| P1-121 | Implement workflow generator | 🔴 | P0 | P1-120 | Manual only, no generation |
+| P1-122 | Add coverage collection | 🟢 | P1 | P1-121 | workspace/coverage.go |
+| P1-123 | Write CI generator tests | 🔴 | P1 | P1-121-122 | No tests |
 
 ### 1.14 Worker System
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-130 | Set up NATS JetStream | 🔴 | P0 | - | Docker, Go client |
-| P1-131 | Define job schemas | 🔴 | P0 | - | Ingestion, modeling, etc. |
-| P1-132 | Implement base worker | 🔴 | P0 | P1-130 | Pull, process, ack pattern |
-| P1-133 | Implement ingestion worker | 🔴 | P0 | P1-132, P1-021 | |
-| P1-134 | Implement modeling worker | 🔴 | P0 | P1-132, P1-051 | |
-| P1-135 | Implement planning worker | 🔴 | P0 | P1-132, P1-061 | |
-| P1-136 | Implement generation worker | 🔴 | P0 | P1-132, P1-083 | |
-| P1-137 | Implement integration worker | 🔴 | P0 | P1-132, P1-114 | |
-| P1-138 | Add job retry logic | 🔴 | P1 | P1-132 | Exponential backoff |
-| P1-139 | Write worker tests | 🔴 | P1 | P1-133-138 | |
+| P1-130 | Set up NATS JetStream | 🟢 | P0 | - | docker-compose + config |
+| P1-131 | Define job schemas | 🔴 | P0 | - | **NOT STARTED** |
+| P1-132 | Implement base worker | 🟡 | P0 | P1-130 | worker/pool.go skeleton |
+| P1-133 | Implement ingestion worker | 🔴 | P0 | P1-132, P1-021 | Stub only |
+| P1-134 | Implement modeling worker | 🔴 | P0 | P1-132, P1-051 | Stub only |
+| P1-135 | Implement planning worker | 🔴 | P0 | P1-132, P1-061 | Stub only |
+| P1-136 | Implement generation worker | 🔴 | P0 | P1-132, P1-083 | Stub only |
+| P1-137 | Implement integration worker | 🔴 | P0 | P1-132, P1-114 | Stub only |
+| P1-138 | Add job retry logic | 🔴 | P1 | P1-132 | Not implemented |
+| P1-139 | Write worker tests | 🔴 | P1 | P1-133-138 | No tests |
 
 ### 1.15 API Server
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-140 | Set up Chi router | 🔴 | P0 | - | HTTP server |
-| P1-141 | Implement health endpoint | 🔴 | P0 | P1-140 | /health |
-| P1-142 | Implement repos endpoints | 🔴 | P0 | P1-140, P1-013 | CRUD |
-| P1-143 | Implement runs endpoints | 🔴 | P0 | P1-140, P1-015 | Trigger, status |
-| P1-144 | Implement auth middleware | 🔴 | P0 | P1-020 | OAuth, API keys |
-| P1-145 | Implement rate limiting | 🔴 | P1 | P1-140 | Redis-based |
-| P1-146 | Add OpenAPI documentation | 🔴 | P1 | P1-142-143 | Swagger |
-| P1-147 | Write API tests | 🔴 | P1 | P1-142-145 | |
+| P1-140 | Set up Chi router | 🟢 | P0 | - | internal/api/server.go |
+| P1-141 | Implement health endpoint | 🟢 | P0 | P1-140 | /health, /ready |
+| P1-142 | Implement repos endpoints | 🟡 | P0 | P1-140, P1-013 | Routes exist, handlers TODO |
+| P1-143 | Implement runs endpoints | 🟡 | P0 | P1-140, P1-015 | Routes exist, handlers TODO |
+| P1-144 | Implement auth middleware | 🔴 | P0 | P1-020 | Not wired |
+| P1-145 | Implement rate limiting | 🔴 | P1 | P1-140 | Not implemented |
+| P1-146 | Add OpenAPI documentation | 🔴 | P1 | P1-142-143 | Not implemented |
+| P1-147 | Write API tests | 🔴 | P1 | P1-142-145 | No tests |
 
 ### 1.16 CLI Tool
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-150 | Set up cobra CLI framework | 🔴 | P0 | - | |
-| P1-151 | Implement `qtest auth login` | 🔴 | P0 | P1-150 | OAuth flow |
-| P1-152 | Implement `qtest generate` | 🔴 | P0 | P1-150 | Main command |
-| P1-153 | Implement `qtest status` | 🔴 | P1 | P1-150 | Check run status |
-| P1-154 | Add progress output | 🔴 | P1 | P1-152 | Real-time updates |
-| P1-155 | Write CLI tests | 🔴 | P1 | P1-151-154 | |
+| P1-150 | Set up cobra CLI framework | 🟢 | P0 | - | cmd/cli/main.go |
+| P1-151 | Implement `qtest auth login` | 🔴 | P0 | P1-150 | Not implemented |
+| P1-152 | Implement `qtest generate` | 🟢 | P0 | P1-150 | generate-file works |
+| P1-153 | Implement `qtest status` | 🔴 | P1 | P1-150 | Not implemented |
+| P1-154 | Add progress output | 🟡 | P1 | P1-152 | Basic, no real-time |
+| P1-155 | Write CLI tests | 🔴 | P1 | P1-151-154 | No tests |
 
 ---
 
@@ -428,15 +428,15 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | Phase 4: Scale | 35 | 20 | 14 | 1 |
 | **Total** | **203** | **137** | **65** | **1** |
 
-### Progress Tracking
+### Progress Tracking (Updated 2025-11-21)
 
-| Phase | Not Started | In Progress | Completed | Blocked |
-|-------|-------------|-------------|-----------|---------|
-| Phase 1 | 98 | 0 | 0 | 0 |
-| Phase 2 | 35 | 0 | 0 | 0 |
-| Phase 3 | 35 | 0 | 0 | 0 |
-| Phase 4 | 35 | 0 | 0 | 0 |
-| **Total** | **203** | **0** | **0** | **0** |
+| Phase | 🟢 Completed | 🟡 In Progress | 🔴 Not Started | % Done |
+|-------|-------------|----------------|----------------|--------|
+| Phase 1 | 48 | 12 | 38 | **49%** |
+| Phase 2 | 0 | 0 | 35 | 0% |
+| Phase 3 | 0 | 0 | 35 | 0% |
+| Phase 4 | 0 | 0 | 35 | 0% |
+| **Total** | **48** | **12** | **143** | **24%** |
 
 ### Critical Path (Must Complete for MVP)
 
@@ -453,6 +453,25 @@ P1-130 → P1-133 → MVP Complete
 | Date | Changes |
 |------|---------|
 | Initial | Created tracker with 203 tasks |
+| 2025-11-21 | **Major audit**: Updated all Phase 1 tasks to reflect actual implementation. 49% of Phase 1 complete. |
+
+---
+
+## Critical Gaps for MVP (P0 Not Started)
+
+These P0 tasks block MVP completion:
+
+| ID | Task | Category | Blocking |
+|----|------|----------|----------|
+| P1-020 | GitHub OAuth flow | Ingestion | Private repo support |
+| P1-040-046 | Endpoint Detection | Parsing | API test generation |
+| P1-060-066 | Test Planner | Planning | Priority-based generation |
+| P1-074-076 | LLM Cache/Budget | LLM | Cost control |
+| P1-084 | API test DSL generator | Generator | API tests |
+| P1-092 | Supertest adapter | Adapters | API test output |
+| P1-110-114 | GitHub Integration | Integration | PR creation |
+| P1-131-137 | Worker Implementation | Workers | Async processing |
+| P1-144 | Auth middleware | API | Security |
 
 ---
 
@@ -462,3 +481,4 @@ P1-130 → P1-133 → MVP Complete
 - Move blocked tasks to deferred if not resolvable
 - Add new tasks as discovered during implementation
 - Weekly review to update status and priorities
+- **Focus on P0 gaps before starting Phase 2**
