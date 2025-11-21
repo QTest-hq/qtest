@@ -44,6 +44,7 @@ func NewRegistry() *Registry {
 	r.Register(&GoHTTPEmitter{})
 	r.Register(&PytestEmitter{})
 	r.Register(&JUnitEmitter{})
+	r.Register(&RSpecEmitter{})
 
 	return r
 }

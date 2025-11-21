@@ -80,6 +80,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-042 | Implement Gin route detector | 🟢 | P1 | P1-034 | supplements/gin.go |
 | P1-042a | Implement Spring Boot detector | 🟢 | P1 | P1-034 | supplements/springboot.go |
 | P1-042b | Implement Django REST detector | 🟢 | P1 | P1-034 | supplements/django.go |
+| P1-042c | Implement NestJS detector | 🟢 | P1 | P1-034 | supplements/nestjs.go |
 | P1-043 | Extract route parameters | 🟢 | P0 | P1-040 | Path params in all supplements |
 | P1-044 | Extract request body schema | 🟡 | P1 | P1-040 | Basic support |
 | P1-045 | Extract middleware chain | 🔴 | P1 | P1-040 | Not implemented |
@@ -117,7 +118,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-071 | Implement Anthropic Claude client | 🟢 | P0 | P1-070 | internal/llm/anthropic.go |
 | P1-072 | Implement OpenAI client | 🔴 | P1 | P1-070 | Not implemented |
 | P1-073 | Implement tiered model router | 🟢 | P0 | P1-071 | internal/llm/router.go - Tier1/2/3 |
-| P1-074 | Implement request cache (Redis) | 🔴 | P0 | P1-071 | Redis configured, not integrated |
+| P1-074 | Implement request cache | 🟢 | P0 | P1-071 | internal/llm/cache.go - MemoryCache + CachedRouter |
 | P1-075 | Implement budget manager | 🔴 | P0 | P1-071 | Not implemented |
 | P1-076 | Implement usage tracker | 🔴 | P0 | P1-071 | Not implemented |
 | P1-077 | Implement fallback logic | 🟢 | P1 | P1-071, P1-072 | router.go with retry + backoff |
@@ -145,6 +146,8 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-091a | Implement Supertest emitter | 🟢 | P0 | P1-090 | emitter/supertest.go |
 | P1-091b | Implement Pytest emitter | 🟢 | P0 | P1-090 | emitter/pytest.go |
 | P1-091c | Implement Go-HTTP emitter | 🟢 | P0 | P1-090 | emitter/go_http.go |
+| P1-091d | Implement JUnit emitter | 🟢 | P0 | P1-090 | emitter/junit.go - JUnit 5 + MockMvc |
+| P1-091e | Implement RSpec emitter | 🟢 | P0 | P1-090 | emitter/rspec.go - Ruby/Rails API tests |
 | P1-092 | Implement Go test adapter | 🟢 | P0 | P1-090 | go_adapter.go |
 | P1-093 | Design adapter templates | 🟢 | P0 | P1-091 | Go templates in adapters |
 | P1-094 | Handle imports generation | 🟢 | P0 | P1-091 | Auto imports in templates |
@@ -168,11 +171,12 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
 | P1-110 | Create GitHub App configuration | 🔴 | P0 | - | Not started |
-| P1-111 | Implement GitHub App auth | 🔴 | P0 | P1-110 | Token only, no App auth |
-| P1-112 | Implement branch creation | 🔴 | P0 | P1-111 | Not implemented |
-| P1-113 | Implement file commit | 🔴 | P0 | P1-111 | Not implemented |
-| P1-114 | Implement PR creation | 🔴 | P0 | P1-112, P1-113 | Not implemented |
-| P1-115 | Design PR template | 🔴 | P1 | - | Not started |
+| P1-111 | Implement GitHub App auth | 🟡 | P0 | P1-110 | Token auth works, no App auth |
+| P1-112 | Implement branch creation | 🟢 | P0 | P1-111 | internal/github/pr.go - CreateBranch |
+| P1-113 | Implement file commit | 🟢 | P0 | P1-111 | internal/github/pr.go - CommitFile |
+| P1-114 | Implement PR creation | 🟢 | P0 | P1-112, P1-113 | internal/github/pr.go - CreatePR |
+| P1-114a | Workspace PR integration | 🟢 | P0 | P1-114 | workspace/runner.go - CreatePR method |
+| P1-115 | Design PR template | 🟢 | P1 | - | github/pr.go - GeneratePRBody |
 | P1-116 | Implement webhook receiver | 🔴 | P1 | P1-111 | Not implemented |
 | P1-117 | Write GitHub integration tests | 🔴 | P1 | P1-111-116 | No tests |
 
@@ -467,11 +471,11 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | Phase | 🟢 Completed | 🟡 In Progress | 🔴 Not Started | % Done |
 |-------|-------------|----------------|----------------|--------|
-| Phase 1 | 62 | 8 | 33 | **60%** |
+| Phase 1 | 71 | 7 | 30 | **66%** |
 | Phase 2 | 0 | 0 | 35 | 0% |
 | Phase 3 | 21 | 0 | 24 | **47%** |
 | Phase 4 | 0 | 0 | 35 | 0% |
-| **Total** | **83** | **8** | **127** | **38%** |
+| **Total** | **92** | **7** | **124** | **41%** |
 
 ### Critical Path (Must Complete for MVP)
 
@@ -490,6 +494,7 @@ P1-130 → P1-133 → MVP Complete
 | Initial | Created tracker with 203 tasks |
 | 2025-11-21 | **Major audit**: Updated all Phase 1 tasks to reflect actual implementation. 49% of Phase 1 complete. |
 | 2025-11-21 | **Feature update**: Added Contract Testing (3.7), Test Data Gen (3.8), Validation (3.9). Updated supplements (Express, FastAPI, Gin, Spring Boot, Django). Added coverage-guided generation. Overall 38% complete. |
+| 2025-11-21 | **Session 2 update**: Added LLM caching (cache.go), GitHub PR integration (pr.go, workspace runner), JUnit emitter, RSpec emitter, NestJS supplement. Phase 1 now 66% complete. Overall 41% complete. |
 
 ---
 
@@ -500,12 +505,14 @@ These P0 tasks block MVP completion:
 | ID | Task | Category | Blocking |
 |----|------|----------|----------|
 | P1-020 | GitHub OAuth flow | Ingestion | Private repo support |
-| ~~P1-040-046~~ | ~~Endpoint Detection~~ | ~~Parsing~~ | ✅ Done - 5 frameworks |
+| ~~P1-040-046~~ | ~~Endpoint Detection~~ | ~~Parsing~~ | ✅ Done - 6 frameworks (Express, FastAPI, Gin, Spring Boot, Django, NestJS) |
 | ~~P1-060-066~~ | ~~Test Planner~~ | ~~Planning~~ | ✅ Done |
-| P1-074-076 | LLM Cache/Budget | LLM | Cost control |
+| ~~P1-074~~ | ~~LLM Cache~~ | ~~LLM~~ | ✅ Done - MemoryCache + CachedRouter |
+| P1-075-076 | LLM Budget/Usage | LLM | Cost control |
 | ~~P1-084~~ | ~~API test DSL generator~~ | ~~Generator~~ | ✅ Done |
-| ~~P1-092~~ | ~~Supertest adapter~~ | ~~Adapters~~ | ✅ Done - 3 emitters |
-| P1-110-114 | GitHub Integration | Integration | PR creation |
+| ~~P1-091-092~~ | ~~Test emitters~~ | ~~Adapters~~ | ✅ Done - 5 emitters (Supertest, Pytest, Go-HTTP, JUnit, RSpec) |
+| ~~P1-112-114~~ | ~~GitHub PR Integration~~ | ~~Integration~~ | ✅ Done - Branch, Commit, PR creation |
+| P1-110 | GitHub App auth | Integration | Full OAuth flow |
 | P1-131-137 | Worker Implementation | Workers | Async processing |
 | P1-144 | Auth middleware | API | Security |
 

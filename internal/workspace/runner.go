@@ -10,6 +10,7 @@ import (
 
 	"github.com/QTest-hq/qtest/internal/adapters"
 	"github.com/QTest-hq/qtest/internal/config"
+	"github.com/QTest-hq/qtest/internal/github"
 	"github.com/QTest-hq/qtest/internal/llm"
 	"github.com/QTest-hq/qtest/internal/parser"
 	"github.com/QTest-hq/qtest/pkg/dsl"
@@ -46,6 +47,11 @@ type RunConfig struct {
 	FilePatterns    []string // Files to include
 	ValidateTests   bool     // Run tests after generation
 	MaxTests        int      // Max tests to generate (0=unlimited)
+	CreatePR        bool     // Create a PR after generation
+	PRDraft         bool     // Create PR as draft
+	PRTitle         string   // Custom PR title
+	GitHubOwner     string   // GitHub repo owner
+	GitHubRepo      string   // GitHub repo name
 }
 
 // DefaultRunConfig returns sensible defaults
@@ -478,4 +484,130 @@ func (r *Runner) Pause() {
 	now := time.Now()
 	r.ws.State.PausedAt = &now
 	r.ws.Save()
+}
+
+// CreatePR creates a GitHub pull request with the generated tests
+func (r *Runner) CreatePR(ctx context.Context) (*github.PRResponse, error) {
+	if r.git.token == "" {
+		return nil, fmt.Errorf("GitHub token required for PR creation")
+	}
+
+	// Determine owner/repo
+	owner := r.cfg.GitHubOwner
+	repo := r.cfg.GitHubRepo
+
+	if owner == "" || repo == "" {
+		// Try to parse from repo URL
+		repoInfo, err := github.ParseRepoURL(r.ws.RepoURL)
+		if err != nil {
+			return nil, fmt.Errorf("could not determine GitHub owner/repo: %w", err)
+		}
+		owner = repoInfo.Owner
+		repo = repoInfo.Name
+	}
+
+	log.Info().
+		Str("owner", owner).
+		Str("repo", repo).
+		Str("branch", r.cfg.BranchName).
+		Msg("creating pull request")
+
+	// Push changes first
+	if err := r.git.Push(ctx); err != nil {
+		return nil, fmt.Errorf("failed to push changes: %w", err)
+	}
+
+	// Create PR service
+	prService := github.NewPRService(r.git.token)
+
+	// Get default branch if not set
+	base := r.ws.BaseBranch
+	if base == "" {
+		defaultBranch, err := prService.GetDefaultBranch(ctx, owner, repo)
+		if err != nil {
+			base = "main"
+		} else {
+			base = defaultBranch
+		}
+	}
+
+	// Count completed tests
+	completedCount := 0
+	var testFiles []string
+	for _, target := range r.ws.State.Targets {
+		if target.Status == StatusCompleted && target.TestFile != "" {
+			completedCount++
+			// Get relative path
+			relPath, _ := filepath.Rel(r.ws.RepoPath, target.TestFile)
+			if relPath != "" {
+				testFiles = append(testFiles, relPath)
+			}
+		}
+	}
+
+	if completedCount == 0 {
+		return nil, fmt.Errorf("no tests to include in PR")
+	}
+
+	// Generate PR title
+	title := r.cfg.PRTitle
+	if title == "" {
+		title = fmt.Sprintf("Add %d generated tests", completedCount)
+	}
+
+	// Generate PR body
+	body := github.GeneratePRBody(github.PRTemplate{
+		TestCount: completedCount,
+		Files:     testFiles,
+		Framework: r.detectFramework(),
+		Language:  r.ws.Language,
+	})
+
+	// Create the PR
+	pr, err := prService.CreatePR(ctx, github.PRRequest{
+		Owner:      owner,
+		Repo:       repo,
+		Title:      title,
+		Body:       body,
+		Head:       r.cfg.BranchName,
+		Base:       base,
+		Draft:      r.cfg.PRDraft,
+		Maintainer: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PR: %w", err)
+	}
+
+	log.Info().
+		Int("number", pr.Number).
+		Str("url", pr.HTMLURL).
+		Msg("pull request created")
+
+	return pr, nil
+}
+
+// detectFramework returns the detected test framework
+func (r *Runner) detectFramework() string {
+	switch r.ws.Language {
+	case "go":
+		return "Go testing"
+	case "python":
+		return "pytest"
+	case "javascript", "typescript":
+		return "Jest"
+	case "java":
+		return "JUnit 5"
+	case "ruby":
+		return "RSpec"
+	default:
+		return "unknown"
+	}
+}
+
+// PRResult holds the result of PR creation
+type PRResult struct {
+	Number  int
+	URL     string
+	Title   string
+	Created bool
 }

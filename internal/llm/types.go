@@ -44,6 +44,7 @@ type Response struct {
 	InputTokens  int
 	OutputTokens int
 	FinishReason string
+	Cached       bool // True if response was served from cache
 }
 
 // Client is the interface for LLM providers
