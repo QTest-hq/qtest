@@ -361,7 +361,7 @@ This is the recommended command for generating complete test suites.`,
 
 			// Run generation
 			fmt.Printf("\n🚀 Starting test generation (%d targets)...\n", ws.State.TotalTargets)
-			fmt.Println("Press Ctrl+C to pause\n")
+			fmt.Println("Press Ctrl+C to pause")
 
 			if err := runner.Run(ctx); err != nil {
 				if ctx.Err() != nil {

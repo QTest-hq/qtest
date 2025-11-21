@@ -118,6 +118,7 @@ func main() {
 	rootCmd.AddCommand(validateCmd())
 	rootCmd.AddCommand(contractCmd())
 	rootCmd.AddCommand(datagenCmd())
+	rootCmd.AddCommand(coverageCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
