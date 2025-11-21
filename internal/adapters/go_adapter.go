@@ -3,6 +3,7 @@ package adapters
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"strings"
 	"text/template"
 
@@ -42,9 +43,11 @@ func Test{{.FunctionName}}(t *testing.T) {
 	{{if .Setup}}// Setup
 	{{.Setup}}
 	{{end}}
+	var result interface{}
+	_ = result
 	{{range .Steps}}
 	// {{.Description}}
-	{{if .Action}}{{.Action}}{{end}}
+	{{if .Action}}result = {{.Action}}{{end}}
 	{{range .Assertions}}
 	{{.}}
 	{{end}}
@@ -135,10 +138,23 @@ func (a *GoAdapter) Generate(test *dsl.TestDSL) (string, error) {
 }
 
 func extractPackageName(filePath string) string {
-	// Extract package name from file path
+	// Try to read the actual package name from the source file
+	if content, err := os.ReadFile(filePath); err == nil {
+		lines := strings.Split(string(content), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "package ") {
+				parts := strings.Fields(line)
+				if len(parts) >= 2 {
+					return parts[1]
+				}
+			}
+		}
+	}
+
+	// Fallback: extract from directory name
 	parts := strings.Split(filePath, "/")
 	if len(parts) > 0 {
-		// Get directory name as package
 		for i := len(parts) - 1; i >= 0; i-- {
 			if parts[i] != "" && !strings.Contains(parts[i], ".") {
 				return parts[i]
@@ -189,11 +205,12 @@ func generateGoStepAction(step dsl.TestStep) string {
 		if len(step.Action.Args) > 0 {
 			argStrs := make([]string, len(step.Action.Args))
 			for i, arg := range step.Action.Args {
-				argStrs[i] = fmt.Sprintf("%v", arg)
+				// Format argument based on type
+				argStrs[i] = formatGoArg(arg)
 			}
 			args = strings.Join(argStrs, ", ")
 		}
-		return fmt.Sprintf("result := %s(%s)", step.Action.Target, args)
+		return fmt.Sprintf("%s(%s)", step.Action.Target, args)
 
 	case dsl.ActionHTTP:
 		method := step.Action.Method
@@ -238,4 +255,37 @@ func generateGoAssertions(step dsl.TestStep) []string {
 	}
 
 	return assertions
+}
+
+// formatGoArg formats an argument for Go code, handling various types
+func formatGoArg(arg interface{}) string {
+	if arg == nil {
+		return "nil"
+	}
+
+	switch v := arg.(type) {
+	case string:
+		// Check if it's a variable reference like ${a}, $a, or *a
+		if strings.HasPrefix(v, "${") || strings.HasPrefix(v, "$") || strings.HasPrefix(v, "*") {
+			// This is a variable reference that wasn't resolved - use a default
+			return "0"
+		}
+		// Check if it's a number stored as string
+		if _, err := fmt.Sscanf(v, "%d", new(int)); err == nil {
+			return v
+		}
+		if _, err := fmt.Sscanf(v, "%f", new(float64)); err == nil {
+			return v
+		}
+		// It's a string literal
+		return fmt.Sprintf("%q", v)
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return fmt.Sprintf("%d", v)
+	case float32, float64:
+		return fmt.Sprintf("%v", v)
+	case bool:
+		return fmt.Sprintf("%t", v)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }

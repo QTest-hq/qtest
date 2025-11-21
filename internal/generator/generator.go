@@ -9,7 +9,6 @@ import (
 	"github.com/QTest-hq/qtest/internal/parser"
 	"github.com/QTest-hq/qtest/pkg/dsl"
 	"github.com/rs/zerolog/log"
-	"gopkg.in/yaml.v3"
 )
 
 // Generator generates tests from parsed code
@@ -129,9 +128,9 @@ func (g *Generator) generateTestForFunction(ctx context.Context, fn *parser.Func
 	// Parse the response
 	yamlContent := llm.ParseDSLOutput(resp.Content)
 
-	// Parse YAML to DSL
-	var testDSL dsl.TestDSL
-	if err := yaml.Unmarshal([]byte(yamlContent), &testDSL); err != nil {
+	// Convert LLM output to DSL (handles multiple formats)
+	testDSL, err := ConvertToDSL(yamlContent, fn.Name, file.Path, string(file.Language))
+	if err != nil {
 		return nil, fmt.Errorf("failed to parse DSL: %w (content: %s)", err, yamlContent[:min(200, len(yamlContent))])
 	}
 
@@ -148,7 +147,7 @@ func (g *Generator) generateTestForFunction(ctx context.Context, fn *parser.Func
 	}
 
 	return &GeneratedTest{
-		DSL:      &testDSL,
+		DSL:      testDSL,
 		RawYAML:  yamlContent,
 		Function: fn,
 		FileName: file.Path,

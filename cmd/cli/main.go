@@ -261,36 +261,42 @@ func writeTestFiles(sourceFile string, tests []generator.GeneratedTest, outputDi
 	name := strings.TrimSuffix(base, ext)
 	testFile := filepath.Join(dir, name+adapter.TestFileSuffix()+adapter.FileExtension())
 
-	// Write each test - for now just write the raw YAML as a reference
-	// The adapter.Generate expects a single DSL, so we generate for each
-	var allCode strings.Builder
-	testCount := 0
+	// Combine all DSLs into one with all steps
+	combinedDSL := &dsl.TestDSL{
+		Version: "1.0",
+		Name:    name + "_combined",
+		Type:    dsl.TestTypeUnit,
+		Target: dsl.TestTarget{
+			File: sourceFile,
+		},
+		Steps: make([]dsl.TestStep, 0),
+	}
 
 	for _, test := range tests {
 		if test.DSL == nil {
 			continue
 		}
-		code, err := adapter.Generate(test.DSL)
-		if err != nil {
-			log.Warn().Err(err).Str("test", test.DSL.Name).Msg("failed to generate test code")
-			continue
-		}
-		allCode.WriteString(code)
-		allCode.WriteString("\n")
-		testCount++
+		// Add all steps from each test
+		combinedDSL.Steps = append(combinedDSL.Steps, test.DSL.Steps...)
 	}
 
-	if testCount == 0 {
-		return fmt.Errorf("no tests could be generated")
+	if len(combinedDSL.Steps) == 0 {
+		return fmt.Errorf("no test steps could be generated")
+	}
+
+	// Generate combined test code
+	code, err := adapter.Generate(combinedDSL)
+	if err != nil {
+		return fmt.Errorf("failed to generate test code: %w", err)
 	}
 
 	// Write to file
-	if err := os.WriteFile(testFile, []byte(allCode.String()), 0644); err != nil {
+	if err := os.WriteFile(testFile, []byte(code), 0644); err != nil {
 		return fmt.Errorf("failed to write test file: %w", err)
 	}
 
 	fmt.Printf("📝 Written: %s\n", testFile)
-	fmt.Printf("   Tests: %d\n", testCount)
+	fmt.Printf("   Tests: %d steps\n", len(combinedDSL.Steps))
 
 	return nil
 }
