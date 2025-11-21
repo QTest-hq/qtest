@@ -2,26 +2,34 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
+	"github.com/QTest-hq/qtest/internal/adapters"
 	"github.com/QTest-hq/qtest/internal/config"
+	"github.com/QTest-hq/qtest/internal/db"
+	"github.com/QTest-hq/qtest/internal/generator"
 	"github.com/QTest-hq/qtest/internal/jobs"
+	"github.com/QTest-hq/qtest/internal/llm"
 	"github.com/QTest-hq/qtest/internal/parser"
+	"github.com/QTest-hq/qtest/pkg/dsl"
 )
 
 // IngestionWorker handles repository cloning and initial processing
 type IngestionWorker struct {
 	*BaseWorker
+	store *db.Store
 }
 
-func NewIngestionWorker(base *BaseWorker) *IngestionWorker {
-	w := &IngestionWorker{BaseWorker: base}
+func NewIngestionWorker(base *BaseWorker, store *db.Store) *IngestionWorker {
+	w := &IngestionWorker{BaseWorker: base, store: store}
 	base.handler = w.handleJob
 	return w
 }
@@ -39,9 +47,46 @@ func (w *IngestionWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 		Str("branch", payload.Branch).
 		Msg("ingesting repository")
 
+	// Check if repository already exists in database
+	var repo *db.Repository
+	var err error
+	if w.store != nil {
+		repo, err = w.store.GetRepositoryByURL(ctx, payload.RepositoryURL)
+		if err != nil {
+			log.Warn().Err(err).Msg("failed to check existing repository")
+		}
+	}
+
+	// Extract repository name and owner from URL
+	repoName, repoOwner := extractRepoInfo(payload.RepositoryURL)
+	branch := payload.Branch
+	if branch == "" {
+		branch = "main"
+	}
+
+	// Create repository record if it doesn't exist
+	if repo == nil && w.store != nil {
+		repo = &db.Repository{
+			URL:           payload.RepositoryURL,
+			Name:          repoName,
+			Owner:         repoOwner,
+			DefaultBranch: branch,
+			Status:        "cloning",
+		}
+		if err := w.store.CreateRepository(ctx, repo); err != nil {
+			log.Warn().Err(err).Msg("failed to create repository record")
+			// Continue without DB record - use generated UUID
+			repo = &db.Repository{ID: uuid.New()}
+		}
+	} else if repo == nil {
+		// No store available, use generated UUID
+		repo = &db.Repository{ID: uuid.New()}
+	}
+
 	// Clone repository to workspace
 	workspacePath := filepath.Join(os.TempDir(), "qtest", job.ID.String())
 	if err := os.MkdirAll(workspacePath, 0755); err != nil {
+		w.updateRepoStatus(ctx, repo.ID, "failed", nil)
 		return fmt.Errorf("failed to create workspace: %w", err)
 	}
 
@@ -54,8 +99,12 @@ func (w *IngestionWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
+		w.updateRepoStatus(ctx, repo.ID, "failed", nil)
 		return fmt.Errorf("git clone failed: %s: %w", string(output), err)
 	}
+
+	// Get commit SHA
+	commitSHA := getCommitSHA(ctx, workspacePath)
 
 	// Detect language and count files
 	var fileCount int
@@ -83,9 +132,12 @@ func (w *IngestionWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 		return nil
 	})
 
+	// Update repository status to ready
+	w.updateRepoStatus(ctx, repo.ID, "ready", &commitSHA)
+
 	// Create result
 	result := jobs.IngestionResult{
-		RepositoryID:  uuid.New(), // In real impl, would come from DB
+		RepositoryID:  repo.ID,
 		WorkspacePath: workspacePath,
 		FileCount:     fileCount,
 		Language:      language,
@@ -106,13 +158,58 @@ func (w *IngestionWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 	return nil
 }
 
+// updateRepoStatus updates the repository status if store is available
+func (w *IngestionWorker) updateRepoStatus(ctx context.Context, repoID uuid.UUID, status string, commitSHA *string) {
+	if w.store != nil {
+		if err := w.store.UpdateRepositoryStatus(ctx, repoID, status, commitSHA); err != nil {
+			log.Warn().Err(err).Str("repo_id", repoID.String()).Msg("failed to update repository status")
+		}
+	}
+}
+
+// extractRepoInfo extracts repository name and owner from URL
+func extractRepoInfo(url string) (name, owner string) {
+	// Handle SSH URLs: git@github.com:owner/repo.git
+	if strings.HasPrefix(url, "git@") {
+		parts := strings.Split(url, ":")
+		if len(parts) == 2 {
+			path := strings.TrimSuffix(parts[1], ".git")
+			pathParts := strings.Split(path, "/")
+			if len(pathParts) >= 2 {
+				return pathParts[len(pathParts)-1], pathParts[len(pathParts)-2]
+			}
+		}
+	}
+
+	// Handle HTTP URLs: https://github.com/owner/repo.git
+	url = strings.TrimSuffix(url, ".git")
+	url = strings.TrimSuffix(url, "/")
+	parts := strings.Split(url, "/")
+	if len(parts) >= 2 {
+		return parts[len(parts)-1], parts[len(parts)-2]
+	}
+
+	return "unknown", "unknown"
+}
+
+// getCommitSHA gets the current commit SHA from the repository
+func getCommitSHA(ctx context.Context, workspacePath string) string {
+	cmd := exec.CommandContext(ctx, "git", "-C", workspacePath, "rev-parse", "HEAD")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
 // ModelingWorker builds system models from parsed code
 type ModelingWorker struct {
 	*BaseWorker
+	store *db.Store
 }
 
-func NewModelingWorker(base *BaseWorker) *ModelingWorker {
-	w := &ModelingWorker{BaseWorker: base}
+func NewModelingWorker(base *BaseWorker, store *db.Store) *ModelingWorker {
+	w := &ModelingWorker{BaseWorker: base, store: store}
 	base.handler = w.handleJob
 	return w
 }
@@ -127,15 +224,25 @@ func (w *ModelingWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 
 	log.Info().
 		Str("workspace", payload.WorkspacePath).
+		Str("repo_id", payload.RepositoryID.String()).
 		Msg("modeling repository")
 
-	// Parse all source files
+	// Parse all source files and build model
 	p := parser.NewParser()
 	var functionCount, fileCount int
+	var functions []modelFunction
+	var endpoints []modelEndpoint
 
 	err := filepath.Walk(payload.WorkspacePath, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
+		}
+
+		// Skip excluded paths
+		for _, excl := range payload.ExcludePaths {
+			if strings.Contains(path, excl) {
+				return nil
+			}
 		}
 
 		ext := filepath.Ext(path)
@@ -150,7 +257,26 @@ func (w *ModelingWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 			return nil
 		}
 
-		functionCount += len(result.Functions)
+		// Collect function information
+		relPath, _ := filepath.Rel(payload.WorkspacePath, path)
+		for _, fn := range result.Functions {
+			functionCount++
+			functions = append(functions, modelFunction{
+				Name:      fn.Name,
+				File:      relPath,
+				StartLine: fn.StartLine,
+				EndLine:   fn.EndLine,
+				Exported:  fn.Exported,
+			})
+
+			// Detect HTTP handler functions (basic heuristic)
+			if isHTTPHandler(fn.Name) {
+				endpoints = append(endpoints, modelEndpoint{
+					Function: fn.Name,
+					File:     relPath,
+				})
+			}
+		}
 		return nil
 	})
 
@@ -158,11 +284,44 @@ func (w *ModelingWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 		return fmt.Errorf("failed to walk workspace: %w", err)
 	}
 
+	// Build model data
+	modelData := systemModelData{
+		Functions: functions,
+		Endpoints: endpoints,
+		Stats: modelStats{
+			FileCount:     fileCount,
+			FunctionCount: functionCount,
+			EndpointCount: len(endpoints),
+		},
+	}
+
+	modelJSON, err := json.Marshal(modelData)
+	if err != nil {
+		return fmt.Errorf("failed to serialize model: %w", err)
+	}
+
+	// Get commit SHA for the model
+	commitSHA := getCommitSHA(ctx, payload.WorkspacePath)
+
+	// Create system model in database
+	modelID := uuid.New()
+	if w.store != nil {
+		if err := w.store.CreateSystemModel(ctx, &db.SystemModel{
+			ID:           modelID,
+			RepositoryID: payload.RepositoryID,
+			CommitSHA:    commitSHA,
+			ModelData:    modelJSON,
+		}); err != nil {
+			log.Warn().Err(err).Msg("failed to persist system model")
+			// Continue without DB persistence
+		}
+	}
+
 	result := jobs.ModelingResult{
-		ModelID:       uuid.New(),
+		ModelID:       modelID,
 		FileCount:     fileCount,
 		FunctionCount: functionCount,
-		EndpointCount: 0, // Would be populated by API framework analysis
+		EndpointCount: len(endpoints),
 	}
 
 	if err := w.Repository().Complete(ctx, job.ID, result); err != nil {
@@ -180,13 +339,51 @@ func (w *ModelingWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 	return nil
 }
 
+// Model data structures for JSON serialization
+type systemModelData struct {
+	Functions []modelFunction `json:"functions"`
+	Endpoints []modelEndpoint `json:"endpoints"`
+	Stats     modelStats      `json:"stats"`
+}
+
+type modelFunction struct {
+	Name      string `json:"name"`
+	File      string `json:"file"`
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line"`
+	Exported  bool   `json:"exported"`
+}
+
+type modelEndpoint struct {
+	Function string `json:"function"`
+	File     string `json:"file"`
+	Method   string `json:"method,omitempty"`
+	Path     string `json:"path,omitempty"`
+}
+
+type modelStats struct {
+	FileCount     int `json:"file_count"`
+	FunctionCount int `json:"function_count"`
+	EndpointCount int `json:"endpoint_count"`
+}
+
+// isHTTPHandler checks if a function name looks like an HTTP handler
+func isHTTPHandler(name string) bool {
+	lowerName := strings.ToLower(name)
+	return strings.HasPrefix(lowerName, "handle") ||
+		strings.HasSuffix(lowerName, "handler") ||
+		strings.HasPrefix(lowerName, "serve") ||
+		strings.Contains(lowerName, "endpoint")
+}
+
 // PlanningWorker creates test generation plans
 type PlanningWorker struct {
 	*BaseWorker
+	store *db.Store
 }
 
-func NewPlanningWorker(base *BaseWorker) *PlanningWorker {
-	w := &PlanningWorker{BaseWorker: base}
+func NewPlanningWorker(base *BaseWorker, store *db.Store) *PlanningWorker {
+	w := &PlanningWorker{BaseWorker: base, store: store}
 	base.handler = w.handleJob
 	return w
 }
@@ -204,18 +401,35 @@ func (w *PlanningWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 		Int("max_tests", payload.MaxTests).
 		Msg("creating test plan")
 
-	// In real implementation, would:
-	// 1. Load model from DB
-	// 2. Analyze coverage gaps
-	// 3. Prioritize test intents
-	// 4. Create TestPlan
+	// Load model from DB to get function count
+	var functionCount int
+	if w.store != nil {
+		model, err := w.store.GetSystemModel(ctx, payload.ModelID)
+		if err != nil {
+			log.Warn().Err(err).Msg("failed to load system model")
+		} else if model != nil {
+			var modelData systemModelData
+			if err := json.Unmarshal(model.ModelData, &modelData); err == nil {
+				functionCount = modelData.Stats.FunctionCount
+			}
+		}
+	}
+
+	// Calculate test distribution based on model
+	maxTests := payload.MaxTests
+	if maxTests == 0 {
+		maxTests = functionCount // Default to one test per function
+		if maxTests == 0 {
+			maxTests = 10 // Fallback default
+		}
+	}
 
 	result := jobs.PlanningResult{
 		PlanID:     uuid.New(),
-		TotalTests: payload.MaxTests,
-		UnitTests:  int(float64(payload.MaxTests) * 0.6),
-		APITests:   int(float64(payload.MaxTests) * 0.3),
-		E2ETests:   int(float64(payload.MaxTests) * 0.1),
+		TotalTests: maxTests,
+		UnitTests:  int(float64(maxTests) * 0.6),
+		APITests:   int(float64(maxTests) * 0.3),
+		E2ETests:   int(float64(maxTests) * 0.1),
 	}
 
 	if err := w.Repository().Complete(ctx, job.ID, result); err != nil {
@@ -237,11 +451,17 @@ func (w *PlanningWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 // GenerationWorker generates tests using LLM
 type GenerationWorker struct {
 	*BaseWorker
-	cfg *config.Config
+	cfg   *config.Config
+	store *db.Store
+	gen   *generator.Generator
 }
 
-func NewGenerationWorker(base *BaseWorker, cfg *config.Config) *GenerationWorker {
-	w := &GenerationWorker{BaseWorker: base, cfg: cfg}
+func NewGenerationWorker(base *BaseWorker, cfg *config.Config, store *db.Store, llmRouter *llm.Router) *GenerationWorker {
+	var gen *generator.Generator
+	if llmRouter != nil {
+		gen = generator.NewGenerator(llmRouter)
+	}
+	w := &GenerationWorker{BaseWorker: base, cfg: cfg, store: store, gen: gen}
 	base.handler = w.handleJob
 	return w
 }
@@ -256,18 +476,116 @@ func (w *GenerationWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 
 	log.Info().
 		Str("plan_id", payload.PlanID.String()).
+		Str("run_id", payload.GenerationRunID.String()).
 		Int("tier", payload.LLMTier).
 		Msg("generating tests")
 
-	// In real implementation, would:
-	// 1. Load plan and specs from DB
-	// 2. For each intent, call LLM to generate test
-	// 3. Convert DSL to target language
-	// 4. Write test files
+	// Update generation run status to running
+	if w.store != nil {
+		if err := w.store.UpdateGenerationRunStatus(ctx, payload.GenerationRunID, "running"); err != nil {
+			log.Warn().Err(err).Msg("failed to update run status")
+		}
+	}
+
+	// Check if generator is available
+	if w.gen == nil {
+		log.Warn().Msg("LLM generator not configured, skipping test generation")
+		result := jobs.GenerationResult{
+			TestsGenerated: 0,
+			TestFilePaths:  []string{},
+			FailedIntents:  []string{"LLM not configured"},
+		}
+		if err := w.Repository().Complete(ctx, job.ID, result); err != nil {
+			return fmt.Errorf("failed to complete job: %w", err)
+		}
+		return nil
+	}
+
+	// Get workspace path from parent job chain
+	workspacePath := w.getWorkspacePath(ctx, job)
+	if workspacePath == "" {
+		return fmt.Errorf("could not determine workspace path")
+	}
+
+	// Determine LLM tier
+	tier := llm.Tier(payload.LLMTier)
+	if tier == 0 {
+		tier = llm.Tier1 // Default to fast tier
+	}
+
+	// Generate tests for source files in workspace
+	var testFilePaths []string
+	var failedIntents []string
+	testsGenerated := 0
+
+	err := filepath.Walk(workspacePath, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info.IsDir() {
+			return nil
+		}
+
+		ext := filepath.Ext(path)
+		if ext != ".go" && ext != ".py" && ext != ".ts" && ext != ".js" {
+			return nil
+		}
+
+		// Skip test files
+		if strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "_test.py") ||
+			strings.HasSuffix(path, ".test.ts") || strings.HasSuffix(path, ".test.js") ||
+			strings.HasSuffix(path, ".spec.ts") || strings.HasSuffix(path, ".spec.js") {
+			return nil
+		}
+
+		log.Debug().Str("file", path).Msg("generating tests for file")
+
+		// Generate tests for this file
+		tests, genErr := w.gen.GenerateForFile(ctx, path, generator.GenerateOptions{
+			Tier:     tier,
+			TestType: dsl.TestTypeUnit,
+			MaxTests: 5, // Limit per file
+		})
+		if genErr != nil {
+			log.Warn().Err(genErr).Str("file", path).Msg("failed to generate tests")
+			failedIntents = append(failedIntents, path)
+			return nil
+		}
+
+		// Convert generated tests to code and write to files
+		for _, test := range tests {
+			testPath, writeErr := w.writeTestFile(path, test, workspacePath)
+			if writeErr != nil {
+				log.Warn().Err(writeErr).Msg("failed to write test file")
+				failedIntents = append(failedIntents, test.Function.Name)
+				continue
+			}
+			testFilePaths = append(testFilePaths, testPath)
+			testsGenerated++
+
+			// Persist to database
+			w.persistGeneratedTest(ctx, payload.GenerationRunID, test, testPath)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to walk workspace: %w", err)
+	}
+
+	// Update generation run status
+	if w.store != nil {
+		status := "completed"
+		if testsGenerated == 0 {
+			status = "failed"
+		}
+		if err := w.store.UpdateGenerationRunStatus(ctx, payload.GenerationRunID, status); err != nil {
+			log.Warn().Err(err).Msg("failed to update run status")
+		}
+	}
 
 	result := jobs.GenerationResult{
-		TestsGenerated: 10, // Placeholder
-		TestFilePaths:  []string{},
+		TestsGenerated: testsGenerated,
+		TestFilePaths:  testFilePaths,
+		FailedIntents:  failedIntents,
 	}
 
 	if err := w.Repository().Complete(ctx, job.ID, result); err != nil {
@@ -283,6 +601,124 @@ func (w *GenerationWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 	}
 
 	return nil
+}
+
+// getWorkspacePath retrieves workspace path from the job chain
+func (w *GenerationWorker) getWorkspacePath(ctx context.Context, job *jobs.Job) string {
+	// Walk up the parent chain to find ingestion result
+	current := job
+	for current.ParentJobID != nil {
+		parent, err := w.Repository().GetByID(ctx, *current.ParentJobID)
+		if err != nil || parent == nil {
+			break
+		}
+
+		if parent.Type == jobs.JobTypeIngestion {
+			var result jobs.IngestionResult
+			if err := parent.GetResult(&result); err == nil {
+				return result.WorkspacePath
+			}
+		}
+		current = parent
+	}
+	return ""
+}
+
+// writeTestFile writes generated test to a file
+func (w *GenerationWorker) writeTestFile(sourcePath string, test generator.GeneratedTest, workspacePath string) (string, error) {
+	// Determine test file path based on source file
+	dir := filepath.Dir(sourcePath)
+	base := filepath.Base(sourcePath)
+	ext := filepath.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+
+	var testFileName string
+	switch ext {
+	case ".go":
+		testFileName = name + "_test.go"
+	case ".py":
+		testFileName = "test_" + name + ".py"
+	case ".ts":
+		testFileName = name + ".test.ts"
+	case ".js":
+		testFileName = name + ".test.js"
+	default:
+		testFileName = name + "_test" + ext
+	}
+
+	testPath := filepath.Join(dir, testFileName)
+
+	// Get appropriate adapter for code generation
+	var testCode string
+	var err error
+	switch ext {
+	case ".go":
+		adapter := adapters.NewGoAdapter()
+		testCode, err = adapter.Generate(test.DSL)
+	case ".py":
+		adapter := adapters.NewPytestAdapter()
+		testCode, err = adapter.Generate(test.DSL)
+	case ".ts", ".js":
+		adapter := adapters.NewJestAdapter()
+		testCode, err = adapter.Generate(test.DSL)
+	default:
+		return "", fmt.Errorf("unsupported file type: %s", ext)
+	}
+
+	if err != nil {
+		return "", fmt.Errorf("failed to generate test code: %w", err)
+	}
+
+	// Write test file
+	if err := os.WriteFile(testPath, []byte(testCode), 0644); err != nil {
+		return "", fmt.Errorf("failed to write test file: %w", err)
+	}
+
+	log.Info().Str("path", testPath).Msg("wrote test file")
+	return testPath, nil
+}
+
+// persistGeneratedTest saves the generated test to the database
+func (w *GenerationWorker) persistGeneratedTest(ctx context.Context, runID uuid.UUID, test generator.GeneratedTest, testPath string) {
+	if w.store == nil {
+		return
+	}
+
+	dslJSON, err := json.Marshal(test.DSL)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to marshal DSL")
+		return
+	}
+
+	framework := detectFramework(testPath)
+	dbTest := &db.GeneratedTest{
+		RunID:          runID,
+		Name:           test.DSL.Name,
+		Type:           string(test.DSL.Type),
+		TargetFile:     test.FileName,
+		TargetFunction: &test.Function.Name,
+		DSL:            dslJSON,
+		Framework:      &framework,
+		Status:         "pending",
+	}
+
+	if err := w.store.CreateGeneratedTest(ctx, dbTest); err != nil {
+		log.Warn().Err(err).Msg("failed to persist generated test")
+	}
+}
+
+// detectFramework returns the test framework based on file extension
+func detectFramework(testPath string) string {
+	switch {
+	case strings.HasSuffix(testPath, "_test.go"):
+		return "go"
+	case strings.HasSuffix(testPath, ".py"):
+		return "pytest"
+	case strings.HasSuffix(testPath, ".ts"), strings.HasSuffix(testPath, ".js"):
+		return "jest"
+	default:
+		return "unknown"
+	}
 }
 
 // MutationWorker runs mutation testing on generated tests
@@ -331,10 +767,11 @@ func (w *MutationWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 // IntegrationWorker integrates generated tests into the repository
 type IntegrationWorker struct {
 	*BaseWorker
+	store *db.Store
 }
 
-func NewIntegrationWorker(base *BaseWorker) *IntegrationWorker {
-	w := &IntegrationWorker{BaseWorker: base}
+func NewIntegrationWorker(base *BaseWorker, store *db.Store) *IntegrationWorker {
+	w := &IntegrationWorker{BaseWorker: base, store: store}
 	base.handler = w.handleJob
 	return w
 }
@@ -350,24 +787,179 @@ func (w *IntegrationWorker) handleJob(ctx context.Context, job *jobs.Job) error 
 	log.Info().
 		Strs("test_files", payload.TestFilePaths).
 		Bool("create_pr", payload.CreatePR).
+		Str("target_branch", payload.TargetBranch).
 		Msg("integrating tests")
 
-	// In real implementation, would:
-	// 1. Copy test files to repository
-	// 2. Run tests to verify they pass
-	// 3. Create branch and PR if requested
-
-	result := jobs.IntegrationResult{
-		FilesIntegrated: len(payload.TestFilePaths),
+	// Get workspace path from job chain
+	workspacePath := w.getWorkspacePath(ctx, job)
+	if workspacePath == "" {
+		return fmt.Errorf("could not determine workspace path")
 	}
 
+	// Validate test files exist
+	var validFiles []string
+	for _, testPath := range payload.TestFilePaths {
+		if _, err := os.Stat(testPath); err == nil {
+			validFiles = append(validFiles, testPath)
+		} else {
+			log.Warn().Str("path", testPath).Msg("test file not found, skipping")
+		}
+	}
+
+	if len(validFiles) == 0 {
+		log.Warn().Msg("no valid test files to integrate")
+		result := jobs.IntegrationResult{
+			FilesIntegrated: 0,
+		}
+		return w.Repository().Complete(ctx, job.ID, result)
+	}
+
+	// Run tests to verify they compile/pass
+	testsPassed, testOutput := w.runTests(ctx, workspacePath, validFiles)
+	if !testsPassed {
+		log.Warn().Str("output", testOutput).Msg("some tests failed verification")
+		// Continue with integration but mark tests as needing review
+	}
+
+	// Update test statuses in database
+	w.updateTestStatuses(ctx, payload.GenerationRunID, testsPassed)
+
+	result := jobs.IntegrationResult{
+		FilesIntegrated: len(validFiles),
+	}
+
+	// Create branch and prepare for PR if requested
 	if payload.CreatePR {
-		result.BranchName = fmt.Sprintf("qtest/tests-%s", job.ID.String()[:8])
-		// Would create actual PR here
+		branchName := fmt.Sprintf("qtest/tests-%s", job.ID.String()[:8])
+		result.BranchName = branchName
+
+		if err := w.createBranch(ctx, workspacePath, branchName, validFiles); err != nil {
+			log.Warn().Err(err).Msg("failed to create branch")
+		} else {
+			log.Info().Str("branch", branchName).Msg("created branch with test files")
+		}
 	}
 
 	if err := w.Repository().Complete(ctx, job.ID, result); err != nil {
 		return fmt.Errorf("failed to complete job: %w", err)
+	}
+
+	return nil
+}
+
+// getWorkspacePath retrieves workspace path from the job chain
+func (w *IntegrationWorker) getWorkspacePath(ctx context.Context, job *jobs.Job) string {
+	current := job
+	for current.ParentJobID != nil {
+		parent, err := w.Repository().GetByID(ctx, *current.ParentJobID)
+		if err != nil || parent == nil {
+			break
+		}
+
+		if parent.Type == jobs.JobTypeIngestion {
+			var result jobs.IngestionResult
+			if err := parent.GetResult(&result); err == nil {
+				return result.WorkspacePath
+			}
+		}
+		current = parent
+	}
+	return ""
+}
+
+// runTests runs the generated tests to verify they work
+func (w *IntegrationWorker) runTests(ctx context.Context, workspacePath string, testFiles []string) (bool, string) {
+	// Detect language from test files
+	if len(testFiles) == 0 {
+		return true, ""
+	}
+
+	ext := filepath.Ext(testFiles[0])
+	var cmd *exec.Cmd
+
+	switch ext {
+	case ".go":
+		// Run go test on the workspace
+		cmd = exec.CommandContext(ctx, "go", "test", "-v", "./...")
+		cmd.Dir = workspacePath
+	case ".py":
+		// Run pytest
+		cmd = exec.CommandContext(ctx, "python", "-m", "pytest", "-v")
+		cmd.Dir = workspacePath
+	case ".ts", ".js":
+		// Run npm test (assumes package.json exists)
+		cmd = exec.CommandContext(ctx, "npm", "test")
+		cmd.Dir = workspacePath
+	default:
+		return true, "unknown test framework"
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return false, string(output)
+	}
+
+	return true, string(output)
+}
+
+// updateTestStatuses updates the status of generated tests in the database
+func (w *IntegrationWorker) updateTestStatuses(ctx context.Context, runID uuid.UUID, passed bool) {
+	if w.store == nil {
+		return
+	}
+
+	status := "accepted"
+	if !passed {
+		status = "rejected"
+	}
+
+	tests, err := w.store.ListTestsByRun(ctx, runID)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to list tests for status update")
+		return
+	}
+
+	for _, test := range tests {
+		var reason *string
+		if !passed {
+			r := "test verification failed"
+			reason = &r
+		}
+		if err := w.store.UpdateTestStatus(ctx, test.ID, status, reason); err != nil {
+			log.Warn().Err(err).Str("test_id", test.ID.String()).Msg("failed to update test status")
+		}
+	}
+}
+
+// createBranch creates a git branch with the test files
+func (w *IntegrationWorker) createBranch(ctx context.Context, workspacePath, branchName string, testFiles []string) error {
+	// Create and checkout new branch
+	cmd := exec.CommandContext(ctx, "git", "checkout", "-b", branchName)
+	cmd.Dir = workspacePath
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create branch: %s: %w", string(output), err)
+	}
+
+	// Add test files
+	for _, testFile := range testFiles {
+		relPath, err := filepath.Rel(workspacePath, testFile)
+		if err != nil {
+			relPath = testFile
+		}
+
+		cmd := exec.CommandContext(ctx, "git", "add", relPath)
+		cmd.Dir = workspacePath
+		if output, err := cmd.CombinedOutput(); err != nil {
+			log.Warn().Str("file", relPath).Str("output", string(output)).Msg("failed to add file")
+		}
+	}
+
+	// Commit the changes
+	commitMsg := fmt.Sprintf("Add generated tests\n\nGenerated by QTest")
+	cmd = exec.CommandContext(ctx, "git", "commit", "-m", commitMsg)
+	cmd.Dir = workspacePath
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to commit: %s: %w", string(output), err)
 	}
 
 	return nil

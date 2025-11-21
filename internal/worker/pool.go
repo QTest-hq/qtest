@@ -8,7 +8,9 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/QTest-hq/qtest/internal/config"
+	"github.com/QTest-hq/qtest/internal/db"
 	"github.com/QTest-hq/qtest/internal/jobs"
+	"github.com/QTest-hq/qtest/internal/llm"
 	qtestnats "github.com/QTest-hq/qtest/internal/nats"
 )
 
@@ -34,6 +36,8 @@ type Pool struct {
 	repo       *jobs.Repository
 	pipeline   *jobs.Pipeline
 	db         *sql.DB
+	store      *db.Store
+	llmRouter  *llm.Router
 }
 
 // Worker is the interface all workers must implement
@@ -48,6 +52,8 @@ type PoolConfig struct {
 	WorkerType string
 	DB         *sql.DB
 	NATS       *qtestnats.Client
+	Store      *db.Store    // Database store for domain operations
+	LLMRouter  *llm.Router  // LLM router for test generation
 }
 
 // NewPool creates a new worker pool
@@ -58,6 +64,8 @@ func NewPool(cfg PoolConfig) (*Pool, error) {
 		workers:    make([]Worker, 0),
 		db:         cfg.DB,
 		nats:       cfg.NATS,
+		store:      cfg.Store,
+		llmRouter:  cfg.LLMRouter,
 	}
 
 	// Initialize job repository if DB is available
@@ -116,17 +124,17 @@ func (p *Pool) addWorker(jobType jobs.JobType) {
 	var worker Worker
 	switch jobType {
 	case jobs.JobTypeIngestion:
-		worker = NewIngestionWorker(base)
+		worker = NewIngestionWorker(base, p.store)
 	case jobs.JobTypeModeling:
-		worker = NewModelingWorker(base)
+		worker = NewModelingWorker(base, p.store)
 	case jobs.JobTypePlanning:
-		worker = NewPlanningWorker(base)
+		worker = NewPlanningWorker(base, p.store)
 	case jobs.JobTypeGeneration:
-		worker = NewGenerationWorker(base, p.cfg)
+		worker = NewGenerationWorker(base, p.cfg, p.store, p.llmRouter)
 	case jobs.JobTypeMutation:
 		worker = NewMutationWorker(base)
 	case jobs.JobTypeIntegration:
-		worker = NewIntegrationWorker(base)
+		worker = NewIntegrationWorker(base, p.store)
 	}
 
 	if worker != nil {

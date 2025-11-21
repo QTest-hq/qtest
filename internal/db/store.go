@@ -173,6 +173,43 @@ func (s *Store) UpdateRepositoryStatus(ctx context.Context, id uuid.UUID, status
 	return err
 }
 
+// CreateSystemModel creates a new system model
+func (s *Store) CreateSystemModel(ctx context.Context, model *SystemModel) error {
+	if model.ID == uuid.Nil {
+		model.ID = uuid.New()
+	}
+	model.CreatedAt = time.Now()
+
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO system_models (id, repository_id, commit_sha, model_data, created_at)
+		VALUES ($1, $2, $3, $4, $5)
+	`, model.ID, model.RepositoryID, model.CommitSHA, model.ModelData, model.CreatedAt)
+
+	if err != nil {
+		return fmt.Errorf("failed to create system model: %w", err)
+	}
+
+	return nil
+}
+
+// GetSystemModel gets a system model by ID
+func (s *Store) GetSystemModel(ctx context.Context, id uuid.UUID) (*SystemModel, error) {
+	model := &SystemModel{}
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, repository_id, commit_sha, model_data, created_at
+		FROM system_models WHERE id = $1
+	`, id).Scan(&model.ID, &model.RepositoryID, &model.CommitSHA, &model.ModelData, &model.CreatedAt)
+
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get system model: %w", err)
+	}
+
+	return model, nil
+}
+
 // CreateGenerationRun creates a new generation run
 func (s *Store) CreateGenerationRun(ctx context.Context, run *GenerationRun) error {
 	run.ID = uuid.New()
