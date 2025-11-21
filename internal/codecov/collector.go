@@ -410,3 +410,60 @@ func LoadReport(path string) (*CoverageReport, error) {
 
 	return &report, nil
 }
+
+// ParseGoCoverageFile parses a Go coverage profile file
+// This is exposed for use by other packages that need to parse coverage files
+func ParseGoCoverageFile(coverFile string) ([]FileCoverage, error) {
+	file, err := os.Open(coverFile)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	fileMap := make(map[string]*FileCoverage)
+	scanner := bufio.NewScanner(file)
+
+	// Skip mode line
+	scanner.Scan()
+
+	// Parse coverage lines: file:startLine.startCol,endLine.endCol numStmt count
+	lineRegex := regexp.MustCompile(`^(.+):(\d+)\.\d+,(\d+)\.\d+ (\d+) (\d+)$`)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		matches := lineRegex.FindStringSubmatch(line)
+		if matches == nil {
+			continue
+		}
+
+		filePath := matches[1]
+		numStmt, _ := strconv.Atoi(matches[4])
+		count, _ := strconv.Atoi(matches[5])
+
+		// Get or create file coverage
+		fc, ok := fileMap[filePath]
+		if !ok {
+			fc = &FileCoverage{
+				Path:           filePath,
+				UncoveredLines: make([]int, 0),
+			}
+			fileMap[filePath] = fc
+		}
+
+		fc.TotalLines += numStmt
+		if count > 0 {
+			fc.CoveredLines += numStmt
+		}
+	}
+
+	// Calculate percentages and build result
+	result := make([]FileCoverage, 0, len(fileMap))
+	for _, fc := range fileMap {
+		if fc.TotalLines > 0 {
+			fc.Percentage = float64(fc.CoveredLines) / float64(fc.TotalLines) * 100
+		}
+		result = append(result, *fc)
+	}
+
+	return result, nil
+}
