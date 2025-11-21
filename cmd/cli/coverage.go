@@ -26,6 +26,8 @@ func coverageCmd() *cobra.Command {
 	cmd.AddCommand(coverageAnalyzeCmd())
 	cmd.AddCommand(coverageGapsCmd())
 	cmd.AddCommand(coverageGenerateCmd())
+	cmd.AddCommand(coverageReportCmd())
+	cmd.AddCommand(coverageCICmd())
 
 	return cmd
 }
@@ -35,19 +37,31 @@ func coverageCollectCmd() *cobra.Command {
 		workDir    string
 		language   string
 		outputFile string
+		jsonOut    bool
+		htmlOut    string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "collect",
 		Short: "Collect code coverage by running tests",
+		Long: `Run tests with coverage instrumentation and display results.
+
+Examples:
+  qtest coverage collect                           # Collect coverage for current directory
+  qtest coverage collect -d ./myproject            # Collect for specific directory
+  qtest coverage collect -o coverage.json          # Save JSON report
+  qtest coverage collect --json                    # Output as JSON to stdout
+  qtest coverage collect --html ./reports          # Generate HTML report`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Auto-detect language if not specified
 			if language == "" {
 				language = detectProjectLanguage(workDir)
 			}
 
-			fmt.Printf("Collecting coverage for %s project...\n", language)
-			fmt.Printf("Working directory: %s\n\n", workDir)
+			if !jsonOut {
+				fmt.Printf("Collecting coverage for %s project...\n", language)
+				fmt.Printf("Working directory: %s\n\n", workDir)
+			}
 
 			collector := codecov.NewCollector(workDir, language)
 
@@ -56,30 +70,31 @@ func coverageCollectCmd() *cobra.Command {
 				return fmt.Errorf("failed to collect coverage: %w", err)
 			}
 
-			// Display summary
-			fmt.Printf("📊 Coverage Report\n")
-			fmt.Printf("==================\n")
-			fmt.Printf("Total Lines:   %d\n", report.TotalLines)
-			fmt.Printf("Covered Lines: %d\n", report.CoveredLines)
-			fmt.Printf("Coverage:      %.1f%%\n\n", report.Percentage)
-
-			fmt.Printf("Files (%d):\n", len(report.Files))
-			for _, f := range report.Files {
-				status := "✅"
-				if f.Percentage < 50 {
-					status = "❌"
-				} else if f.Percentage < 80 {
-					status = "⚠️"
-				}
-				fmt.Printf("  %s %s: %.1f%%\n", status, filepath.Base(f.Path), f.Percentage)
+			// JSON output mode
+			if jsonOut {
+				data, _ := json.MarshalIndent(report, "", "  ")
+				fmt.Println(string(data))
+				return nil
 			}
 
-			// Save report if output specified
+			// Display summary
+			displayCoverageReport(report)
+
+			// Save JSON report if output specified
 			if outputFile != "" {
 				if err := collector.SaveReport(report, outputFile); err != nil {
 					return fmt.Errorf("failed to save report: %w", err)
 				}
 				fmt.Printf("\n📄 Report saved to: %s\n", outputFile)
+			}
+
+			// Generate HTML if requested
+			if htmlOut != "" {
+				htmlPath := filepath.Join(htmlOut, "coverage-report.html")
+				if err := generateCoverageHTML(report, htmlPath); err != nil {
+					return fmt.Errorf("failed to generate HTML report: %w", err)
+				}
+				fmt.Printf("📄 HTML report generated: %s\n", htmlPath)
 			}
 
 			return nil
@@ -88,7 +103,9 @@ func coverageCollectCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&workDir, "dir", "d", ".", "Working directory")
 	cmd.Flags().StringVarP(&language, "language", "l", "", "Language (auto-detected if not specified)")
-	cmd.Flags().StringVarP(&outputFile, "output", "o", "", "Output file for coverage report")
+	cmd.Flags().StringVarP(&outputFile, "output", "o", "", "Output file for JSON coverage report")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Output as JSON to stdout")
+	cmd.Flags().StringVar(&htmlOut, "html", "", "Output directory for HTML report")
 
 	return cmd
 }
@@ -412,4 +429,289 @@ func detectProjectLanguage(dir string) string {
 
 	// Default
 	return "go"
+}
+
+func coverageReportCmd() *cobra.Command {
+	var (
+		reportFile string
+		format     string
+		outputDir  string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "report",
+		Short: "View or export a coverage report",
+		Long: `View an existing JSON coverage report or generate reports in different formats.
+
+Examples:
+  qtest coverage report -r coverage.json                  # View report as text
+  qtest coverage report -r coverage.json --format json    # View as formatted JSON
+  qtest coverage report -r coverage.json --format html -o ./reports  # Generate HTML`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Validate report file
+			reportAbs, err := validateFilePath(reportFile)
+			if err != nil {
+				return fmt.Errorf("invalid report file: %w", err)
+			}
+
+			// Load report
+			report, err := codecov.LoadReport(reportAbs)
+			if err != nil {
+				return fmt.Errorf("failed to load report: %w", err)
+			}
+
+			switch format {
+			case "json":
+				// Pretty print JSON
+				data, _ := json.MarshalIndent(report, "", "  ")
+				fmt.Println(string(data))
+
+			case "html":
+				// Generate HTML report
+				if outputDir == "" {
+					outputDir = "."
+				}
+				htmlPath := filepath.Join(outputDir, "coverage-report.html")
+				if err := generateCoverageHTML(report, htmlPath); err != nil {
+					return fmt.Errorf("failed to generate HTML report: %w", err)
+				}
+				fmt.Printf("📄 HTML report generated: %s\n", htmlPath)
+
+			default:
+				// Text format
+				displayCoverageReport(report)
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&reportFile, "report", "r", "coverage.json", "Coverage report file")
+	cmd.Flags().StringVar(&format, "format", "text", "Output format: text, json, or html")
+	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "Output directory for HTML reports")
+
+	return cmd
+}
+
+func coverageCICmd() *cobra.Command {
+	var (
+		workDir   string
+		language  string
+		threshold float64
+		quiet     bool
+		jsonOut   bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "ci",
+		Short: "CI-friendly coverage check with threshold enforcement",
+		Long: `Run coverage collection and check against a threshold.
+
+Returns exit code 1 if coverage is below the threshold.
+Useful for CI pipelines to enforce minimum coverage.
+
+Examples:
+  qtest coverage ci -t 80                    # Fail if coverage < 80%
+  qtest coverage ci -t 70 --quiet            # Quiet mode for scripts
+  qtest coverage ci -t 80 --json             # Output as JSON`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Auto-detect language if not specified
+			if language == "" {
+				language = detectProjectLanguage(workDir)
+			}
+
+			if !quiet {
+				fmt.Printf("Running coverage check (threshold: %.1f%%)...\n\n", threshold)
+			}
+
+			collector := codecov.NewCollector(workDir, language)
+
+			report, err := collector.Collect(context.Background())
+			if err != nil {
+				return fmt.Errorf("failed to collect coverage: %w", err)
+			}
+
+			// Determine pass/fail
+			passed := report.Percentage >= threshold
+
+			if jsonOut {
+				// JSON output for CI parsing
+				result := map[string]interface{}{
+					"coverage":   report.Percentage,
+					"threshold":  threshold,
+					"passed":     passed,
+					"total":      report.TotalLines,
+					"covered":    report.CoveredLines,
+					"files":      len(report.Files),
+					"language":   language,
+					"timestamp":  report.Timestamp,
+				}
+				data, _ := json.MarshalIndent(result, "", "  ")
+				fmt.Println(string(data))
+			} else if !quiet {
+				// Human-readable output
+				displayCoverageReport(report)
+				fmt.Println()
+
+				if passed {
+					fmt.Printf("✅ Coverage %.1f%% meets threshold %.1f%%\n", report.Percentage, threshold)
+				} else {
+					fmt.Printf("❌ Coverage %.1f%% is below threshold %.1f%%\n", report.Percentage, threshold)
+				}
+			}
+
+			// Exit with error if below threshold
+			if !passed {
+				return fmt.Errorf("coverage %.1f%% is below threshold %.1f%%", report.Percentage, threshold)
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&workDir, "dir", "d", ".", "Working directory")
+	cmd.Flags().StringVarP(&language, "language", "l", "", "Language (auto-detected if not specified)")
+	cmd.Flags().Float64VarP(&threshold, "threshold", "t", 80.0, "Minimum coverage threshold")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Quiet mode (only exit code)")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Output as JSON")
+
+	return cmd
+}
+
+// displayCoverageReport displays a coverage report in text format
+func displayCoverageReport(report *codecov.CoverageReport) {
+	fmt.Printf("📊 Coverage Report\n")
+	fmt.Printf("==================\n")
+	fmt.Printf("Total Lines:   %d\n", report.TotalLines)
+	fmt.Printf("Covered Lines: %d\n", report.CoveredLines)
+	fmt.Printf("Coverage:      %.1f%%\n\n", report.Percentage)
+
+	if len(report.Files) > 0 {
+		fmt.Printf("Files (%d):\n", len(report.Files))
+		for _, f := range report.Files {
+			status := "✅"
+			if f.Percentage < 50 {
+				status = "❌"
+			} else if f.Percentage < 80 {
+				status = "⚠️"
+			}
+			fmt.Printf("  %s %s: %.1f%% (%d/%d lines)\n",
+				status, filepath.Base(f.Path), f.Percentage, f.CoveredLines, f.TotalLines)
+		}
+	}
+}
+
+// generateCoverageHTML generates an HTML coverage report
+func generateCoverageHTML(report *codecov.CoverageReport, outputPath string) error {
+	// Ensure output directory exists
+	dir := filepath.Dir(outputPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	// Determine quality class
+	qualityClass := "poor"
+	qualityText := "Poor"
+	if report.Percentage >= 80 {
+		qualityClass = "good"
+		qualityText = "Good"
+	} else if report.Percentage >= 50 {
+		qualityClass = "acceptable"
+		qualityText = "Acceptable"
+	}
+
+	// Build files table
+	var filesHTML string
+	for _, f := range report.Files {
+		statusClass := "status-poor"
+		statusIcon := "✗"
+		if f.Percentage >= 80 {
+			statusClass = "status-good"
+			statusIcon = "✓"
+		} else if f.Percentage >= 50 {
+			statusClass = "status-acceptable"
+			statusIcon = "~"
+		}
+		filesHTML += fmt.Sprintf(`
+        <tr class="%s">
+            <td>%s</td>
+            <td>%s</td>
+            <td>%.1f%%</td>
+            <td>%d</td>
+            <td>%d</td>
+        </tr>`, statusClass, statusIcon, f.Path, f.Percentage, f.CoveredLines, f.TotalLines)
+	}
+
+	html := fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+    <title>Coverage Report</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 40px; background: #f5f5f5; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #333; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .summary { display: flex; gap: 20px; margin: 20px 0; }
+        .stat { background: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center; flex: 1; }
+        .stat-value { font-size: 2em; font-weight: bold; color: #333; }
+        .stat-label { color: #666; margin-top: 5px; }
+        .quality-good { color: #28a745; }
+        .quality-acceptable { color: #ffc107; }
+        .quality-poor { color: #dc3545; }
+        table { width: 100%%; border-collapse: collapse; margin-top: 20px; }
+        th { background: #f8f9fa; padding: 12px; text-align: left; border-bottom: 2px solid #dee2e6; }
+        td { padding: 10px 12px; border-bottom: 1px solid #eee; }
+        .status-good td:first-child { color: #28a745; }
+        .status-acceptable td:first-child { color: #ffc107; }
+        .status-poor td:first-child { color: #dc3545; }
+        .timestamp { color: #999; font-size: 0.9em; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Coverage Report</h1>
+
+        <div class="summary">
+            <div class="stat">
+                <div class="stat-value quality-%s">%.1f%%</div>
+                <div class="stat-label">Coverage (%s)</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value">%d</div>
+                <div class="stat-label">Total Lines</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value">%d</div>
+                <div class="stat-label">Covered Lines</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value">%d</div>
+                <div class="stat-label">Files</div>
+            </div>
+        </div>
+
+        <h2>Files</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Status</th>
+                    <th>File</th>
+                    <th>Coverage</th>
+                    <th>Covered</th>
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                %s
+            </tbody>
+        </table>
+
+        <p class="timestamp">Generated: %s</p>
+    </div>
+</body>
+</html>`,
+		qualityClass, report.Percentage, qualityText,
+		report.TotalLines, report.CoveredLines, len(report.Files),
+		filesHTML, report.Timestamp.Format("2006-01-02 15:04:05"))
+
+	return os.WriteFile(outputPath, []byte(html), 0644)
 }
