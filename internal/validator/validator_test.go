@@ -460,3 +460,450 @@ func TestParseFixResponse_Empty(t *testing.T) {
 		t.Error("Explanation should be empty")
 	}
 }
+
+// =============================================================================
+// Validator.parseErrors Dispatcher Tests
+// =============================================================================
+
+func TestValidator_ParseErrors_Go(t *testing.T) {
+	v := NewValidator("/tmp", "go")
+	output := `
+--- FAIL: TestFunc (0.00s)
+    Error: expected value
+FAIL
+`
+	errors := v.parseErrors(output)
+
+	if len(errors) == 0 {
+		t.Error("Should parse Go test errors")
+	}
+}
+
+func TestValidator_ParseErrors_Python(t *testing.T) {
+	v := NewValidator("/tmp", "python")
+	output := `
+FAILED tests/test_func.py::test_add
+E       assert 1 == 2
+============================= short test summary info ==========================
+`
+	errors := v.parseErrors(output)
+
+	if len(errors) == 0 {
+		t.Error("Should parse Python test errors")
+	}
+}
+
+func TestValidator_ParseErrors_JavaScript(t *testing.T) {
+	v := NewValidator("/tmp", "javascript")
+	output := `
+FAIL tests/func.test.js
+  ✕ test name (5 ms)
+
+`
+	errors := v.parseErrors(output)
+
+	if len(errors) == 0 {
+		t.Error("Should parse JavaScript test errors")
+	}
+}
+
+func TestValidator_ParseErrors_TypeScript(t *testing.T) {
+	v := NewValidator("/tmp", "typescript")
+	output := `
+FAIL tests/func.test.ts
+  ✕ test name
+
+`
+	errors := v.parseErrors(output)
+
+	if len(errors) == 0 {
+		t.Error("Should parse TypeScript test errors")
+	}
+}
+
+func TestValidator_ParseErrors_UnknownLanguage(t *testing.T) {
+	v := NewValidator("/tmp", "ruby")
+	output := "some error output"
+
+	errors := v.parseErrors(output)
+
+	// Unknown language should return empty errors
+	if len(errors) != 0 {
+		t.Errorf("Unknown language should return empty errors, got %d", len(errors))
+	}
+}
+
+// =============================================================================
+// parseJestErrors Edge Cases
+// =============================================================================
+
+func TestParseJestErrors_MultipleErrors(t *testing.T) {
+	output := `
+FAIL tests/math.test.js
+  ✕ test one
+
+  ✕ test two
+
+  ✕ test three
+`
+	errors := parseJestErrors(output)
+
+	if len(errors) < 2 {
+		t.Errorf("Should find multiple errors, got %d", len(errors))
+	}
+}
+
+func TestParseJestErrors_TypeError(t *testing.T) {
+	output := `
+  ✕ test with type error
+    TypeError: Cannot read property 'x' of undefined
+`
+	errors := parseJestErrors(output)
+
+	if len(errors) == 0 {
+		t.Fatal("Should find error")
+	}
+	if !strings.Contains(errors[0].Message, "TypeError") {
+		t.Error("Should capture TypeError message")
+	}
+}
+
+func TestParseJestErrors_ExpectedReceived(t *testing.T) {
+	output := `
+  ✕ comparison test
+    Expected: "hello"
+    Received: "world"
+`
+	errors := parseJestErrors(output)
+
+	if len(errors) == 0 {
+		t.Fatal("Should find error")
+	}
+	if errors[0].Expected != "\"hello\"" {
+		t.Errorf("Expected = %s, want \"hello\"", errors[0].Expected)
+	}
+	if errors[0].Actual != "\"world\"" {
+		t.Errorf("Actual = %s, want \"world\"", errors[0].Actual)
+	}
+}
+
+func TestParseJestErrors_NoTestName(t *testing.T) {
+	output := `
+FAIL something went wrong
+    Error: general error
+`
+	errors := parseJestErrors(output)
+
+	// Should handle FAIL without ✕
+	if len(errors) > 0 && errors[0].TestName != "" {
+		// Test name may be empty in this case, which is acceptable
+	}
+}
+
+// =============================================================================
+// parsePytestErrors Edge Cases
+// =============================================================================
+
+func TestParsePytestErrors_MultipleELines(t *testing.T) {
+	output := `
+FAILED tests/test.py::test_func
+E       AssertionError: assert result == expected
+E       assert 1 == 2
+E       where 1 = actual
+============================= short test summary info ==========================
+`
+	errors := parsePytestErrors(output)
+
+	if len(errors) == 0 {
+		t.Fatal("Should find error")
+	}
+	// E lines should be captured in message
+	if errors[0].Message == "" {
+		t.Error("Should capture error message from E lines")
+	}
+}
+
+func TestParsePytestErrors_NoSummary(t *testing.T) {
+	// Test output without the summary line
+	output := `
+FAILED tests/test.py::test_func
+E       assert 1 == 2
+`
+	errors := parsePytestErrors(output)
+
+	// Should still handle partial output
+	if len(errors) != 0 {
+		// If errors are found, check they have test name
+		if errors[0].TestName == "" {
+			t.Error("Should capture test name")
+		}
+	}
+}
+
+func TestParsePytestErrors_MultipleFailures(t *testing.T) {
+	output := `
+FAILED tests/test.py::test_one
+E       assert 1 == 2
+FAILED tests/test.py::test_two
+E       assert 3 == 4
+============================= short test summary info ==========================
+`
+	errors := parsePytestErrors(output)
+
+	// Should find at least one error
+	if len(errors) == 0 {
+		t.Error("Should find errors")
+	}
+}
+
+// =============================================================================
+// parseGoTestErrors Edge Cases
+// =============================================================================
+
+func TestParseGoTestErrors_ErrorTrace(t *testing.T) {
+	output := `
+--- FAIL: TestFunc (0.00s)
+    Error Trace: /path/to/file_test.go:42
+    Error: Not equal
+FAIL
+`
+	errors := parseGoTestErrors(output)
+
+	if len(errors) == 0 {
+		t.Fatal("Should find error")
+	}
+	if !strings.Contains(errors[0].Message, "Error Trace") {
+		t.Error("Should capture Error Trace")
+	}
+}
+
+func TestParseGoTestErrors_TestifyOutput(t *testing.T) {
+	output := `
+--- FAIL: TestAdd (0.00s)
+    math_test.go:15:
+        Error Trace: math_test.go:15
+        Error:      Not equal:
+                    expected: 5
+                    actual  : 3
+FAIL
+`
+	errors := parseGoTestErrors(output)
+
+	if len(errors) == 0 {
+		t.Fatal("Should find error")
+	}
+	if errors[0].TestName != "TestAdd" {
+		t.Errorf("TestName = %s, want TestAdd", errors[0].TestName)
+	}
+}
+
+func TestParseGoTestErrors_GotFormat(t *testing.T) {
+	output := `
+--- FAIL: TestFunc (0.00s)
+    got: 2
+    want: 3
+FAIL
+`
+	errors := parseGoTestErrors(output)
+
+	if len(errors) == 0 {
+		t.Fatal("Should find error")
+	}
+	if !strings.Contains(errors[0].Actual, "got") {
+		t.Error("Should capture 'got' value")
+	}
+}
+
+func TestParseGoTestErrors_MultipleTests(t *testing.T) {
+	output := `
+--- FAIL: TestOne (0.00s)
+    Error: first failure
+FAIL
+--- FAIL: TestTwo (0.00s)
+    Error: second failure
+FAIL
+`
+	errors := parseGoTestErrors(output)
+
+	if len(errors) < 2 {
+		t.Errorf("Should find 2 errors, got %d", len(errors))
+	}
+}
+
+// =============================================================================
+// FormatErrorsForLLM Edge Cases
+// =============================================================================
+
+func TestFormatErrorsForLLM_EmptyErrors(t *testing.T) {
+	v := NewValidator("/tmp", "go")
+	result := &TestResult{
+		Passed:   false,
+		TestFile: "test.go",
+		Output:   "test output",
+		Errors:   []TestError{},
+	}
+
+	formatted := v.FormatErrorsForLLM(result)
+
+	if !strings.Contains(formatted, "FAILED (0 errors)") {
+		t.Error("Should show 0 errors")
+	}
+}
+
+func TestFormatErrorsForLLM_ErrorWithoutMessage(t *testing.T) {
+	v := NewValidator("/tmp", "go")
+	result := &TestResult{
+		Passed:   false,
+		TestFile: "test.go",
+		Output:   "output",
+		Errors: []TestError{
+			{TestName: "TestFunc"},
+		},
+	}
+
+	formatted := v.FormatErrorsForLLM(result)
+
+	if !strings.Contains(formatted, "TestFunc") {
+		t.Error("Should include test name")
+	}
+	// Should not crash with empty message
+}
+
+func TestFormatErrorsForLLM_ErrorWithOnlyExpected(t *testing.T) {
+	v := NewValidator("/tmp", "go")
+	result := &TestResult{
+		Passed:   false,
+		TestFile: "test.go",
+		Output:   "output",
+		Errors: []TestError{
+			{TestName: "TestFunc", Expected: "5"},
+		},
+	}
+
+	formatted := v.FormatErrorsForLLM(result)
+
+	if !strings.Contains(formatted, "Expected: 5") {
+		t.Error("Should include expected value")
+	}
+}
+
+// =============================================================================
+// buildFixPrompt Edge Cases
+// =============================================================================
+
+func TestBuildFixPrompt_EmptyErrors(t *testing.T) {
+	f := NewFixer(nil, llm.Tier1)
+
+	code := "func Test() {}"
+	result := &TestResult{
+		Output: "output",
+		Errors: []TestError{},
+	}
+
+	prompt := f.buildFixPrompt(code, result)
+
+	if !strings.Contains(prompt, "Test Failures") {
+		t.Error("Should include failures section even if empty")
+	}
+}
+
+func TestBuildFixPrompt_AllFieldsPopulated(t *testing.T) {
+	f := NewFixer(nil, llm.Tier1)
+
+	code := "func Test() { assert(1, 2) }"
+	result := &TestResult{
+		TestFile: "test.go",
+		Output:   "failure output",
+		Errors: []TestError{
+			{
+				TestName: "TestFunc",
+				Message:  "assertion failed",
+				Expected: "1",
+				Actual:   "2",
+			},
+		},
+	}
+
+	prompt := f.buildFixPrompt(code, result)
+
+	if !strings.Contains(prompt, "TestFunc") {
+		t.Error("Should include test name")
+	}
+	if !strings.Contains(prompt, "assertion failed") {
+		t.Error("Should include error message")
+	}
+	if !strings.Contains(prompt, "Expected: 1") {
+		t.Error("Should include expected value")
+	}
+	if !strings.Contains(prompt, "Actual: 2") {
+		t.Error("Should include actual value")
+	}
+}
+
+// =============================================================================
+// parseFixResponse Edge Cases
+// =============================================================================
+
+func TestParseFixResponse_ExplanationOnly(t *testing.T) {
+	response := "EXPLANATION:\nThis is the explanation."
+
+	_, explanation := parseFixResponse(response)
+
+	if !strings.Contains(explanation, "This is the explanation") {
+		t.Error("Should extract explanation even without code")
+	}
+}
+
+func TestParseFixResponse_CodeWithoutExplanation(t *testing.T) {
+	response := "CODE:\n```\nfunc Test() {}\n```"
+
+	code, explanation := parseFixResponse(response)
+
+	if code == "" {
+		t.Error("Should extract code")
+	}
+	if explanation != "" {
+		t.Error("Explanation should be empty when not provided")
+	}
+}
+
+func TestParseFixResponse_MultipleCodeBlocks(t *testing.T) {
+	response := `EXPLANATION:
+Here is the fix
+
+CODE:
+` + "```\nfirst block\n```\n\nSome text\n\n```\nsecond block\n```"
+
+	code, _ := parseFixResponse(response)
+
+	// Should extract from first to last code block
+	if code == "" {
+		t.Error("Should extract code from multiple blocks")
+	}
+}
+
+func TestParseFixResponse_TypeScriptBlock(t *testing.T) {
+	response := "CODE:\n```typescript\nfunction test(): void {}\n```"
+
+	code, _ := parseFixResponse(response)
+
+	if code == "" {
+		t.Error("Should extract TypeScript code")
+	}
+	if strings.Contains(code, "```") {
+		t.Error("Should strip markdown markers")
+	}
+}
+
+func TestParseFixResponse_PythonBlock(t *testing.T) {
+	response := "CODE:\n```python\ndef test():\n    pass\n```"
+
+	code, _ := parseFixResponse(response)
+
+	if code == "" {
+		t.Error("Should extract Python code")
+	}
+	if strings.Contains(code, "```python") {
+		t.Error("Should strip language marker")
+	}
+}

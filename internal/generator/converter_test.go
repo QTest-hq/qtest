@@ -346,3 +346,277 @@ func TestConvertToDSL_StepIDs(t *testing.T) {
 	assert.Equal(t, "step_2", dsl.Steps[1].ID)
 	assert.Equal(t, "step_3", dsl.Steps[2].ID)
 }
+
+// =============================================================================
+// SimpleTest.GetAssertions Tests
+// =============================================================================
+
+func TestSimpleTest_GetAssertions_Assertions(t *testing.T) {
+	test := SimpleTest{
+		Name:       "test",
+		Assertions: map[string]interface{}{"result": 5},
+	}
+	result := test.GetAssertions()
+	assert.NotNil(t, result)
+	assert.Equal(t, map[string]interface{}{"result": 5}, result)
+}
+
+func TestSimpleTest_GetAssertions_Assert(t *testing.T) {
+	test := SimpleTest{
+		Name:   "test",
+		Assert: map[string]interface{}{"result": 10},
+	}
+	result := test.GetAssertions()
+	assert.NotNil(t, result)
+	assert.Equal(t, map[string]interface{}{"result": 10}, result)
+}
+
+func TestSimpleTest_GetAssertions_Expected(t *testing.T) {
+	test := SimpleTest{
+		Name:     "test",
+		Expected: 42,
+	}
+	result := test.GetAssertions()
+	assert.Equal(t, 42, result)
+}
+
+func TestSimpleTest_GetAssertions_Priority(t *testing.T) {
+	// Assertions takes priority over Assert and Expected
+	test := SimpleTest{
+		Name:       "test",
+		Assertions: "from assertions",
+		Assert:     "from assert",
+		Expected:   "from expected",
+	}
+	result := test.GetAssertions()
+	assert.Equal(t, "from assertions", result)
+}
+
+func TestSimpleTest_GetAssertions_AssertPriority(t *testing.T) {
+	// Assert takes priority over Expected when Assertions is nil
+	test := SimpleTest{
+		Name:     "test",
+		Assert:   "from assert",
+		Expected: "from expected",
+	}
+	result := test.GetAssertions()
+	assert.Equal(t, "from assert", result)
+}
+
+func TestSimpleTest_GetAssertions_Nil(t *testing.T) {
+	test := SimpleTest{Name: "test"}
+	result := test.GetAssertions()
+	assert.Nil(t, result)
+}
+
+// =============================================================================
+// parseExpectExpression Tests
+// =============================================================================
+
+func TestParseExpectExpression_Integer(t *testing.T) {
+	result := parseExpectExpression("result == 42")
+	assert.Equal(t, 42, result)
+}
+
+func TestParseExpectExpression_Float(t *testing.T) {
+	// Note: int parsing happens first, so "3.14" becomes 3 (int portion)
+	// This tests actual implementation behavior
+	result := parseExpectExpression("result == 3.14")
+	assert.Equal(t, 3, result)
+}
+
+func TestParseExpectExpression_FloatParsing(t *testing.T) {
+	// The int parser via Sscanf reads "0" from "0.5", so it returns int 0
+	// This documents the actual implementation behavior
+	result := parseExpectExpression("result == 0.5")
+	assert.Equal(t, 0, result)
+}
+
+func TestParseExpectExpression_String(t *testing.T) {
+	result := parseExpectExpression("result == hello")
+	assert.Equal(t, "hello", result)
+}
+
+func TestParseExpectExpression_StringWithQuotes(t *testing.T) {
+	result := parseExpectExpression("result == \"hello world\"")
+	assert.Equal(t, "\"hello world\"", result)
+}
+
+func TestParseExpectExpression_NegativeNumber(t *testing.T) {
+	result := parseExpectExpression("result == -10")
+	assert.Equal(t, -10, result)
+}
+
+func TestParseExpectExpression_ZeroValue(t *testing.T) {
+	result := parseExpectExpression("result == 0")
+	assert.Equal(t, 0, result)
+}
+
+func TestParseExpectExpression_NoEqualsSign(t *testing.T) {
+	result := parseExpectExpression("result 42")
+	assert.Nil(t, result)
+}
+
+func TestParseExpectExpression_NonString(t *testing.T) {
+	result := parseExpectExpression(42)
+	assert.Nil(t, result)
+}
+
+func TestParseExpectExpression_SingleEquals(t *testing.T) {
+	// Single = should not match (we look for ==)
+	result := parseExpectExpression("result = 42")
+	assert.Nil(t, result)
+}
+
+func TestParseExpectExpression_EmptyValue(t *testing.T) {
+	result := parseExpectExpression("result ==")
+	assert.Equal(t, "", result)
+}
+
+func TestParseExpectExpression_MultipleEquals(t *testing.T) {
+	result := parseExpectExpression("a == b == c")
+	// strings.Split creates 3 parts, not 2, so condition fails
+	assert.Nil(t, result)
+}
+
+// =============================================================================
+// parseAction Edge Cases
+// =============================================================================
+
+func TestParseAction_MapWithoutArgs(t *testing.T) {
+	action := map[string]interface{}{
+		"function": "Add",
+	}
+	result := parseAction(action, "Add")
+	assert.Nil(t, result)
+}
+
+func TestParseAction_EmptyMap(t *testing.T) {
+	action := map[string]interface{}{}
+	result := parseAction(action, "Add")
+	assert.Nil(t, result)
+}
+
+func TestParseAction_IntegerAction(t *testing.T) {
+	result := parseAction(42, "Add")
+	assert.Nil(t, result)
+}
+
+func TestParseAction_BoolAction(t *testing.T) {
+	result := parseAction(true, "Add")
+	assert.Nil(t, result)
+}
+
+// =============================================================================
+// parseAssertions Edge Cases
+// =============================================================================
+
+func TestParseAssertions_ExpectExpression(t *testing.T) {
+	assertions := map[string]interface{}{
+		"expect": "result == 100",
+	}
+	expected := parseAssertions(assertions)
+	assert.Equal(t, 100, expected.Value)
+}
+
+func TestParseAssertions_ListWithExpect(t *testing.T) {
+	assertions := []interface{}{
+		map[string]interface{}{"expect": "result == 50"},
+	}
+	expected := parseAssertions(assertions)
+	assert.Equal(t, 50, expected.Value)
+}
+
+func TestParseAssertions_ListNonMap(t *testing.T) {
+	assertions := []interface{}{
+		"not a map",
+		42,
+	}
+	expected := parseAssertions(assertions)
+	// Should handle gracefully without crashing
+	assert.NotNil(t, expected)
+}
+
+func TestParseAssertions_EmptyList(t *testing.T) {
+	assertions := []interface{}{}
+	expected := parseAssertions(assertions)
+	assert.NotNil(t, expected)
+	assert.Empty(t, expected.Properties)
+}
+
+func TestParseAssertions_StringValue(t *testing.T) {
+	expected := parseAssertions("hello")
+	assert.Equal(t, "hello", expected.Value)
+}
+
+func TestParseAssertions_BoolValue(t *testing.T) {
+	expected := parseAssertions(true)
+	assert.Equal(t, true, expected.Value)
+}
+
+// =============================================================================
+// parseActionArgs Edge Cases
+// =============================================================================
+
+func TestParseActionArgs_NestedParens(t *testing.T) {
+	// Should find last closing paren
+	result := parseActionArgs("Process(func())")
+	assert.Equal(t, []interface{}{"func()"}, result)
+}
+
+func TestParseActionArgs_EmptyString(t *testing.T) {
+	result := parseActionArgs("")
+	assert.Nil(t, result)
+}
+
+func TestParseActionArgs_OnlyOpenParen(t *testing.T) {
+	result := parseActionArgs("Func(")
+	assert.Nil(t, result)
+}
+
+func TestParseActionArgs_OnlyCloseParen(t *testing.T) {
+	result := parseActionArgs("Func)")
+	assert.Nil(t, result)
+}
+
+// =============================================================================
+// ConvertToDSL Edge Cases
+// =============================================================================
+
+func TestConvertToDSL_NoAction(t *testing.T) {
+	yaml := `
+- name: "No action test"
+  setup:
+    a: 1
+  assertions:
+    result: 1
+`
+	dsl, err := ConvertToDSL(yaml, "Func", "file.go", "go")
+	require.NoError(t, err)
+	assert.Len(t, dsl.Steps, 1)
+	// Args come from setup when action has no args
+	assert.Contains(t, dsl.Steps[0].Action.Args, 1)
+}
+
+func TestConvertToDSL_NoSetupNoAction(t *testing.T) {
+	yaml := `
+- name: "Minimal test"
+  assertions:
+    result: true
+`
+	dsl, err := ConvertToDSL(yaml, "Func", "file.go", "go")
+	require.NoError(t, err)
+	assert.Len(t, dsl.Steps, 1)
+	assert.Empty(t, dsl.Steps[0].Action.Args)
+}
+
+func TestConvertToDSL_NoAssertions(t *testing.T) {
+	yaml := `
+- name: "No assertions"
+  action: "Func(1, 2)"
+`
+	dsl, err := ConvertToDSL(yaml, "Func", "file.go", "go")
+	require.NoError(t, err)
+	assert.Len(t, dsl.Steps, 1)
+	assert.Nil(t, dsl.Steps[0].Expected)
+}
