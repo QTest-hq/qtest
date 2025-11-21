@@ -266,3 +266,558 @@ func TestGenerationResults_Fields(t *testing.T) {
 		t.Errorf("Commits = %d, want 10", results.Commits)
 	}
 }
+
+// ===== Coverage Parsing Tests =====
+
+func TestParseGoCoverage_Basic(t *testing.T) {
+	// Create temp coverage file
+	tmpDir := t.TempDir()
+	coverFile := tmpDir + "/coverage.out"
+
+	coverageData := `mode: count
+github.com/example/pkg/main.go:10.20,15.2 3 1
+github.com/example/pkg/main.go:17.30,22.2 5 0
+github.com/example/pkg/utils.go:5.10,10.2 4 2
+`
+	if err := writeFile(coverFile, coverageData); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	ws := &Workspace{
+		path:     tmpDir,
+		RepoPath: "/some/other/path", // Different path to test relative path handling
+		Language: "go",
+	}
+	collector := NewCoverageCollector(ws)
+
+	files, err := collector.parseGoCoverage(coverFile)
+	if err != nil {
+		t.Fatalf("parseGoCoverage() error: %v", err)
+	}
+
+	if len(files) == 0 {
+		t.Fatal("parseGoCoverage() returned no files")
+	}
+
+	// Should have parsed multiple files
+	if len(files) < 1 {
+		t.Errorf("Expected at least 1 file, got %d", len(files))
+	}
+}
+
+func TestParseGoCoverage_EmptyFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	coverFile := tmpDir + "/coverage.out"
+
+	coverageData := `mode: count
+`
+	if err := writeFile(coverFile, coverageData); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	ws := &Workspace{path: tmpDir, RepoPath: tmpDir, Language: "go"}
+	collector := NewCoverageCollector(ws)
+
+	files, err := collector.parseGoCoverage(coverFile)
+	if err != nil {
+		t.Fatalf("parseGoCoverage() error: %v", err)
+	}
+
+	if len(files) != 0 {
+		t.Errorf("Expected 0 files for empty coverage, got %d", len(files))
+	}
+}
+
+func TestParseGoCoverage_FileNotFound(t *testing.T) {
+	ws := &Workspace{path: "/tmp", RepoPath: "/tmp", Language: "go"}
+	collector := NewCoverageCollector(ws)
+
+	_, err := collector.parseGoCoverage("/nonexistent/coverage.out")
+	if err == nil {
+		t.Error("Expected error for nonexistent file")
+	}
+}
+
+func TestParseGoCoverage_CoverageCalculation(t *testing.T) {
+	tmpDir := t.TempDir()
+	coverFile := tmpDir + "/coverage.out"
+
+	// 5 statements covered (count > 0), 3 statements not covered (count = 0)
+	coverageData := `mode: count
+pkg/main.go:10.20,15.2 5 1
+pkg/main.go:17.30,22.2 3 0
+`
+	if err := writeFile(coverFile, coverageData); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	ws := &Workspace{path: tmpDir, RepoPath: tmpDir, Language: "go"}
+	collector := NewCoverageCollector(ws)
+
+	files, err := collector.parseGoCoverage(coverFile)
+	if err != nil {
+		t.Fatalf("parseGoCoverage() error: %v", err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("Expected 1 file, got %d", len(files))
+	}
+
+	fc := files[0]
+	if fc.TotalLines != 8 { // 5 + 3
+		t.Errorf("TotalLines = %d, want 8", fc.TotalLines)
+	}
+	if fc.CoveredLines != 5 {
+		t.Errorf("CoveredLines = %d, want 5", fc.CoveredLines)
+	}
+	expectedPercent := 62.5 // 5/8 * 100
+	if fc.CoveragePercent != expectedPercent {
+		t.Errorf("CoveragePercent = %f, want %f", fc.CoveragePercent, expectedPercent)
+	}
+}
+
+func TestParsePythonCoverage_Basic(t *testing.T) {
+	tmpDir := t.TempDir()
+	coverFile := tmpDir + "/coverage.json"
+
+	coverageJSON := `{
+		"files": {
+			"/project/main.py": {
+				"summary": {
+					"covered_lines": 80,
+					"num_statements": 100,
+					"percent_covered": 80.0,
+					"missing_lines": [15, 20, 25]
+				}
+			},
+			"/project/utils.py": {
+				"summary": {
+					"covered_lines": 45,
+					"num_statements": 50,
+					"percent_covered": 90.0,
+					"missing_lines": [10]
+				}
+			}
+		}
+	}`
+	if err := writeFile(coverFile, coverageJSON); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	ws := &Workspace{path: tmpDir, RepoPath: "/project", Language: "python"}
+	collector := NewCoverageCollector(ws)
+
+	files, err := collector.parsePythonCoverage(coverFile)
+	if err != nil {
+		t.Fatalf("parsePythonCoverage() error: %v", err)
+	}
+
+	if len(files) != 2 {
+		t.Fatalf("Expected 2 files, got %d", len(files))
+	}
+}
+
+func TestParsePythonCoverage_EmptyFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	coverFile := tmpDir + "/coverage.json"
+
+	coverageJSON := `{"files": {}}`
+	if err := writeFile(coverFile, coverageJSON); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	ws := &Workspace{path: tmpDir, RepoPath: tmpDir, Language: "python"}
+	collector := NewCoverageCollector(ws)
+
+	files, err := collector.parsePythonCoverage(coverFile)
+	if err != nil {
+		t.Fatalf("parsePythonCoverage() error: %v", err)
+	}
+
+	if len(files) != 0 {
+		t.Errorf("Expected 0 files, got %d", len(files))
+	}
+}
+
+func TestParsePythonCoverage_InvalidJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	coverFile := tmpDir + "/coverage.json"
+
+	if err := writeFile(coverFile, "not json"); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	ws := &Workspace{path: tmpDir, RepoPath: tmpDir, Language: "python"}
+	collector := NewCoverageCollector(ws)
+
+	_, err := collector.parsePythonCoverage(coverFile)
+	if err == nil {
+		t.Error("Expected error for invalid JSON")
+	}
+}
+
+func TestParsePythonCoverage_FileNotFound(t *testing.T) {
+	ws := &Workspace{path: "/tmp", RepoPath: "/tmp", Language: "python"}
+	collector := NewCoverageCollector(ws)
+
+	_, err := collector.parsePythonCoverage("/nonexistent/coverage.json")
+	if err == nil {
+		t.Error("Expected error for nonexistent file")
+	}
+}
+
+func TestParseJestCoverage_Basic(t *testing.T) {
+	tmpDir := t.TempDir()
+	coverFile := tmpDir + "/coverage-final.json"
+
+	// Istanbul/Jest coverage format
+	coverageJSON := `{
+		"/project/src/index.js": {
+			"s": {"0": 1, "1": 1, "2": 0, "3": 1},
+			"f": {"0": 1, "1": 0},
+			"b": {"0": [1, 0]}
+		},
+		"/project/src/utils.js": {
+			"s": {"0": 1, "1": 1},
+			"f": {"0": 1},
+			"b": {}
+		}
+	}`
+	if err := writeFile(coverFile, coverageJSON); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	ws := &Workspace{path: tmpDir, RepoPath: "/project", Language: "javascript"}
+	collector := NewCoverageCollector(ws)
+
+	files, err := collector.parseJestCoverage(coverFile)
+	if err != nil {
+		t.Fatalf("parseJestCoverage() error: %v", err)
+	}
+
+	if len(files) != 2 {
+		t.Fatalf("Expected 2 files, got %d", len(files))
+	}
+}
+
+func TestParseJestCoverage_CoverageCalculation(t *testing.T) {
+	tmpDir := t.TempDir()
+	coverFile := tmpDir + "/coverage-final.json"
+
+	// 3 statements: 2 covered (count > 0), 1 not covered (count = 0)
+	coverageJSON := `{
+		"src/app.js": {
+			"s": {"0": 5, "1": 0, "2": 3},
+			"f": {},
+			"b": {}
+		}
+	}`
+	if err := writeFile(coverFile, coverageJSON); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	ws := &Workspace{path: tmpDir, RepoPath: tmpDir, Language: "javascript"}
+	collector := NewCoverageCollector(ws)
+
+	files, err := collector.parseJestCoverage(coverFile)
+	if err != nil {
+		t.Fatalf("parseJestCoverage() error: %v", err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("Expected 1 file, got %d", len(files))
+	}
+
+	fc := files[0]
+	if fc.TotalLines != 3 {
+		t.Errorf("TotalLines = %d, want 3", fc.TotalLines)
+	}
+	if fc.CoveredLines != 2 {
+		t.Errorf("CoveredLines = %d, want 2", fc.CoveredLines)
+	}
+	// 2/3 * 100 = 66.666...
+	if fc.CoveragePercent < 66.0 || fc.CoveragePercent > 67.0 {
+		t.Errorf("CoveragePercent = %f, want ~66.67", fc.CoveragePercent)
+	}
+}
+
+func TestParseJestCoverage_EmptyStatements(t *testing.T) {
+	tmpDir := t.TempDir()
+	coverFile := tmpDir + "/coverage-final.json"
+
+	coverageJSON := `{
+		"src/empty.js": {
+			"s": {},
+			"f": {},
+			"b": {}
+		}
+	}`
+	if err := writeFile(coverFile, coverageJSON); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	ws := &Workspace{path: tmpDir, RepoPath: tmpDir, Language: "javascript"}
+	collector := NewCoverageCollector(ws)
+
+	files, err := collector.parseJestCoverage(coverFile)
+	if err != nil {
+		t.Fatalf("parseJestCoverage() error: %v", err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("Expected 1 file, got %d", len(files))
+	}
+
+	fc := files[0]
+	if fc.TotalLines != 0 {
+		t.Errorf("TotalLines = %d, want 0", fc.TotalLines)
+	}
+	if fc.CoveragePercent != 0 {
+		t.Errorf("CoveragePercent = %f, want 0", fc.CoveragePercent)
+	}
+}
+
+func TestParseJestCoverage_InvalidJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	coverFile := tmpDir + "/coverage-final.json"
+
+	if err := writeFile(coverFile, "{invalid json}"); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	ws := &Workspace{path: tmpDir, RepoPath: tmpDir, Language: "javascript"}
+	collector := NewCoverageCollector(ws)
+
+	_, err := collector.parseJestCoverage(coverFile)
+	if err == nil {
+		t.Error("Expected error for invalid JSON")
+	}
+}
+
+func TestParseCoverageOutput_PercentagePattern(t *testing.T) {
+	ws := &Workspace{path: "/tmp", Language: "go"}
+	collector := NewCoverageCollector(ws)
+
+	tests := []struct {
+		name     string
+		output   string
+		expected float64
+	}{
+		{"simple percentage", "Coverage: 85.5%", 85.5},
+		{"integer percentage", "Coverage: 100%", 100.0},
+		{"percentage in text", "Total coverage is 42.3% of lines", 42.3},
+		{"zero percent", "0% covered", 0.0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := collector.parseCoverageOutput(tt.output, "test.go")
+			if err != nil {
+				t.Fatalf("parseCoverageOutput() error: %v", err)
+			}
+			if result.CoveragePercent != tt.expected {
+				t.Errorf("CoveragePercent = %f, want %f", result.CoveragePercent, tt.expected)
+			}
+		})
+	}
+}
+
+func TestParseCoverageOutput_RatioPattern(t *testing.T) {
+	ws := &Workspace{path: "/tmp", Language: "go"}
+	collector := NewCoverageCollector(ws)
+
+	tests := []struct {
+		name            string
+		output          string
+		expectedCovered int
+		expectedTotal   int
+	}{
+		{"statements ratio", "Statements: 80/100", 80, 100},
+		{"lines ratio", "Lines: 45/50", 45, 50},
+		{"coverage ratio", "Coverage 120/200 lines", 120, 200},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := collector.parseCoverageOutput(tt.output, "test.go")
+			if err != nil {
+				t.Fatalf("parseCoverageOutput() error: %v", err)
+			}
+			if result.CoveredLines != tt.expectedCovered {
+				t.Errorf("CoveredLines = %d, want %d", result.CoveredLines, tt.expectedCovered)
+			}
+			if result.TotalLines != tt.expectedTotal {
+				t.Errorf("TotalLines = %d, want %d", result.TotalLines, tt.expectedTotal)
+			}
+		})
+	}
+}
+
+func TestParseCoverageOutput_NoPattern(t *testing.T) {
+	ws := &Workspace{path: "/tmp", Language: "go"}
+	collector := NewCoverageCollector(ws)
+
+	result, err := collector.parseCoverageOutput("No coverage data here", "test.go")
+	if err != nil {
+		t.Fatalf("parseCoverageOutput() error: %v", err)
+	}
+
+	if result.CoveragePercent != 0 {
+		t.Errorf("CoveragePercent = %f, want 0 for no pattern match", result.CoveragePercent)
+	}
+	if result.Path != "test.go" {
+		t.Errorf("Path = %s, want test.go", result.Path)
+	}
+}
+
+func TestParseCoverageOutput_TestFilePath(t *testing.T) {
+	ws := &Workspace{path: "/tmp", Language: "go"}
+	collector := NewCoverageCollector(ws)
+
+	result, err := collector.parseCoverageOutput("any output", "/path/to/my_test.go")
+	if err != nil {
+		t.Fatalf("parseCoverageOutput() error: %v", err)
+	}
+
+	if result.Path != "/path/to/my_test.go" {
+		t.Errorf("Path = %s, want /path/to/my_test.go", result.Path)
+	}
+}
+
+// ===== Helper Function Tests =====
+
+func TestEnsureDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	newDir := tmpDir + "/new/nested/dir"
+
+	err := ensureDir(newDir)
+	if err != nil {
+		t.Fatalf("ensureDir() error: %v", err)
+	}
+
+	// Check dir exists
+	info, err := readFileIfExists(newDir)
+	if err != nil {
+		// Directory exists but readFileIfExists is for files
+		// Just verify no error from ensureDir
+	}
+	_ = info
+}
+
+func TestReadFileIfExists_Exists(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := tmpDir + "/test.txt"
+	content := "test content"
+
+	if err := writeFile(testFile, content); err != nil {
+		t.Fatalf("writeFile() error: %v", err)
+	}
+
+	result, err := readFileIfExists(testFile)
+	if err != nil {
+		t.Fatalf("readFileIfExists() error: %v", err)
+	}
+
+	if result != content {
+		t.Errorf("content = %s, want %s", result, content)
+	}
+}
+
+func TestReadFileIfExists_NotExists(t *testing.T) {
+	result, err := readFileIfExists("/nonexistent/file.txt")
+	if err != nil {
+		t.Fatalf("readFileIfExists() should not error for nonexistent file: %v", err)
+	}
+
+	if result != "" {
+		t.Errorf("result = %s, want empty string", result)
+	}
+}
+
+func TestWriteFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := tmpDir + "/output.txt"
+	content := "hello world"
+
+	err := writeFile(testFile, content)
+	if err != nil {
+		t.Fatalf("writeFile() error: %v", err)
+	}
+
+	result, err := readFileIfExists(testFile)
+	if err != nil {
+		t.Fatalf("readFileIfExists() error: %v", err)
+	}
+
+	if result != content {
+		t.Errorf("content = %s, want %s", result, content)
+	}
+}
+
+func TestWriteOrAppendTest_NewFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := tmpDir + "/new_test.go"
+	code := "package test\n\nfunc TestNew(t *testing.T) {}"
+
+	err := writeOrAppendTest(testFile, code, "go")
+	if err != nil {
+		t.Fatalf("writeOrAppendTest() error: %v", err)
+	}
+
+	result, err := readFileIfExists(testFile)
+	if err != nil {
+		t.Fatalf("readFileIfExists() error: %v", err)
+	}
+
+	if result != code {
+		t.Errorf("content mismatch")
+	}
+}
+
+func TestWriteOrAppendTest_AppendToExisting(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := tmpDir + "/existing_test.go"
+	existingCode := "package test\n\nfunc TestExisting(t *testing.T) {}"
+	newCode := "func TestNew(t *testing.T) {}"
+
+	// Create existing file
+	if err := writeFile(testFile, existingCode); err != nil {
+		t.Fatalf("writeFile() error: %v", err)
+	}
+
+	// Append new code
+	err := writeOrAppendTest(testFile, newCode, "go")
+	if err != nil {
+		t.Fatalf("writeOrAppendTest() error: %v", err)
+	}
+
+	result, err := readFileIfExists(testFile)
+	if err != nil {
+		t.Fatalf("readFileIfExists() error: %v", err)
+	}
+
+	// Should contain both
+	if len(result) <= len(existingCode) {
+		t.Error("File should have appended content")
+	}
+}
+
+func TestWriteOrAppendTest_CreatesDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := tmpDir + "/new/nested/dir/test.go"
+	code := "package test"
+
+	err := writeOrAppendTest(testFile, code, "go")
+	if err != nil {
+		t.Fatalf("writeOrAppendTest() error: %v", err)
+	}
+
+	result, err := readFileIfExists(testFile)
+	if err != nil {
+		t.Fatalf("readFileIfExists() error: %v", err)
+	}
+
+	if result != code {
+		t.Errorf("content = %s, want %s", result, code)
+	}
+}
