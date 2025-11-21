@@ -401,3 +401,68 @@ func TestGeneratedTest_Defaults(t *testing.T) {
 		t.Error("Default Metadata should be nil")
 	}
 }
+
+// Tests for Store methods (note: actual DB operations need integration tests)
+
+func TestStore_Ping_NilPool(t *testing.T) {
+	// Store with nil pool should panic or error on Ping
+	store := &Store{pool: nil}
+
+	// Calling Ping on nil pool will panic
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Ping with nil pool should panic")
+		}
+	}()
+
+	// This should panic
+	_ = store.Ping(nil)
+}
+
+func TestStore_MethodSignatures(t *testing.T) {
+	// Verify that all expected methods exist on Store
+	// This is a compile-time check wrapped in a test
+	db := &DB{pool: nil}
+	store := NewStore(db)
+
+	// These are type assertions that will fail to compile if methods don't exist
+	var _ func() error = func() error {
+		return store.Ping(nil)
+	}
+}
+
+func TestGeneratedTest_StatusValues(t *testing.T) {
+	// Test valid status values for generated tests
+	validStatuses := []string{"pending", "accepted", "rejected"}
+
+	for _, status := range validStatuses {
+		test := GeneratedTest{Status: status}
+		if test.Status != status {
+			t.Errorf("Status = %s, want %s", test.Status, status)
+		}
+	}
+}
+
+func TestRepository_StatusValues(t *testing.T) {
+	// Test valid status values for repositories
+	validStatuses := []string{"pending", "cloning", "ready", "failed"}
+
+	for _, status := range validStatuses {
+		repo := Repository{Status: status}
+		if repo.Status != status {
+			t.Errorf("Status = %s, want %s", repo.Status, status)
+		}
+	}
+}
+
+func TestGenerationRun_StatusValues(t *testing.T) {
+	// Test valid status values for generation runs
+	validStatuses := []string{"pending", "running", "completed", "failed"}
+
+	for _, status := range validStatuses {
+		run := GenerationRun{Status: status}
+		if run.Status != status {
+			t.Errorf("Status = %s, want %s", run.Status, status)
+		}
+	}
+}

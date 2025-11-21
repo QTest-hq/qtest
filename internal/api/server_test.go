@@ -419,6 +419,71 @@ func TestGetRun_InvalidID(t *testing.T) {
 	}
 }
 
+func TestListRuns_InvalidRepoID(t *testing.T) {
+	server := &Server{}
+	server.router = setupTestRouter(server)
+
+	req := httptest.NewRequest("GET", "/api/v1/repos/invalid-uuid/runs", nil)
+	rr := httptest.NewRecorder()
+
+	server.router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("listRuns with invalid repo ID returned status %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestRejectTestRequest_Fields(t *testing.T) {
+	reqBody := `{"reason": "Test is flaky and unreliable"}`
+
+	var req RejectTestRequest
+	if err := json.Unmarshal([]byte(reqBody), &req); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	if req.Reason != "Test is flaky and unreliable" {
+		t.Errorf("Reason = %s, want 'Test is flaky and unreliable'", req.Reason)
+	}
+}
+
+func TestRejectTestRequest_EmptyReason(t *testing.T) {
+	reqBody := `{}`
+
+	var req RejectTestRequest
+	if err := json.Unmarshal([]byte(reqBody), &req); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	if req.Reason != "" {
+		t.Errorf("Reason = %s, want empty string", req.Reason)
+	}
+}
+
+func TestReadyCheck_NoStore(t *testing.T) {
+	// When store is nil, readyCheck should still work (no DB checks)
+	server := &Server{}
+	server.router = setupTestRouter(server)
+
+	req := httptest.NewRequest("GET", "/ready", nil)
+	rr := httptest.NewRecorder()
+
+	server.router.ServeHTTP(rr, req)
+
+	// With no store or nats configured, should return ready
+	if rr.Code != http.StatusOK {
+		t.Errorf("readyCheck returned status %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	var resp map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	if resp["status"] != "ready" {
+		t.Errorf("status = %s, want ready", resp["status"])
+	}
+}
+
 // setupTestRouter creates a router for testing without database dependencies
 func setupTestRouter(s *Server) *chi.Mux {
 	router := chi.NewRouter()
