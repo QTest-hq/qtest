@@ -250,13 +250,36 @@ go build -o ./bin/qtest ./cmd/cli
 
 ## Environment Variables
 
+### Server & Database
+
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `PORT` | API server port | `8080` |
+| `ENV` | Environment (development/production) | `development` |
+| `DATABASE_URL` | PostgreSQL connection URL | `postgres://qtest:qtest@localhost:5432/qtest` |
+| `REDIS_URL` | Redis connection URL | `redis://localhost:6379` |
+| `NATS_URL` | NATS connection URL | `nats://localhost:4222` |
+
+### LLM Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LLM_DEFAULT_PROVIDER` | Default LLM provider | `ollama` |
 | `OLLAMA_URL` | Ollama server URL | `http://localhost:11434` |
-| `OLLAMA_TIER1_MODEL` | Fast model | `qwen2.5-coder:7b` |
-| `OLLAMA_TIER2_MODEL` | Balanced model | `deepseek-coder-v2:16b` |
+| `OLLAMA_TIER1_MODEL` | Fast model (Tier 1) | `qwen2.5-coder:7b` |
+| `OLLAMA_TIER2_MODEL` | Balanced model (Tier 2) | `deepseek-coder-v2:16b` |
 | `ANTHROPIC_API_KEY` | Anthropic API key (Tier 3) | - |
+| `ANTHROPIC_TIER3_MODEL` | Thorough model (Tier 3) | `claude-3-5-sonnet-20241022` |
+| `OPENAI_API_KEY` | OpenAI API key (fallback) | - |
+
+### GitHub Integration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
 | `GITHUB_TOKEN` | GitHub token for private repos | - |
+| `GITHUB_OAUTH_CLIENT_ID` | GitHub OAuth App client ID | - |
+| `GITHUB_OAUTH_CLIENT_SECRET` | GitHub OAuth App client secret | - |
+| `GITHUB_OAUTH_REDIRECT_URL` | OAuth callback URL | `http://localhost:8080/auth/callback` |
 
 ## License
 
