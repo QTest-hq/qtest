@@ -288,3 +288,199 @@ func TestMemoryCache_Concurrent(t *testing.T) {
 
 	// Should not panic or deadlock
 }
+
+// =============================================================================
+// Additional Edge Case Tests
+// =============================================================================
+
+func TestGenerateCacheKey_EmptyRequest(t *testing.T) {
+	req := &Request{}
+	key := GenerateCacheKey(req)
+
+	if key == "" {
+		t.Error("GenerateCacheKey() should return non-empty key even for empty request")
+	}
+	if len(key) != 64 {
+		t.Errorf("key length = %d, want 64", len(key))
+	}
+}
+
+func TestGenerateCacheKey_DifferentTiers(t *testing.T) {
+	req1 := &Request{Tier: Tier1, System: "test"}
+	req2 := &Request{Tier: Tier2, System: "test"}
+	req3 := &Request{Tier: Tier3, System: "test"}
+
+	key1 := GenerateCacheKey(req1)
+	key2 := GenerateCacheKey(req2)
+	key3 := GenerateCacheKey(req3)
+
+	if key1 == key2 || key2 == key3 || key1 == key3 {
+		t.Error("Different tiers should produce different cache keys")
+	}
+}
+
+func TestGenerateCacheKey_DifferentTemperatures(t *testing.T) {
+	req1 := &Request{Tier: Tier1, Temperature: 0.0}
+	req2 := &Request{Tier: Tier1, Temperature: 0.5}
+	req3 := &Request{Tier: Tier1, Temperature: 1.0}
+
+	key1 := GenerateCacheKey(req1)
+	key2 := GenerateCacheKey(req2)
+	key3 := GenerateCacheKey(req3)
+
+	if key1 == key2 || key2 == key3 {
+		t.Error("Different temperatures should produce different cache keys")
+	}
+}
+
+func TestGenerateCacheKey_MultipleMessages(t *testing.T) {
+	req1 := &Request{
+		Messages: []Message{
+			{Role: "user", Content: "hello"},
+		},
+	}
+	req2 := &Request{
+		Messages: []Message{
+			{Role: "user", Content: "hello"},
+			{Role: "assistant", Content: "hi"},
+		},
+	}
+
+	key1 := GenerateCacheKey(req1)
+	key2 := GenerateCacheKey(req2)
+
+	if key1 == key2 {
+		t.Error("Different message counts should produce different cache keys")
+	}
+}
+
+func TestMemoryCache_SetWithCustomTTL(t *testing.T) {
+	c := NewMemoryCache(100, 24*time.Hour)
+	ctx := context.Background()
+
+	resp := &Response{Content: "test"}
+
+	// Set with very short TTL
+	err := c.Set(ctx, "short-ttl", resp, 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("Set() error: %v", err)
+	}
+
+	// Should be available immediately
+	_, ok := c.Get(ctx, "short-ttl")
+	if !ok {
+		t.Error("Entry should be available immediately after set")
+	}
+
+	// Wait for expiration
+	time.Sleep(20 * time.Millisecond)
+
+	// Should be expired now
+	_, ok = c.Get(ctx, "short-ttl")
+	if ok {
+		t.Error("Entry should be expired after TTL")
+	}
+}
+
+func TestMemoryCache_LongKeyPreview(t *testing.T) {
+	c := NewMemoryCache(100, 1*time.Hour)
+	ctx := context.Background()
+
+	// Use a very long key
+	longKey := "this-is-a-very-long-cache-key-that-exceeds-16-characters"
+	resp := &Response{Content: "test"}
+
+	// Should not panic and should work correctly
+	err := c.Set(ctx, longKey, resp, 0)
+	if err != nil {
+		t.Fatalf("Set() error: %v", err)
+	}
+
+	cached, ok := c.Get(ctx, longKey)
+	if !ok {
+		t.Fatal("Get() returned false, want true")
+	}
+	if cached.Content != "test" {
+		t.Errorf("Content = %s, want test", cached.Content)
+	}
+}
+
+func TestMemoryCache_ShortKeyPreview(t *testing.T) {
+	c := NewMemoryCache(100, 1*time.Hour)
+	ctx := context.Background()
+
+	// Use a short key (less than 16 chars)
+	shortKey := "short"
+	resp := &Response{Content: "test"}
+
+	err := c.Set(ctx, shortKey, resp, 0)
+	if err != nil {
+		t.Fatalf("Set() error: %v", err)
+	}
+
+	cached, ok := c.Get(ctx, shortKey)
+	if !ok {
+		t.Fatal("Get() returned false, want true")
+	}
+	if cached.Content != "test" {
+		t.Errorf("Content = %s, want test", cached.Content)
+	}
+}
+
+func TestCacheStats_Fields(t *testing.T) {
+	stats := CacheStats{
+		Hits:   100,
+		Misses: 50,
+		Size:   75,
+	}
+
+	if stats.Hits != 100 {
+		t.Errorf("Hits = %d, want 100", stats.Hits)
+	}
+	if stats.Misses != 50 {
+		t.Errorf("Misses = %d, want 50", stats.Misses)
+	}
+	if stats.Size != 75 {
+		t.Errorf("Size = %d, want 75", stats.Size)
+	}
+}
+
+func TestNewRedisCache_ReturnsNil(t *testing.T) {
+	// NewRedisCache currently returns nil (not implemented)
+	cache := NewRedisCache("localhost:6379", "", 0, 1*time.Hour)
+	if cache != nil {
+		t.Error("NewRedisCache() should return nil (not implemented)")
+	}
+}
+
+func TestCreateCache_AllTypes(t *testing.T) {
+	tests := []struct {
+		cacheType string
+		isNull    bool
+	}{
+		{"memory", false},
+		{"none", true},
+		{"", true},
+		{"unknown", false}, // Falls back to memory
+		{"MEMORY", false},  // Case sensitivity test - falls back to memory
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.cacheType, func(t *testing.T) {
+			c := CreateCache(tt.cacheType, 100, 1*time.Hour)
+			if c == nil {
+				t.Error("CreateCache should never return nil")
+				return
+			}
+
+			// Check if it's a NullCache by testing behavior
+			ctx := context.Background()
+			c.Set(ctx, "test", &Response{Content: "test"}, 0)
+			_, ok := c.Get(ctx, "test")
+
+			if tt.isNull && ok {
+				t.Error("Expected NullCache but got different implementation")
+			}
+		})
+	}
+}
