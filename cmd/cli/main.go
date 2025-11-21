@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 
+	"github.com/QTest-hq/qtest/internal/adapters"
 	"github.com/QTest-hq/qtest/internal/config"
 	"github.com/QTest-hq/qtest/internal/generator"
 	"github.com/QTest-hq/qtest/internal/llm"
@@ -77,6 +80,7 @@ func generateFileCmd() *cobra.Command {
 		outputDir string
 		tier      string
 		maxTests  int
+		write     bool
 	)
 
 	cmd := &cobra.Command{
@@ -127,8 +131,14 @@ func generateFileCmd() *cobra.Command {
 				return fmt.Errorf("failed to generate tests: %w", err)
 			}
 
-			// Output results
 			fmt.Printf("\n✅ Generated %d tests:\n\n", len(tests))
+
+			// Write test files if requested
+			if write {
+				return writeTestFiles(filePath, tests, outputDir)
+			}
+
+			// Otherwise just output DSL
 			for i, test := range tests {
 				fmt.Printf("--- Test %d: %s ---\n", i+1, test.DSL.Name)
 				fmt.Printf("Target: %s\n", test.Function.Name)
@@ -141,9 +151,10 @@ func generateFileCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&filePath, "file", "f", "", "Source file to generate tests for")
-	cmd.Flags().StringVarP(&outputDir, "output", "o", "./tests", "Output directory for generated tests")
+	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "Output directory (default: same as source)")
 	cmd.Flags().StringVarP(&tier, "tier", "t", "2", "LLM tier (1=fast, 2=balanced, 3=thorough)")
 	cmd.Flags().IntVarP(&maxTests, "max", "m", 5, "Maximum number of tests to generate")
+	cmd.Flags().BoolVarP(&write, "write", "w", false, "Write test files to disk")
 	cmd.MarkFlagRequired("file")
 
 	return cmd
@@ -217,4 +228,69 @@ func parseCmd() *cobra.Command {
 	cmd.MarkFlagRequired("file")
 
 	return cmd
+}
+
+// writeTestFiles writes generated tests to disk using the appropriate adapter
+func writeTestFiles(sourceFile string, tests []generator.GeneratedTest, outputDir string) error {
+	if len(tests) == 0 {
+		return nil
+	}
+
+	// Get adapter for source language
+	lang := parser.DetectLanguage(sourceFile)
+	registry := adapters.NewRegistry()
+	adapter, err := registry.GetForLanguage(lang)
+	if err != nil {
+		return fmt.Errorf("no adapter for language %s: %w", lang, err)
+	}
+
+	// Determine output directory
+	dir := outputDir
+	if dir == "" {
+		dir = filepath.Dir(sourceFile)
+	}
+
+	// Create output directory if needed
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	// Generate test file name
+	base := filepath.Base(sourceFile)
+	ext := filepath.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+	testFile := filepath.Join(dir, name+adapter.TestFileSuffix()+adapter.FileExtension())
+
+	// Write each test - for now just write the raw YAML as a reference
+	// The adapter.Generate expects a single DSL, so we generate for each
+	var allCode strings.Builder
+	testCount := 0
+
+	for _, test := range tests {
+		if test.DSL == nil {
+			continue
+		}
+		code, err := adapter.Generate(test.DSL)
+		if err != nil {
+			log.Warn().Err(err).Str("test", test.DSL.Name).Msg("failed to generate test code")
+			continue
+		}
+		allCode.WriteString(code)
+		allCode.WriteString("\n")
+		testCount++
+	}
+
+	if testCount == 0 {
+		return fmt.Errorf("no tests could be generated")
+	}
+
+	// Write to file
+	if err := os.WriteFile(testFile, []byte(allCode.String()), 0644); err != nil {
+		return fmt.Errorf("failed to write test file: %w", err)
+	}
+
+	fmt.Printf("📝 Written: %s\n", testFile)
+	fmt.Printf("   Tests: %d\n", testCount)
+
+	return nil
 }
