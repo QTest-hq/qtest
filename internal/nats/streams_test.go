@@ -2,6 +2,7 @@ package nats
 
 import (
 	"testing"
+	"time"
 )
 
 func TestSubjectForJobType(t *testing.T) {
@@ -91,5 +92,100 @@ func TestConstants(t *testing.T) {
 		if len(s) < 5 || s[:5] != "jobs." {
 			t.Errorf("subject %s should start with 'jobs.'", s)
 		}
+	}
+}
+
+// =============================================================================
+// SubjectForJobType Edge Cases
+// =============================================================================
+
+func TestSubjectForJobType_EmptyString(t *testing.T) {
+	result := SubjectForJobType("")
+	if result != "" {
+		t.Errorf("SubjectForJobType('') = %s, want empty string", result)
+	}
+}
+
+func TestSubjectForJobType_MixedCase(t *testing.T) {
+	// Function is case-sensitive
+	result := SubjectForJobType("INGESTION")
+	if result != "" {
+		t.Errorf("SubjectForJobType('INGESTION') = %s, want empty string (case-sensitive)", result)
+	}
+}
+
+func TestSubjectForJobType_WithSpaces(t *testing.T) {
+	result := SubjectForJobType(" ingestion ")
+	if result != "" {
+		t.Errorf("SubjectForJobType(' ingestion ') = %s, want empty string", result)
+	}
+}
+
+func TestSubjectForJobType_PartialMatch(t *testing.T) {
+	result := SubjectForJobType("ingest")
+	if result != "" {
+		t.Errorf("SubjectForJobType('ingest') = %s, want empty string", result)
+	}
+}
+
+// =============================================================================
+// ConsumerForJobType Edge Cases
+// =============================================================================
+
+func TestConsumerForJobType_EmptyString(t *testing.T) {
+	result := ConsumerForJobType("")
+	if result != "" {
+		t.Errorf("ConsumerForJobType('') = %s, want empty string", result)
+	}
+}
+
+func TestConsumerForJobType_MixedCase(t *testing.T) {
+	result := ConsumerForJobType("GENERATION")
+	if result != "" {
+		t.Errorf("ConsumerForJobType('GENERATION') = %s, want empty string (case-sensitive)", result)
+	}
+}
+
+func TestConsumerForJobType_WithSpaces(t *testing.T) {
+	result := ConsumerForJobType(" generation ")
+	if result != "" {
+		t.Errorf("ConsumerForJobType(' generation ') = %s, want empty string", result)
+	}
+}
+
+func TestConsumerForJobType_SimilarName(t *testing.T) {
+	result := ConsumerForJobType("generate")
+	if result != "" {
+		t.Errorf("ConsumerForJobType('generate') = %s, want empty string", result)
+	}
+}
+
+// =============================================================================
+// DefaultStreamConfig Tests
+// =============================================================================
+
+func TestDefaultStreamConfig_Description(t *testing.T) {
+	cfg := DefaultStreamConfig()
+	if cfg.Description == "" {
+		t.Error("DefaultStreamConfig().Description should not be empty")
+	}
+	if cfg.Description != "QTest job processing stream" {
+		t.Errorf("Description = %s, want 'QTest job processing stream'", cfg.Description)
+	}
+}
+
+func TestDefaultStreamConfig_MaxBytes(t *testing.T) {
+	cfg := DefaultStreamConfig()
+	expected := int64(1024 * 1024 * 500) // 500MB
+	if cfg.MaxBytes != expected {
+		t.Errorf("MaxBytes = %d, want %d (500MB)", cfg.MaxBytes, expected)
+	}
+}
+
+func TestDefaultStreamConfig_MaxAge(t *testing.T) {
+	cfg := DefaultStreamConfig()
+	expected := 7 * 24 * time.Hour
+	if cfg.MaxAge != expected {
+		t.Errorf("MaxAge = %v, want %v (7 days)", cfg.MaxAge, expected)
 	}
 }

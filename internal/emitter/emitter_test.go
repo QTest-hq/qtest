@@ -623,3 +623,397 @@ func TestEmitters_EmptySpecs(t *testing.T) {
 		}
 	}
 }
+
+// =============================================================================
+// GoHTTPEmitter Helper Function Tests
+// =============================================================================
+
+func TestGoHTTPEmitter_ResolvePath(t *testing.T) {
+	e := &GoHTTPEmitter{}
+
+	tests := []struct {
+		name     string
+		spec     model.TestSpec
+		expected string
+	}{
+		{
+			name:     "simple path",
+			spec:     model.TestSpec{Path: "/api/users"},
+			expected: "/api/users",
+		},
+		{
+			name: "path with colon param",
+			spec: model.TestSpec{
+				Path:       "/api/users/:id",
+				PathParams: map[string]interface{}{"id": 123},
+			},
+			expected: "/api/users/123",
+		},
+		{
+			name: "path with brace param",
+			spec: model.TestSpec{
+				Path:       "/api/users/{id}",
+				PathParams: map[string]interface{}{"id": 456},
+			},
+			expected: "/api/users/456",
+		},
+		{
+			name: "path with query params",
+			spec: model.TestSpec{
+				Path:        "/api/users",
+				QueryParams: map[string]interface{}{"page": 1, "limit": 10},
+			},
+			expected: "/api/users?", // Check prefix only due to map ordering
+		},
+		{
+			name: "path with both path and query params",
+			spec: model.TestSpec{
+				Path:        "/api/users/:id",
+				PathParams:  map[string]interface{}{"id": 999},
+				QueryParams: map[string]interface{}{"detail": "true"},
+			},
+			expected: "/api/users/999?detail=true",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := e.resolvePath(tt.spec)
+			if tt.name == "path with query params" {
+				// Check prefix due to map ordering
+				if !strings.HasPrefix(result, tt.expected) {
+					t.Errorf("resolvePath() = %s, want prefix %s", result, tt.expected)
+				}
+			} else if result != tt.expected {
+				t.Errorf("resolvePath() = %s, want %s", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGoHTTPEmitter_GenerateTestName(t *testing.T) {
+	e := &GoHTTPEmitter{}
+
+	tests := []struct {
+		name     string
+		spec     model.TestSpec
+		expected string
+	}{
+		{
+			name:     "simple GET",
+			spec:     model.TestSpec{Method: "GET", Path: "/users"},
+			expected: "Test_GET_users",
+		},
+		{
+			name:     "POST with path params",
+			spec:     model.TestSpec{Method: "POST", Path: "/users/:id"},
+			expected: "Test_POST_users_id",
+		},
+		{
+			name:     "DELETE with braces",
+			spec:     model.TestSpec{Method: "DELETE", Path: "/users/{id}"},
+			expected: "Test_DELETE_users_id",
+		},
+		{
+			name:     "root path",
+			spec:     model.TestSpec{Method: "GET", Path: "/"},
+			expected: "Test_GET_",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := e.generateTestName(tt.spec)
+			if result != tt.expected {
+				t.Errorf("generateTestName() = %s, want %s", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGoHTTPEmitter_EmitAssertion(t *testing.T) {
+	e := &GoHTTPEmitter{}
+
+	tests := []struct {
+		name      string
+		assertion model.Assertion
+		contains  string
+	}{
+		{
+			name:      "status code 200",
+			assertion: model.Assertion{Kind: "status_code", Expected: 200},
+			contains:  "resp.StatusCode != 200",
+		},
+		{
+			name:      "status code 404",
+			assertion: model.Assertion{Kind: "status_code", Expected: 404},
+			contains:  "resp.StatusCode != 404",
+		},
+		{
+			name:      "equality body",
+			assertion: model.Assertion{Kind: "equality", Actual: "body", Expected: "test"},
+			contains:  "bodyBytes",
+		},
+		{
+			name:      "equality body field",
+			assertion: model.Assertion{Kind: "equality", Actual: "body.name", Expected: "John"},
+			contains:  "bodyBytes",
+		},
+		{
+			name:      "not_null",
+			assertion: model.Assertion{Kind: "not_null", Actual: "body"},
+			contains:  "TODO",
+		},
+		{
+			name:      "unknown kind",
+			assertion: model.Assertion{Kind: "custom_assertion"},
+			contains:  "Unknown assertion kind",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := e.emitAssertion(tt.assertion)
+			if !strings.Contains(result, tt.contains) {
+				t.Errorf("emitAssertion() = %s, want to contain %s", result, tt.contains)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// JUnitEmitter Helper Function Tests
+// =============================================================================
+
+func TestJUnitEmitter_ResolvePath(t *testing.T) {
+	e := &JUnitEmitter{}
+
+	tests := []struct {
+		name     string
+		spec     model.TestSpec
+		expected string
+	}{
+		{
+			name:     "simple path",
+			spec:     model.TestSpec{Path: "/api/users"},
+			expected: "/api/users",
+		},
+		{
+			name: "colon param",
+			spec: model.TestSpec{
+				Path:       "/api/users/:id",
+				PathParams: map[string]interface{}{"id": 42},
+			},
+			expected: "/api/users/42",
+		},
+		{
+			name: "brace param",
+			spec: model.TestSpec{
+				Path:       "/api/users/{userId}",
+				PathParams: map[string]interface{}{"userId": "abc"},
+			},
+			expected: "/api/users/abc",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := e.resolvePath(tt.spec)
+			if result != tt.expected {
+				t.Errorf("resolvePath() = %s, want %s", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestJUnitEmitter_GenerateTestName(t *testing.T) {
+	e := &JUnitEmitter{}
+
+	tests := []struct {
+		name     string
+		spec     model.TestSpec
+		expected string
+	}{
+		{
+			name:     "simple GET",
+			spec:     model.TestSpec{Method: "GET", Path: "/users"},
+			expected: "testGet_users",
+		},
+		{
+			name:     "POST with dashes",
+			spec:     model.TestSpec{Method: "POST", Path: "/user-profile"},
+			expected: "testPost_user_profile",
+		},
+		{
+			name:     "root path",
+			spec:     model.TestSpec{Method: "GET", Path: "/"},
+			expected: "testGet_root",
+		},
+		{
+			name:     "path with params",
+			spec:     model.TestSpec{Method: "DELETE", Path: "/users/{id}"},
+			expected: "testDelete_users_id",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := e.generateTestName(tt.spec)
+			if result != tt.expected {
+				t.Errorf("generateTestName() = %s, want %s", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestJUnitEmitter_GenerateDisplayName(t *testing.T) {
+	e := &JUnitEmitter{}
+
+	spec := model.TestSpec{Method: "POST", Path: "/api/users"}
+	expected := "POST /api/users"
+
+	result := e.generateDisplayName(spec)
+	if result != expected {
+		t.Errorf("generateDisplayName() = %s, want %s", result, expected)
+	}
+}
+
+func TestJUnitEmitter_EscapeJavaString(t *testing.T) {
+	e := &JUnitEmitter{}
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "no escaping needed",
+			input:    "hello world",
+			expected: "hello world",
+		},
+		{
+			name:     "escape quotes",
+			input:    `{"name": "John"}`,
+			expected: `{\"name\": \"John\"}`,
+		},
+		{
+			name:     "escape backslash",
+			input:    `path\to\file`,
+			expected: `path\\to\\file`,
+		},
+		{
+			name:     "escape both",
+			input:    `"path\to"`,
+			expected: `\"path\\to\"`,
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := e.escapeJavaString(tt.input)
+			if result != tt.expected {
+				t.Errorf("escapeJavaString() = %s, want %s", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestJUnitEmitter_EmitAssertion(t *testing.T) {
+	e := &JUnitEmitter{}
+
+	tests := []struct {
+		name      string
+		assertion model.Assertion
+		contains  string
+	}{
+		{
+			name:      "status 200",
+			assertion: model.Assertion{Kind: "status_code", Expected: 200},
+			contains:  "status().isOk()",
+		},
+		{
+			name:      "status 201",
+			assertion: model.Assertion{Kind: "status_code", Expected: 201},
+			contains:  "status().isCreated()",
+		},
+		{
+			name:      "status 204",
+			assertion: model.Assertion{Kind: "status_code", Expected: 204},
+			contains:  "status().isNoContent()",
+		},
+		{
+			name:      "status 400",
+			assertion: model.Assertion{Kind: "status_code", Expected: 400},
+			contains:  "status().isBadRequest()",
+		},
+		{
+			name:      "status 401",
+			assertion: model.Assertion{Kind: "status_code", Expected: 401},
+			contains:  "status().isUnauthorized()",
+		},
+		{
+			name:      "status 403",
+			assertion: model.Assertion{Kind: "status_code", Expected: 403},
+			contains:  "status().isForbidden()",
+		},
+		{
+			name:      "status 404",
+			assertion: model.Assertion{Kind: "status_code", Expected: 404},
+			contains:  "status().isNotFound()",
+		},
+		{
+			name:      "status 500",
+			assertion: model.Assertion{Kind: "status_code", Expected: 500},
+			contains:  "status().isInternalServerError()",
+		},
+		{
+			name:      "status custom",
+			assertion: model.Assertion{Kind: "status_code", Expected: 418},
+			contains:  "status().is(418)",
+		},
+		{
+			name:      "equality body field",
+			assertion: model.Assertion{Kind: "equality", Actual: "body.name", Expected: "John"},
+			contains:  "jsonPath",
+		},
+		{
+			name:      "equality non-body",
+			assertion: model.Assertion{Kind: "equality", Actual: "header", Expected: "value"},
+			contains:  "TODO",
+		},
+		{
+			name:      "not_null body field",
+			assertion: model.Assertion{Kind: "not_null", Actual: "body.id"},
+			contains:  "jsonPath",
+		},
+		{
+			name:      "not_null non-body",
+			assertion: model.Assertion{Kind: "not_null", Actual: "other"},
+			contains:  "TODO",
+		},
+		{
+			name:      "contains",
+			assertion: model.Assertion{Kind: "contains", Expected: "success"},
+			contains:  "containsString",
+		},
+		{
+			name:      "unknown",
+			assertion: model.Assertion{Kind: "custom"},
+			contains:  "Unknown assertion kind",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := e.emitAssertion(tt.assertion)
+			if !strings.Contains(result, tt.contains) {
+				t.Errorf("emitAssertion() = %s, want to contain %s", result, tt.contains)
+			}
+		})
+	}
+}

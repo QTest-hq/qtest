@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -806,5 +807,262 @@ func TestPRTemplate_Fields(t *testing.T) {
 	}
 	if len(tmpl.Files) != 2 {
 		t.Errorf("len(Files) = %d, want 2", len(tmpl.Files))
+	}
+}
+
+// =============================================================================
+// GeneratePRBody Edge Case Tests
+// =============================================================================
+
+func TestGeneratePRBody_ZeroCoverage(t *testing.T) {
+	tmpl := PRTemplate{
+		TestCount:     5,
+		CoverageDelta: 0,
+		Files:         []string{"test.go"},
+		Framework:     "go-test",
+		Language:      "Go",
+	}
+
+	body := GeneratePRBody(tmpl)
+
+	// Should not contain coverage line when delta is 0
+	if strings.Contains(body, "coverage improvement") {
+		t.Error("Should not include coverage line when delta is 0")
+	}
+	if !strings.Contains(body, "5 generated tests") {
+		t.Error("Should include test count")
+	}
+}
+
+func TestGeneratePRBody_NegativeCoverage(t *testing.T) {
+	tmpl := PRTemplate{
+		TestCount:     3,
+		CoverageDelta: -2.5,
+		Files:         []string{"test.go"},
+		Framework:     "pytest",
+		Language:      "Python",
+	}
+
+	body := GeneratePRBody(tmpl)
+
+	// Negative coverage should not be shown (only positive)
+	if strings.Contains(body, "coverage improvement") {
+		t.Error("Should not show negative coverage as improvement")
+	}
+}
+
+func TestGeneratePRBody_EmptyFiles(t *testing.T) {
+	tmpl := PRTemplate{
+		TestCount:     0,
+		CoverageDelta: 0,
+		Files:         []string{},
+		Framework:     "jest",
+		Language:      "JavaScript",
+	}
+
+	body := GeneratePRBody(tmpl)
+
+	if !strings.Contains(body, "## Test Files") {
+		t.Error("Should include Test Files section")
+	}
+	if !strings.Contains(body, "0 generated tests") {
+		t.Error("Should show 0 tests")
+	}
+}
+
+func TestGeneratePRBody_ManyFiles(t *testing.T) {
+	files := make([]string, 10)
+	for i := 0; i < 10; i++ {
+		files[i] = fmt.Sprintf("test_%d.go", i)
+	}
+
+	tmpl := PRTemplate{
+		TestCount:     100,
+		CoverageDelta: 15.5,
+		Files:         files,
+		Framework:     "go-test",
+		Language:      "Go",
+	}
+
+	body := GeneratePRBody(tmpl)
+
+	// Should contain all files
+	for _, f := range files {
+		if !strings.Contains(body, f) {
+			t.Errorf("Should include file %s", f)
+		}
+	}
+}
+
+func TestGeneratePRBody_AllSections(t *testing.T) {
+	tmpl := PRTemplate{
+		TestCount:     10,
+		CoverageDelta: 5.0,
+		Files:         []string{"test.go"},
+		Framework:     "go-test",
+		Language:      "Go",
+	}
+
+	body := GeneratePRBody(tmpl)
+
+	// Check all sections are present
+	sections := []string{
+		"## Summary",
+		"## Test Files",
+		"## Details",
+		"## Checklist",
+		"QTest",
+	}
+
+	for _, section := range sections {
+		if !strings.Contains(body, section) {
+			t.Errorf("Should include section: %s", section)
+		}
+	}
+}
+
+// =============================================================================
+// base64Encode Edge Case Tests
+// =============================================================================
+
+func TestBase64Encode_SimpleString(t *testing.T) {
+	result := base64Encode([]byte("hello"))
+	expected := "aGVsbG8="
+
+	if result != expected {
+		t.Errorf("base64Encode(hello) = %s, want %s", result, expected)
+	}
+}
+
+func TestBase64Encode_EmptyString(t *testing.T) {
+	result := base64Encode([]byte(""))
+
+	if result != "" {
+		t.Errorf("base64Encode('') = %s, want empty string", result)
+	}
+}
+
+func TestBase64Encode_SingleChar(t *testing.T) {
+	result := base64Encode([]byte("a"))
+	expected := "YQ=="
+
+	if result != expected {
+		t.Errorf("base64Encode(a) = %s, want %s", result, expected)
+	}
+}
+
+func TestBase64Encode_TwoChars(t *testing.T) {
+	result := base64Encode([]byte("ab"))
+	expected := "YWI="
+
+	if result != expected {
+		t.Errorf("base64Encode(ab) = %s, want %s", result, expected)
+	}
+}
+
+func TestBase64Encode_ThreeChars(t *testing.T) {
+	result := base64Encode([]byte("abc"))
+	expected := "YWJj"
+
+	if result != expected {
+		t.Errorf("base64Encode(abc) = %s, want %s", result, expected)
+	}
+}
+
+func TestBase64Encode_SpecialChars(t *testing.T) {
+	// Test with special characters
+	result := base64Encode([]byte("hello\nworld"))
+
+	if result == "" {
+		t.Error("Should encode string with newlines")
+	}
+}
+
+func TestBase64Encode_BinaryData(t *testing.T) {
+	// Test with binary data
+	data := []byte{0, 1, 2, 255, 254, 253}
+	result := base64Encode(data)
+
+	if result == "" {
+		t.Error("Should encode binary data")
+	}
+}
+
+func TestEncodeBase64_String(t *testing.T) {
+	result := encodeBase64("test")
+	expected := "dGVzdA=="
+
+	if result != expected {
+		t.Errorf("encodeBase64(test) = %s, want %s", result, expected)
+	}
+}
+
+// =============================================================================
+// ParseRepoURL Edge Case Tests
+// =============================================================================
+
+func TestParseRepoURL_TrailingSlash(t *testing.T) {
+	info, err := ParseRepoURL("https://github.com/owner/repo/")
+	if err != nil {
+		t.Fatalf("ParseRepoURL error: %v", err)
+	}
+
+	if info.Owner != "owner" {
+		t.Errorf("Owner = %s, want owner", info.Owner)
+	}
+	if info.Name != "repo" {
+		t.Errorf("Name = %s, want repo", info.Name)
+	}
+}
+
+func TestParseRepoURL_GitExtension(t *testing.T) {
+	info, err := ParseRepoURL("https://github.com/owner/repo.git")
+	if err != nil {
+		t.Fatalf("ParseRepoURL error: %v", err)
+	}
+
+	if info.Name != "repo" {
+		t.Errorf("Name = %s, want repo (without .git)", info.Name)
+	}
+}
+
+func TestParseRepoURL_CaseSensitivity(t *testing.T) {
+	info, err := ParseRepoURL("https://github.com/Owner/Repo")
+	if err != nil {
+		t.Fatalf("ParseRepoURL error: %v", err)
+	}
+
+	// Should preserve case
+	if info.Owner != "Owner" {
+		t.Errorf("Owner = %s, want Owner (case preserved)", info.Owner)
+	}
+	if info.Name != "Repo" {
+		t.Errorf("Name = %s, want Repo (case preserved)", info.Name)
+	}
+}
+
+func TestParseRepoURL_EmptyOwner(t *testing.T) {
+	_, err := ParseRepoURL("https://github.com//repo")
+	if err == nil {
+		t.Error("Should return error for empty owner")
+	}
+}
+
+func TestParseRepoURL_EmptyRepo(t *testing.T) {
+	_, err := ParseRepoURL("https://github.com/owner/")
+	if err == nil {
+		t.Error("Should return error for empty repo")
+	}
+}
+
+func TestParseRepoURL_TooManySegments(t *testing.T) {
+	// URL with extra path segments should still work
+	info, err := ParseRepoURL("https://github.com/owner/repo/tree/main")
+	if err != nil {
+		t.Fatalf("ParseRepoURL error: %v", err)
+	}
+
+	if info.Owner != "owner" {
+		t.Errorf("Owner = %s, want owner", info.Owner)
 	}
 }
