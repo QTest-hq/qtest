@@ -139,18 +139,32 @@ Cloud APIs (Claude, OpenAI) are optional fallbacks.
 
 ### 4.2 Tiered Model Strategy
 
-| Tier | Local (Ollama) | Cloud (Fallback) | Use Case |
-|------|----------------|------------------|----------|
-| Tier 1 | Qwen2.5 7B, Llama 3.1 8B | Claude Haiku, GPT-4o-mini | Boilerplate, summaries |
-| Tier 2 | Qwen2.5 32B, DeepSeek Coder 33B | Claude Sonnet, GPT-4o | Test logic, assertions |
-| Tier 3 | DeepSeek 70B, Llama 3.1 70B | Claude Opus, GPT-4 | Complex reasoning, critics |
+**For 16GB VRAM GPUs (RTX 4080 SUPER, RTX 4080, etc.):**
 
-**Cost Comparison:**
+| Tier | Local (Ollama) | VRAM | Cloud (Fallback) | Use Case |
+|------|----------------|------|------------------|----------|
+| Tier 1 | Qwen2.5 7B | ~5GB | Claude Haiku, GPT-4o-mini | Boilerplate, summaries |
+| Tier 2 | Qwen2.5 14B | ~9GB | Claude Sonnet, GPT-4o | Test logic, assertions |
+| Tier 3 | *Cloud only* | N/A | Claude Sonnet 3.5 | Complex reasoning, critics |
 
-| Scenario | Local (Ollama) | Cloud APIs |
-|----------|----------------|------------|
-| 1000 tests generated | $0 (electricity only) | ~$3-15 |
-| Per-month usage | $0 | $50-500 |
+**For 24GB+ VRAM GPUs (RTX 4090, RTX 3090, A100):**
+
+| Tier | Local (Ollama) | VRAM | Cloud (Fallback) | Use Case |
+|------|----------------|------|------------------|----------|
+| Tier 1 | Qwen2.5 7B | ~5GB | Claude Haiku | Boilerplate, summaries |
+| Tier 2 | Qwen2.5 32B | ~20GB | Claude Sonnet | Test logic, assertions |
+| Tier 3 | DeepSeek 70B Q4 | ~40GB | Claude Opus | Complex reasoning |
+
+**Coverage by Tier (typical workload):**
+
+| Tier | % of Tasks | Local (16GB) | Cloud Cost/1000 tests |
+|------|------------|--------------|----------------------|
+| Tier 1 | 40% | ✅ Free | $0.10 |
+| Tier 2 | 50% | ✅ Free | $1.50 |
+| Tier 3 | 10% | ❌ Cloud | $1.50 |
+| **Total** | 100% | **90% Free** | **~$0.15** (Tier 3 only) |
+
+With 16GB VRAM, you run **90% of tasks locally for free**.
 
 ### 4.3 Provider Priority
 
@@ -164,14 +178,30 @@ Cloud APIs (Claude, OpenAI) are optional fallbacks.
 # Install Ollama
 curl -fsSL https://ollama.com/install.sh | sh
 
-# Pull recommended models
-ollama pull qwen2.5:7b      # Tier 1 (fast, 4GB VRAM)
-ollama pull qwen2.5:32b     # Tier 2 (balanced, 20GB VRAM)
-ollama pull deepseek-coder:33b  # Tier 2 alternative
-ollama pull llama3.1:70b    # Tier 3 (requires 48GB+ VRAM)
+# For 16GB VRAM (RTX 4080 SUPER, RTX 4080, RTX 3080 Ti)
+ollama pull qwen2.5:7b      # Tier 1 (~5GB VRAM)
+ollama pull qwen2.5:14b     # Tier 2 (~9GB VRAM)
+# Tier 3: Uses cloud fallback (Claude Sonnet 3.5)
 
-# Verify
+# For 24GB+ VRAM (RTX 4090, RTX 3090, A100)
+# ollama pull qwen2.5:32b   # Tier 2 (~20GB VRAM)
+# ollama pull deepseek-coder-v2:33b  # Tier 2 alternative
+
+# Alternative models (code-specialized)
+ollama pull deepseek-coder-v2:16b  # Excellent for code, ~10GB VRAM
+
+# Verify installation
 ollama list
+
+# Test inference
+ollama run qwen2.5:7b "Write a hello world test in Python"
+```
+
+**Recommended Setup for RTX 4080 SUPER (16GB):**
+```bash
+ollama pull qwen2.5:7b       # Tier 1: Fast tasks
+ollama pull qwen2.5:14b      # Tier 2: Main test generation
+# Configure ANTHROPIC_API_KEY for Tier 3 cloud fallback
 ```
 
 ### 4.5 LLM Router Service
@@ -193,7 +223,7 @@ type LLMRouterConfig struct {
     TierModels      map[LLMTier]map[LLMProvider]string
 }
 
-// Default configuration (local-first)
+// Default configuration (local-first, optimized for 16GB VRAM)
 var DefaultConfig = LLMRouterConfig{
     DefaultProvider: ProviderOllama,
     Providers: map[LLMProvider]ProviderConfig{
@@ -207,17 +237,28 @@ var DefaultConfig = LLMRouterConfig{
     },
     TierModels: map[LLMTier]map[LLMProvider]string{
         LLMTier1: {
-            ProviderOllama:    "qwen2.5:7b",
+            ProviderOllama:    "qwen2.5:7b",      // ~5GB VRAM
             ProviderAnthropic: "claude-3-haiku-20240307",
         },
         LLMTier2: {
-            ProviderOllama:    "qwen2.5:32b",
+            ProviderOllama:    "qwen2.5:14b",     // ~9GB VRAM (fits 16GB GPUs)
             ProviderAnthropic: "claude-3-5-sonnet-20241022",
         },
         LLMTier3: {
-            ProviderOllama:    "llama3.1:70b",
-            ProviderAnthropic: "claude-3-opus-20240229",
+            // No local model - 70B needs 48GB+ VRAM
+            // Falls back to cloud automatically
+            ProviderAnthropic: "claude-3-5-sonnet-20241022",
         },
+    },
+}
+
+// High-VRAM configuration (24GB+ GPUs)
+var HighVRAMConfig = LLMRouterConfig{
+    DefaultProvider: ProviderOllama,
+    TierModels: map[LLMTier]map[LLMProvider]string{
+        LLMTier1: {ProviderOllama: "qwen2.5:7b"},
+        LLMTier2: {ProviderOllama: "qwen2.5:32b"},    // ~20GB VRAM
+        LLMTier3: {ProviderOllama: "deepseek-coder-v2:33b"}, // ~20GB VRAM
     },
 }
 ```
