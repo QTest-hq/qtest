@@ -61,6 +61,11 @@ type IngestionPayload struct {
 	Branch        string `json:"branch,omitempty"`
 	CommitHash    string `json:"commit_hash,omitempty"`
 	WorkspacePath string `json:"workspace_path,omitempty"`
+	// Pipeline options (propagated through chain)
+	MaxTests    int  `json:"max_tests,omitempty"`
+	LLMTier     int  `json:"llm_tier,omitempty"`
+	RunMutation bool `json:"run_mutation,omitempty"`
+	CreatePR    bool `json:"create_pr,omitempty"`
 }
 
 // ModelingPayload is the payload for modeling jobs
@@ -69,6 +74,11 @@ type ModelingPayload struct {
 	WorkspacePath string    `json:"workspace_path"`
 	IncludePaths  []string  `json:"include_paths,omitempty"`
 	ExcludePaths  []string  `json:"exclude_paths,omitempty"`
+	// Pipeline options (propagated through chain)
+	MaxTests    int  `json:"max_tests,omitempty"`
+	LLMTier     int  `json:"llm_tier,omitempty"`
+	RunMutation bool `json:"run_mutation,omitempty"`
+	CreatePR    bool `json:"create_pr,omitempty"`
 }
 
 // PlanningPayload is the payload for planning jobs
@@ -77,6 +87,10 @@ type PlanningPayload struct {
 	ModelID      uuid.UUID `json:"model_id"`
 	MaxTests     int       `json:"max_tests,omitempty"`
 	TestLevels   []string  `json:"test_levels,omitempty"` // "unit", "api", "e2e"
+	// Pipeline options (propagated through chain)
+	LLMTier     int  `json:"llm_tier,omitempty"`
+	RunMutation bool `json:"run_mutation,omitempty"`
+	CreatePR    bool `json:"create_pr,omitempty"`
 }
 
 // GenerationPayload is the payload for generation jobs

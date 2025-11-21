@@ -148,9 +148,15 @@ func (w *IngestionWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 		return fmt.Errorf("failed to complete job: %w", err)
 	}
 
-	// Chain to modeling job
+	// Chain to modeling job with pipeline options
 	if w.Pipeline() != nil {
-		_, err := w.Pipeline().CreateModelingJob(ctx, job.ID, result.RepositoryID, workspacePath)
+		opts := jobs.PipelineJobOptions{
+			MaxTests:    payload.MaxTests,
+			LLMTier:     payload.LLMTier,
+			RunMutation: payload.RunMutation,
+			CreatePR:    payload.CreatePR,
+		}
+		_, err := w.Pipeline().CreateModelingJob(ctx, job.ID, result.RepositoryID, workspacePath, opts)
 		if err != nil {
 			log.Warn().Err(err).Msg("failed to create modeling job")
 		}
@@ -329,9 +335,15 @@ func (w *ModelingWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 		return fmt.Errorf("failed to complete job: %w", err)
 	}
 
-	// Chain to planning job
+	// Chain to planning job with pipeline options
 	if w.Pipeline() != nil {
-		_, err := w.Pipeline().CreatePlanningJob(ctx, job.ID, payload.RepositoryID, result.ModelID, 0)
+		opts := jobs.PipelineJobOptions{
+			MaxTests:    payload.MaxTests,
+			LLMTier:     payload.LLMTier,
+			RunMutation: payload.RunMutation,
+			CreatePR:    payload.CreatePR,
+		}
+		_, err := w.Pipeline().CreatePlanningJob(ctx, job.ID, payload.RepositoryID, result.ModelID, opts)
 		if err != nil {
 			log.Warn().Err(err).Msg("failed to create planning job")
 		}
@@ -437,11 +449,18 @@ func (w *PlanningWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 		return fmt.Errorf("failed to complete job: %w", err)
 	}
 
-	// Chain to generation job
+	// Chain to generation job with pipeline options
 	if w.Pipeline() != nil {
 		runID := uuid.New()
+		tier := payload.LLMTier
+		if tier == 0 {
+			tier = 1 // Default to fast tier
+		}
 		opts := jobs.GenerationJobOptions{
-			Tier: 1, // Default to fast tier
+			MaxTests:    payload.MaxTests,
+			LLMTier:     tier,
+			RunMutation: payload.RunMutation,
+			CreatePR:    payload.CreatePR,
 		}
 		_, err := w.Pipeline().CreateGenerationJob(ctx, job.ID, payload.RepositoryID, runID, result.PlanID, opts)
 		if err != nil {

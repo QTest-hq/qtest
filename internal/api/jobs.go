@@ -26,6 +26,7 @@ type StartPipelineRequest struct {
 	MaxTests      int      `json:"max_tests,omitempty"`
 	LLMTier       int      `json:"llm_tier,omitempty"` // 1=fast, 2=balanced, 3=thorough
 	TestLevels    []string `json:"test_levels,omitempty"`
+	RunMutation   bool     `json:"run_mutation,omitempty"`
 	CreatePR      bool     `json:"create_pr,omitempty"`
 }
 
@@ -111,11 +112,12 @@ func (s *Server) startPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	options := jobs.PipelineOptions{
-		Branch:     req.Branch,
-		MaxTests:   req.MaxTests,
-		LLMTier:    req.LLMTier,
-		TestLevels: req.TestLevels,
-		CreatePR:   req.CreatePR,
+		Branch:      req.Branch,
+		MaxTests:    req.MaxTests,
+		LLMTier:     req.LLMTier,
+		TestLevels:  req.TestLevels,
+		RunMutation: req.RunMutation,
+		CreatePR:    req.CreatePR,
 	}
 
 	job, err := s.pipeline.StartFullPipeline(r.Context(), req.RepositoryURL, options)

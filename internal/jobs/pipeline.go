@@ -55,6 +55,11 @@ func (p *Pipeline) StartFullPipeline(ctx context.Context, repoURL string, option
 	payload := IngestionPayload{
 		RepositoryURL: repoURL,
 		Branch:        options.Branch,
+		// Pass pipeline options through the chain
+		MaxTests:    options.MaxTests,
+		LLMTier:     options.LLMTier,
+		RunMutation: options.RunMutation,
+		CreatePR:    options.CreatePR,
 	}
 
 	job, err := p.StartIngestion(ctx, payload)
@@ -62,13 +67,13 @@ func (p *Pipeline) StartFullPipeline(ctx context.Context, repoURL string, option
 		return nil, err
 	}
 
-	// Store pipeline options in job metadata for workers to use
-	// Workers will read these when creating subsequent jobs
 	log.Info().
 		Str("job_id", job.ID.String()).
 		Str("repo_url", repoURL).
 		Int("max_tests", options.MaxTests).
 		Int("llm_tier", options.LLMTier).
+		Bool("run_mutation", options.RunMutation).
+		Bool("create_pr", options.CreatePR).
 		Msg("started full pipeline")
 
 	return job, nil
@@ -123,10 +128,14 @@ func (p *Pipeline) ChainJob(ctx context.Context, parentID uuid.UUID, jobType Job
 }
 
 // CreateModelingJob creates a modeling job after ingestion completes
-func (p *Pipeline) CreateModelingJob(ctx context.Context, parentID uuid.UUID, repoID uuid.UUID, workspacePath string) (*Job, error) {
+func (p *Pipeline) CreateModelingJob(ctx context.Context, parentID uuid.UUID, repoID uuid.UUID, workspacePath string, opts PipelineJobOptions) (*Job, error) {
 	payload := ModelingPayload{
 		RepositoryID:  repoID,
 		WorkspacePath: workspacePath,
+		MaxTests:      opts.MaxTests,
+		LLMTier:       opts.LLMTier,
+		RunMutation:   opts.RunMutation,
+		CreatePR:      opts.CreatePR,
 	}
 
 	job, err := p.ChainJob(ctx, parentID, JobTypeModeling, payload)
@@ -139,22 +148,29 @@ func (p *Pipeline) CreateModelingJob(ctx context.Context, parentID uuid.UUID, re
 }
 
 // CreatePlanningJob creates a planning job after modeling completes
-func (p *Pipeline) CreatePlanningJob(ctx context.Context, parentID uuid.UUID, repoID, modelID uuid.UUID, maxTests int) (*Job, error) {
+func (p *Pipeline) CreatePlanningJob(ctx context.Context, parentID uuid.UUID, repoID, modelID uuid.UUID, opts PipelineJobOptions) (*Job, error) {
 	payload := PlanningPayload{
 		RepositoryID: repoID,
 		ModelID:      modelID,
-		MaxTests:     maxTests,
+		MaxTests:     opts.MaxTests,
+		LLMTier:      opts.LLMTier,
+		RunMutation:  opts.RunMutation,
+		CreatePR:     opts.CreatePR,
 	}
 
 	return p.ChainJob(ctx, parentID, JobTypePlanning, payload)
 }
 
-// GenerationJobOptions configures a generation job
-type GenerationJobOptions struct {
-	Tier        int  // LLM tier
+// PipelineJobOptions contains options that propagate through the job chain
+type PipelineJobOptions struct {
+	MaxTests    int  // Maximum tests to generate
+	LLMTier     int  // LLM tier (1=fast, 2=balanced, 3=thorough)
 	RunMutation bool // Whether to run mutation testing after generation
 	CreatePR    bool // Whether to create a PR at the end
 }
+
+// GenerationJobOptions configures a generation job (alias for compatibility)
+type GenerationJobOptions = PipelineJobOptions
 
 // CreateGenerationJob creates a generation job after planning completes
 func (p *Pipeline) CreateGenerationJob(ctx context.Context, parentID uuid.UUID, repoID, runID, planID uuid.UUID, opts GenerationJobOptions) (*Job, error) {
@@ -162,7 +178,7 @@ func (p *Pipeline) CreateGenerationJob(ctx context.Context, parentID uuid.UUID, 
 		RepositoryID:    repoID,
 		GenerationRunID: runID,
 		PlanID:          planID,
-		LLMTier:         opts.Tier,
+		LLMTier:         opts.LLMTier,
 		RunMutation:     opts.RunMutation,
 		CreatePR:        opts.CreatePR,
 	}
