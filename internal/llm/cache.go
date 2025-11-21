@@ -88,7 +88,11 @@ func (c *MemoryCache) Get(ctx context.Context, key string) (*Response, bool) {
 	c.stats.Hits++
 	c.mu.Unlock()
 
-	log.Debug().Str("key", key[:16]+"...").Msg("cache hit")
+	keyPreview := key
+	if len(key) > 16 {
+		keyPreview = key[:16] + "..."
+	}
+	log.Debug().Str("key", keyPreview).Msg("cache hit")
 	return entry.response, true
 }
 
@@ -112,7 +116,11 @@ func (c *MemoryCache) Set(ctx context.Context, key string, resp *Response, ttl t
 	}
 	c.stats.Size = int64(len(c.entries))
 
-	log.Debug().Str("key", key[:16]+"...").Dur("ttl", ttl).Msg("cached response")
+	keyPreview := key
+	if len(key) > 16 {
+		keyPreview = key[:16] + "..."
+	}
+	log.Debug().Str("key", keyPreview).Dur("ttl", ttl).Msg("cached response")
 	return nil
 }
 
