@@ -26,7 +26,7 @@ func NewRegistry() *Registry {
 	r.Register(&GinSupplement{})
 	r.Register(&SpringBootSupplement{})
 	r.Register(&DjangoSupplement{})
-	// Future: r.Register(&NestJSSupplement{})
+	r.Register(&NestJSSupplement{})
 
 	return r
 }
