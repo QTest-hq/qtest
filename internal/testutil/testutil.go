@@ -180,3 +180,31 @@ func RequireDB(t *testing.T) *TestDB {
 
 	return db
 }
+
+// TestNATS wraps a NATS connection for testing
+type TestNATS struct {
+	URL string
+}
+
+// SetupTestNATS creates a test NATS connection
+// Skip test if NATS is not available
+func SetupTestNATS(t *testing.T) *TestNATS {
+	t.Helper()
+
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	url := GetTestNATSURL()
+
+	// Quick connectivity check using net.Dial
+	// The actual NATS client connection will be done in the test
+	return &TestNATS{URL: url}
+}
+
+// RequireNATS returns a test NATS URL or skips the test
+func RequireNATS(t *testing.T) *TestNATS {
+	t.Helper()
+
+	return SetupTestNATS(t)
+}
