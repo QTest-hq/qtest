@@ -128,45 +128,97 @@ This document defines the technology choices for QTest with rationale for each d
 
 ## 4. LLM Integration
 
-### 4.1 Tiered Model Strategy
+### 4.1 Local-First Architecture
 
-| Tier | Models | Use Case | Cost/1M tokens |
-|------|--------|----------|----------------|
-| Tier 1 | Claude Haiku, GPT-4o-mini | Boilerplate, summaries | $0.25 input |
-| Tier 2 | Claude Sonnet, GPT-4o | Test logic, assertions | $3 input |
-| Tier 3 | Claude Opus, GPT-4 | Complex reasoning, critics | $15 input |
+QTest defaults to **local LLM inference via Ollama**, making it:
+- **Cost-free** for local GPU users (RTX 4080, 4090, etc.)
+- **Privacy-preserving** - code never leaves your machine
+- **Fast** - no network latency to cloud APIs
 
-### 4.2 Provider Priority
+Cloud APIs (Claude, OpenAI) are optional fallbacks.
 
-1. **Primary**: Anthropic Claude (better at code understanding)
-2. **Fallback**: OpenAI GPT-4o (broad availability)
-3. **Local**: Llama 3.1 via vLLM (enterprise/cost-sensitive)
+### 4.2 Tiered Model Strategy
 
-### 4.3 LLM Client Architecture
+| Tier | Local (Ollama) | Cloud (Fallback) | Use Case |
+|------|----------------|------------------|----------|
+| Tier 1 | Qwen2.5 7B, Llama 3.1 8B | Claude Haiku, GPT-4o-mini | Boilerplate, summaries |
+| Tier 2 | Qwen2.5 32B, DeepSeek Coder 33B | Claude Sonnet, GPT-4o | Test logic, assertions |
+| Tier 3 | DeepSeek 70B, Llama 3.1 70B | Claude Opus, GPT-4 | Complex reasoning, critics |
+
+**Cost Comparison:**
+
+| Scenario | Local (Ollama) | Cloud APIs |
+|----------|----------------|------------|
+| 1000 tests generated | $0 (electricity only) | ~$3-15 |
+| Per-month usage | $0 | $50-500 |
+
+### 4.3 Provider Priority
+
+1. **Primary**: Ollama (local models - Qwen, DeepSeek, Llama)
+2. **Fallback 1**: Anthropic Claude (better at code understanding)
+3. **Fallback 2**: OpenAI GPT-4o (broad availability)
+
+### 4.4 Ollama Setup
+
+```bash
+# Install Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Pull recommended models
+ollama pull qwen2.5:7b      # Tier 1 (fast, 4GB VRAM)
+ollama pull qwen2.5:32b     # Tier 2 (balanced, 20GB VRAM)
+ollama pull deepseek-coder:33b  # Tier 2 alternative
+ollama pull llama3.1:70b    # Tier 3 (requires 48GB+ VRAM)
+
+# Verify
+ollama list
+```
+
+### 4.5 LLM Router Service
 
 ```go
-// LLM client interface
-type LLMClient interface {
-    Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error)
-    Stream(ctx context.Context, req CompletionRequest) (<-chan StreamChunk, error)
+// LLMProvider represents supported backends
+type LLMProvider string
+
+const (
+    ProviderOllama    LLMProvider = "ollama"    // Default, local
+    ProviderAnthropic LLMProvider = "anthropic" // Cloud fallback
+    ProviderOpenAI    LLMProvider = "openai"    // Cloud fallback
+)
+
+// LLMRouterConfig configures the router
+type LLMRouterConfig struct {
+    DefaultProvider LLMProvider
+    Providers       map[LLMProvider]ProviderConfig
+    TierModels      map[LLMTier]map[LLMProvider]string
 }
 
-// Tiered router
-type TieredRouter struct {
-    tier1 LLMClient  // Haiku
-    tier2 LLMClient  // Sonnet
-    tier3 LLMClient  // Opus
-}
-
-func (r *TieredRouter) Route(task TaskType) LLMClient {
-    switch task {
-    case TaskBoilerplate, TaskSummary:
-        return r.tier1
-    case TaskTestGeneration, TaskAssertion:
-        return r.tier2
-    case TaskCritic, TaskComplexReasoning:
-        return r.tier3
-    }
+// Default configuration (local-first)
+var DefaultConfig = LLMRouterConfig{
+    DefaultProvider: ProviderOllama,
+    Providers: map[LLMProvider]ProviderConfig{
+        ProviderOllama: {
+            Enabled: true,
+            BaseURL: "http://localhost:11434",
+        },
+        ProviderAnthropic: {
+            Enabled: false, // Enable if API key provided
+        },
+    },
+    TierModels: map[LLMTier]map[LLMProvider]string{
+        LLMTier1: {
+            ProviderOllama:    "qwen2.5:7b",
+            ProviderAnthropic: "claude-3-haiku-20240307",
+        },
+        LLMTier2: {
+            ProviderOllama:    "qwen2.5:32b",
+            ProviderAnthropic: "claude-3-5-sonnet-20241022",
+        },
+        LLMTier3: {
+            ProviderOllama:    "llama3.1:70b",
+            ProviderAnthropic: "claude-3-opus-20240229",
+        },
+    },
 }
 ```
 

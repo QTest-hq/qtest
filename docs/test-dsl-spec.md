@@ -16,6 +16,30 @@ The Test DSL is an intermediate representation for test definitions. It provides
 
 The DSL uses YAML as its serialization format. JSON is also supported for programmatic use.
 
+### 1.3 Critical Fields: Lifecycle, Resources, and Isolation
+
+While technically optional, the following fields are **strongly recommended** for integration and E2E tests:
+
+| Field | Purpose | When to Use |
+|-------|---------|-------------|
+| `lifecycle` | Define setup/teardown scope | Any test with DB, cache, or external deps |
+| `resources` | Declare required infrastructure | Tests needing DB, cache, or services |
+| `isolation` | Control parallelization | Tests with shared state or side effects |
+
+**Why these matter:**
+- **Without `lifecycle`**: Adapters may generate incorrect `beforeAll`/`beforeEach` hooks
+- **Without `resources`**: Tests may fail due to missing DB or cache
+- **Without `isolation`**: Parallel test runs may have race conditions
+
+**Framework Adapter Behavior:**
+
+| DSL Field | Jest | Pytest | JUnit |
+|-----------|------|--------|-------|
+| `lifecycle.scope: "suite"` | `beforeAll`/`afterAll` | `@pytest.fixture(scope="module")` | `@BeforeAll` |
+| `lifecycle.scope: "test"` | `beforeEach`/`afterEach` | `@pytest.fixture(scope="function")` | `@BeforeEach` |
+| `isolation.parallelSafe: false` | `--runInBand` | `--dist no` | `@Execution(SAME_THREAD)` |
+| `resources.db.mode: "testcontainer"` | Testcontainers setup | `pytest-docker` | `@Testcontainers` |
+
 ## 2. Schema Definition
 
 ### 2.1 Top-Level Structure

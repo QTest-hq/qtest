@@ -536,8 +536,35 @@ type GenerationRun struct {
     // Metrics
     Metrics       RunMetrics     `json:"metrics"`
 
+    // Configuration
+    MutationConfig MutationConfig `json:"mutation_config"`
+    LLMConfig      LLMConfig      `json:"llm_config"`
+
     // Errors
     Errors        []RunError     `json:"errors,omitempty"`
+}
+
+// MutationConfig controls mutation testing behavior for a run
+type MutationConfig struct {
+    Mode              MutationMode `json:"mode"`               // off, sampled, thorough
+    MutantsPerTarget  int          `json:"mutants_per_target"` // e.g., 3-5
+    MaxRuntimeSeconds int          `json:"max_runtime_seconds"`
+    MutatedEntities   []string     `json:"mutated_entities"`   // function IDs to mutate (incremental)
+}
+
+type MutationMode string
+
+const (
+    MutationModeOff      MutationMode = "off"
+    MutationModeSampled  MutationMode = "sampled"  // Default: 3-5 mutants, 2 min budget
+    MutationModeThorough MutationMode = "thorough" // Nightly: 10+ mutants, 15 min budget
+)
+
+// LLMConfig controls LLM behavior for a run
+type LLMConfig struct {
+    PreferredProvider LLMProvider `json:"preferred_provider"`
+    MaxTokenBudget    int         `json:"max_token_budget"`
+    AllowTier3        bool        `json:"allow_tier3"` // Allow expensive models
 }
 
 type RunStatus string
@@ -615,8 +642,8 @@ type TestResult struct {
     RuntimeGate   *GateResult      `json:"runtime_gate,omitempty"`
     MutationGate  *MutationResult  `json:"mutation_gate,omitempty"`
 
-    // Rejection info
-    RejectionReason string         `json:"rejection_reason,omitempty"`
+    // Rejection info (formalized enum)
+    RejectionReason RejectionReason `json:"rejection_reason,omitempty"`
 
     // Timing
     GeneratedAt   time.Time        `json:"generated_at"`
@@ -631,6 +658,33 @@ const (
     TestResultStatusRejected  TestResultStatus = "rejected"
     TestResultStatusFlaky     TestResultStatus = "flaky"
 )
+
+// RejectionReason provides detailed categorization of why a test was rejected
+type RejectionReason string
+
+const (
+    RejectionNone             RejectionReason = ""                    // Not rejected
+    RejectionCompileError     RejectionReason = "COMPILE_ERROR"       // Failed to compile/typecheck
+    RejectionRuntimeFail      RejectionReason = "RUNTIME_FAIL_ORIGINAL" // Failed when run against original code
+    RejectionMutationWeak     RejectionReason = "MUTATION_WEAK"       // Passed but killed 0 mutants
+    RejectionFlaky            RejectionReason = "FLAKY"               // Inconsistent pass/fail
+    RejectionTimeout          RejectionReason = "TIMEOUT"             // Exceeded time budget
+    RejectionCriticRejection  RejectionReason = "CRITIC_REJECTION"    // LLM critic determined test is low quality
+)
+
+// GenerationRunSummary provides a high-level view of run results for UX
+type GenerationRunSummary struct {
+    RunID               string                    `json:"run_id"`
+    TestsRequested      int                       `json:"tests_requested"`
+    TestsGenerated      int                       `json:"tests_generated"`
+    TestsAccepted       int                       `json:"tests_accepted"`
+    TestsRejectedByGate map[RejectionReason]int   `json:"tests_rejected_by_gate"`
+    MutationScore       float64                   `json:"mutation_score"`
+    CoverageDelta       float64                   `json:"coverage_delta"`
+
+    // For PR description / UI display
+    SummaryText         string                    `json:"summary_text"`
+}
 
 // GateResult represents result of a quality gate
 type GateResult struct {
@@ -866,9 +920,103 @@ const (
 )
 ```
 
-## 6. LLM & Cost Tracking
+## 6. LLM Router Service
 
-### 6.1 LLMUsage
+The LLM Router is a provider-agnostic internal service that routes requests to the appropriate model based on task type and budget.
+
+### 6.1 LLM Router Types
+
+```go
+// LLMProvider represents supported LLM backends
+type LLMProvider string
+
+const (
+    LLMProviderOllama    LLMProvider = "ollama"    // Local models (Qwen, DeepSeek, Llama)
+    LLMProviderAnthropic LLMProvider = "anthropic" // Claude API
+    LLMProviderOpenAI    LLMProvider = "openai"    // GPT API
+)
+
+// LLMTaskType categorizes the type of LLM task for routing decisions
+type LLMTaskType string
+
+const (
+    LLMTaskUnitTest     LLMTaskType = "unit_test"     // Generate unit test DSL
+    LLMTaskAPITest      LLMTaskType = "api_test"      // Generate API test DSL
+    LLMTaskE2EFlow      LLMTaskType = "e2e_flow"      // Generate E2E test DSL
+    LLMTaskCritic       LLMTaskType = "critic"        // Review/strengthen test
+    LLMTaskPlanner      LLMTaskType = "planner"       // Plan test strategy
+    LLMTaskSummarize    LLMTaskType = "summarize"     // Summarize code/docs
+    LLMTaskExtract      LLMTaskType = "extract"       // Extract metadata
+)
+
+// LLMRequest is the unified request to the LLM Router Service
+type LLMRequest struct {
+    TaskType    LLMTaskType       `json:"task_type"`
+    ModelTier   LLMTier           `json:"model_tier"`   // TIER1, TIER2, TIER3, or AUTO
+    Provider    LLMProvider       `json:"provider"`     // Preferred provider (optional)
+    Context     LLMContext        `json:"context"`      // Task-specific context
+    MaxTokens   int               `json:"max_tokens"`   // Max output tokens
+    Temperature float64           `json:"temperature"`  // 0.0-1.0
+}
+
+// LLMContext holds the context for generation
+type LLMContext struct {
+    // For code-related tasks
+    FunctionCode   string     `json:"function_code,omitempty"`
+    FunctionMeta   *Function  `json:"function_meta,omitempty"`
+    EndpointMeta   *Endpoint  `json:"endpoint_meta,omitempty"`
+
+    // For test tasks
+    ExistingTests  []string   `json:"existing_tests,omitempty"`
+    TargetBranches []Branch   `json:"target_branches,omitempty"`
+
+    // For critic tasks
+    TestToReview   string     `json:"test_to_review,omitempty"`
+    MutantsSurvived []Mutant  `json:"mutants_survived,omitempty"`
+
+    // Additional context
+    SystemPrompt   string     `json:"system_prompt,omitempty"`
+    UserPrompt     string     `json:"user_prompt,omitempty"`
+}
+
+// LLMResponse is the response from the LLM Router Service
+type LLMResponse struct {
+    Content      string      `json:"content"`
+    Provider     LLMProvider `json:"provider"`      // Which provider was used
+    Model        string      `json:"model"`         // Actual model name
+    Tier         LLMTier     `json:"tier"`
+    InputTokens  int         `json:"input_tokens"`
+    OutputTokens int         `json:"output_tokens"`
+    LatencyMs    int         `json:"latency_ms"`
+    Cached       bool        `json:"cached"`        // Was response from cache?
+}
+
+// LLMRouterConfig configures the LLM Router Service
+type LLMRouterConfig struct {
+    // Provider configurations
+    Providers map[LLMProvider]ProviderConfig `json:"providers"`
+
+    // Routing rules
+    DefaultProvider LLMProvider            `json:"default_provider"` // ollama by default
+    TierRouting     map[LLMTier][]LLMProvider `json:"tier_routing"`  // Tier -> providers to try
+
+    // Budget limits
+    GlobalTokenBudget int `json:"global_token_budget"` // Per day
+    Tier3TokenBudget  int `json:"tier3_token_budget"`  // Limit expensive calls
+}
+
+// ProviderConfig configures a single LLM provider
+type ProviderConfig struct {
+    Enabled     bool              `json:"enabled"`
+    BaseURL     string            `json:"base_url"`      // e.g., "http://localhost:11434" for Ollama
+    APIKey      string            `json:"api_key,omitempty"`
+    Models      map[LLMTier]string `json:"models"`       // Tier -> model name
+    RateLimit   int               `json:"rate_limit"`    // Requests per minute
+    TimeoutSecs int               `json:"timeout_secs"`
+}
+```
+
+### 6.2 LLMUsage
 
 ```go
 // LLMUsage tracks LLM API usage
@@ -878,29 +1026,32 @@ type LLMUsage struct {
     UserID       string    `json:"user_id"`
 
     // Model info
-    Provider     string    `json:"provider"`  // "anthropic" | "openai"
-    Model        string    `json:"model"`     // "claude-3-sonnet" etc.
-    Tier         LLMTier   `json:"tier"`
+    Provider     LLMProvider `json:"provider"` // ollama, anthropic, openai
+    Model        string      `json:"model"`    // "qwen2.5:32b", "claude-3-sonnet", etc.
+    Tier         LLMTier     `json:"tier"`
+    TaskType     LLMTaskType `json:"task_type"`
 
     // Usage
     InputTokens  int       `json:"input_tokens"`
     OutputTokens int       `json:"output_tokens"`
     TotalTokens  int       `json:"total_tokens"`
 
-    // Cost (in cents)
+    // Cost (in cents) - 0 for local models
     CostCents    int       `json:"cost_cents"`
 
     // Timing
     LatencyMs    int       `json:"latency_ms"`
+    Cached       bool      `json:"cached"`
     CreatedAt    time.Time `json:"created_at"`
 }
 
 type LLMTier string
 
 const (
-    LLMTier1 LLMTier = "tier1" // Cheap/fast (Haiku, GPT-4o-mini)
-    LLMTier2 LLMTier = "tier2" // Mid (Sonnet, GPT-4o)
-    LLMTier3 LLMTier = "tier3" // Frontier (Opus, GPT-4)
+    LLMTierAuto LLMTier = "auto"  // Let router decide
+    LLMTier1    LLMTier = "tier1" // Cheap/fast (Qwen 7B, Haiku, GPT-4o-mini)
+    LLMTier2    LLMTier = "tier2" // Mid (Qwen 32B, Sonnet, GPT-4o)
+    LLMTier3    LLMTier = "tier3" // Frontier (DeepSeek 70B, Opus, GPT-4)
 )
 ```
 

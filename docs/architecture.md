@@ -12,12 +12,12 @@ QTest is a distributed system designed for high-throughput test generation. The 
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │   ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐            │
-│   │  GitHub  │    │ Target   │    │   LLM    │    │ Mutation │            │
+│   │  GitHub  │    │ Target   │    │ Cloud LLM│    │ Mutation │            │
 │   │   API    │    │ Websites │    │   APIs   │    │  Tools   │            │
 │   └────┬─────┘    └────┬─────┘    └────┬─────┘    └────┬─────┘            │
 │        │               │               │               │                   │
 └────────┼───────────────┼───────────────┼───────────────┼───────────────────┘
-         │               │               │               │
+         │               │               │ (optional)    │
          ▼               ▼               ▼               ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                               QTEST PLATFORM                                 │
@@ -39,6 +39,16 @@ QTest is a distributed system designed for high-throughput test generation. The 
 │  │  Ingestion • Modeling • Generation • Mutation • Integration Workers    │ │
 │  └───────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │                     LLM ROUTER SERVICE (Internal)                       ││
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                     ││
+│  │  │   Ollama    │  │  Anthropic  │  │   OpenAI    │  ← Pluggable        ││
+│  │  │   (Local)   │  │   (Cloud)   │  │   (Cloud)   │    Providers        ││
+│  │  │  DEFAULT    │  │  Optional   │  │  Optional   │                     ││
+│  │  └─────────────┘  └─────────────┘  └─────────────┘                     ││
+│  │  Task Routing • Tier Selection • Budget Management • Caching            ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
 │  ┌─────────────────────────────┐  ┌─────────────────────────────┐         │
 │  │      PostgreSQL             │  │         Redis               │         │
 │  │  System Models • Results    │  │  Queue • Cache • Sessions   │         │
@@ -46,6 +56,15 @@ QTest is a distributed system designed for high-throughput test generation. The 
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Key Architecture Decision: LLM Router is Internal**
+
+The LLM Router Service is an **internal component** (not external) that:
+- Defaults to **Ollama** for local GPU inference (4080, etc.)
+- Can be configured to use Claude/OpenAI APIs when needed
+- Routes requests based on task type (`unit_test`, `api_test`, `critic`, etc.)
+- Manages tiered model selection (cheap vs expensive)
+- Handles caching, budget enforcement, and fallbacks
 
 ## Core Components
 
@@ -194,7 +213,7 @@ Decides what to test and how based on risk analysis.
 
 ### 4. Test Generator
 
-Converts test targets into Test DSL using LLM.
+Converts test targets into Test DSL using the LLM Router Service.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -213,17 +232,24 @@ Converts test targets into Test DSL using LLM.
 │                             │                                    │
 │                             ▼                                    │
 │  ┌────────────────────────────────────────────────────────────┐│
-│  │                  LLM ORCHESTRATOR                           ││
+│  │              LLM ROUTER SERVICE (POST /llm/generate)        ││
+│  │                                                             ││
+│  │  Request:                                                   ││
+│  │  • task_type: unit_test | api_test | e2e_flow | critic      ││
+│  │  • model_tier: TIER1 | TIER2 | TIER3 | AUTO                 ││
+│  │  • context: { function_meta, branches, ... }                ││
 │  │                                                             ││
 │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        ││
 │  │  │   Tier 1    │  │   Tier 2    │  │   Tier 3    │        ││
-│  │  │   (Haiku)   │  │  (Sonnet)   │  │   (Opus)    │        ││
+│  │  │  Qwen 7B    │  │  Qwen 32B   │  │ DeepSeek 70B│        ││
+│  │  │  (Ollama)   │  │  (Ollama)   │  │ (Ollama)    │        ││
 │  │  │             │  │             │  │             │        ││
 │  │  │ Boilerplate │  │ Test logic  │  │ Critic pass │        ││
-│  │  │ DSL shells  │  │ Assertions  │  │ Complex     │        ││
+│  │  │ Summaries   │  │ Assertions  │  │ Complex     │        ││
 │  │  └─────────────┘  └─────────────┘  └─────────────┘        ││
 │  │                                                             ││
-│  │  Budget Manager: per-repo limits, fallbacks, caching        ││
+│  │  Fallback: Claude/OpenAI APIs if local unavailable          ││
+│  │  Budget Manager: per-repo limits, caching, tier routing     ││
 │  └────────────────────────────────────────────────────────────┘│
 │                             │                                    │
 │                             ▼                                    │
@@ -234,9 +260,40 @@ Converts test targets into Test DSL using LLM.
 │  │  • id, type, level, description                             ││
 │  │  • target (endpoint/function/flow)                          ││
 │  │  • setup, input, expect                                     ││
-│  │  • lifecycle, isolation                                     ││
+│  │  • lifecycle, isolation, resources                          ││
 │  └────────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────┘
+```
+
+**LLM Router Service API:**
+
+```
+POST /llm/generate
+Content-Type: application/json
+
+{
+  "task_type": "unit_test",
+  "model_tier": "auto",
+  "context": {
+    "function_code": "...",
+    "function_meta": { ... },
+    "target_branches": [ ... ]
+  },
+  "max_tokens": 2000,
+  "temperature": 0.3
+}
+
+Response:
+{
+  "content": "...(generated test DSL)...",
+  "provider": "ollama",
+  "model": "qwen2.5:32b",
+  "tier": "tier2",
+  "input_tokens": 1500,
+  "output_tokens": 800,
+  "latency_ms": 2340,
+  "cached": false
+}
 ```
 
 ### 5. Framework Adapters
