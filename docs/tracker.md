@@ -71,16 +71,18 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-038 | Build unified AST adapter | 🟢 | P0 | P1-033-037 | ParsedFile, Function, Class types |
 | P1-039 | Write parser unit tests | 🔴 | P1 | P1-033-038 | No tests |
 
-### 1.5 Endpoint Detection (Express/TS)
+### 1.5 Endpoint Detection (Framework Supplements)
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-040 | Implement Express route detector | 🔴 | P0 | P1-033 | **NOT STARTED** - Critical gap |
-| P1-041 | Implement Fastify route detector | 🔴 | P1 | P1-033 | |
-| P1-042 | Implement NestJS route detector | 🔴 | P1 | P1-034 | Decorators @Get, @Post |
-| P1-043 | Extract route parameters | 🔴 | P0 | P1-040 | Path params, query params |
-| P1-044 | Extract request body schema | 🔴 | P1 | P1-040 | TypeScript types |
-| P1-045 | Extract middleware chain | 🔴 | P1 | P1-040 | Auth, validation |
+| P1-040 | Implement Express route detector | 🟢 | P0 | P1-033 | supplements/express.go |
+| P1-041 | Implement FastAPI route detector | 🟢 | P1 | P1-033 | supplements/fastapi.go |
+| P1-042 | Implement Gin route detector | 🟢 | P1 | P1-034 | supplements/gin.go |
+| P1-042a | Implement Spring Boot detector | 🟢 | P1 | P1-034 | supplements/springboot.go |
+| P1-042b | Implement Django REST detector | 🟢 | P1 | P1-034 | supplements/django.go |
+| P1-043 | Extract route parameters | 🟢 | P0 | P1-040 | Path params in all supplements |
+| P1-044 | Extract request body schema | 🟡 | P1 | P1-040 | Basic support |
+| P1-045 | Extract middleware chain | 🔴 | P1 | P1-040 | Not implemented |
 | P1-046 | Write endpoint detection tests | 🔴 | P1 | P1-040-045 | |
 
 ### 1.6 System Model Builder
@@ -99,12 +101,12 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-060 | Define TestPlan Go struct | 🔴 | P0 | - | **NOT STARTED** - Critical gap |
-| P1-061 | Implement target classifier | 🔴 | P0 | P1-050 | Function → unit, endpoint → API |
-| P1-062 | Implement priority ranker | 🔴 | P0 | P1-054 | Based on risk score |
-| P1-063 | Implement pyramid distributor | 🔴 | P0 | P1-061 | Balance unit/integration/API |
-| P1-064 | Generate test case suggestions | 🔴 | P1 | P1-061 | Happy path, edge cases |
-| P1-065 | Calculate token estimates | 🔴 | P1 | P1-064 | For budget management |
+| P1-060 | Define TestPlan Go struct | 🟢 | P0 | - | pkg/model/intent.go - TestPlan, TestIntent |
+| P1-061 | Implement target classifier | 🟢 | P0 | P1-050 | pkg/model/planner.go - classifyFunction |
+| P1-062 | Implement priority ranker | 🟢 | P0 | P1-054 | pkg/model/planner.go - priorityScore |
+| P1-063 | Implement pyramid distributor | 🟢 | P0 | P1-061 | pkg/model/planner.go - balance levels |
+| P1-064 | Generate test case suggestions | 🟢 | P1 | P1-061 | TestIntent with Reason |
+| P1-065 | Calculate token estimates | 🔴 | P1 | P1-064 | Not implemented |
 | P1-066 | Write test planner tests | 🔴 | P1 | P1-061-065 | |
 
 ### 1.8 LLM Integration
@@ -125,26 +127,29 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-080 | Define TestDSL Go struct | 🟢 | P0 | - | pkg/dsl/types.go (147 lines) |
+| P1-080 | Define TestDSL Go struct | 🟢 | P0 | - | pkg/dsl/types.go + pkg/model/spec.go |
 | P1-081 | Implement context builder | 🟢 | P0 | P1-050 | generator/generator.go buildContext |
 | P1-082 | Design generation prompts | 🟢 | P0 | - | internal/llm/prompts.go |
 | P1-083 | Implement unit test DSL generator | 🟢 | P0 | P1-081, P1-082 | generator.go + converter.go |
-| P1-084 | Implement API test DSL generator | 🔴 | P0 | P1-081, P1-082 | Unit only, API missing |
-| P1-085 | Implement DSL validator | 🟡 | P0 | P1-080 | Basic validation in converter |
-| P1-086 | Implement batch generation | 🔴 | P1 | P1-083 | Sequential only |
+| P1-084 | Implement API test DSL generator | 🟢 | P0 | P1-081, P1-082 | specgen/ + emitter/ |
+| P1-085 | Implement DSL validator | 🟢 | P0 | P1-080 | internal/validator/ |
+| P1-086 | Implement batch generation | 🟡 | P1 | P1-083 | workspace/runner_v2.go |
 | P1-087 | Write DSL generator tests | 🔴 | P1 | P1-083-086 | No tests |
 
-### 1.10 Framework Adapters
+### 1.10 Framework Adapters & Emitters
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
 | P1-090 | Define Adapter interface | 🟢 | P0 | - | internal/adapters/adapter.go |
-| P1-091 | Implement Jest adapter | 🟡 | P0 | P1-090 | jest_adapter.go - basic |
-| P1-092 | Implement Supertest adapter | 🔴 | P0 | P1-090 | Not implemented |
+| P1-091 | Implement Jest adapter | 🟢 | P0 | P1-090 | jest_adapter.go |
+| P1-091a | Implement Supertest emitter | 🟢 | P0 | P1-090 | emitter/supertest.go |
+| P1-091b | Implement Pytest emitter | 🟢 | P0 | P1-090 | emitter/pytest.go |
+| P1-091c | Implement Go-HTTP emitter | 🟢 | P0 | P1-090 | emitter/go_http.go |
+| P1-092 | Implement Go test adapter | 🟢 | P0 | P1-090 | go_adapter.go |
 | P1-093 | Design adapter templates | 🟢 | P0 | P1-091 | Go templates in adapters |
 | P1-094 | Handle imports generation | 🟢 | P0 | P1-091 | Auto imports in templates |
 | P1-095 | Handle mock generation | 🔴 | P1 | P1-091 | Not implemented |
-| P1-096 | Write adapter unit tests | 🔴 | P1 | P1-091-095 | No tests |
+| P1-096 | Write adapter unit tests | 🟡 | P1 | P1-091-095 | Basic tests exist |
 
 ### 1.11 Quality Gates (Basic)
 
@@ -352,12 +357,42 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P3-050 | Implement coverage collector | 🔴 | P0 | - | Parse Jest coverage |
+| P3-050 | Implement coverage collector | 🟢 | P0 | - | codecov/collector.go - Go, Python, JS |
+| P3-050a | Implement coverage analyzer | 🟢 | P0 | P3-050 | codecov/analyzer.go - gap detection |
+| P3-050b | Implement coverage-guided gen | 🟢 | P0 | P3-050a | workspace/coverage_runner.go |
 | P3-051 | Store coverage snapshots | 🔴 | P0 | P3-050 | In database |
-| P3-052 | Calculate coverage delta | 🔴 | P0 | P3-051 | Before/after |
+| P3-052 | Calculate coverage delta | 🟢 | P0 | P3-051 | Before/after in runner |
 | P3-053 | Implement mutation score reporter | 🔴 | P0 | P3-002 | |
 | P3-054 | Generate markdown reports | 🔴 | P1 | P3-050-053 | For PR comments |
 | P3-055 | Write reporting tests | 🔴 | P1 | P3-050-054 | |
+
+### 3.7 Contract Testing (NEW)
+
+| ID | Task | Status | Priority | Dependencies | Notes |
+|----|------|--------|----------|--------------|-------|
+| P3-060 | Define Contract types | 🟢 | P0 | - | contract/contract.go |
+| P3-061 | Implement contract generator | 🟢 | P0 | P3-060 | From SystemModel endpoints |
+| P3-062 | Implement contract validator | 🟢 | P0 | P3-060 | Validate API responses |
+| P3-063 | Generate contract tests | 🟢 | P0 | P3-061 | Jest, pytest, Go tests |
+| P3-064 | CLI commands for contracts | 🟢 | P0 | P3-060 | contract generate/validate |
+
+### 3.8 Test Data Generation (NEW)
+
+| ID | Task | Status | Priority | Dependencies | Notes |
+|----|------|--------|----------|--------------|-------|
+| P3-070 | Implement field-aware generator | 🟢 | P0 | - | datagen/generator.go |
+| P3-071 | Implement schema-based generator | 🟢 | P0 | P3-070 | datagen/schema.go |
+| P3-072 | Generate edge case data | 🟢 | P0 | P3-071 | Valid, invalid, boundary |
+| P3-073 | CLI commands for datagen | 🟢 | P0 | P3-070 | datagen generate |
+
+### 3.9 Test Validation (NEW)
+
+| ID | Task | Status | Priority | Dependencies | Notes |
+|----|------|--------|----------|--------------|-------|
+| P3-080 | Implement test runner | 🟢 | P0 | - | validator/validator.go |
+| P3-081 | Parse test errors | 🟢 | P0 | P3-080 | Jest, pytest, go test |
+| P3-082 | LLM-powered auto-fix | 🟢 | P0 | P3-081 | validator/fixer.go |
+| P3-083 | CLI validate command | 🟢 | P0 | P3-080 | validate run/fix |
 
 ---
 
@@ -432,11 +467,11 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | Phase | 🟢 Completed | 🟡 In Progress | 🔴 Not Started | % Done |
 |-------|-------------|----------------|----------------|--------|
-| Phase 1 | 48 | 12 | 38 | **49%** |
+| Phase 1 | 62 | 8 | 33 | **60%** |
 | Phase 2 | 0 | 0 | 35 | 0% |
-| Phase 3 | 0 | 0 | 35 | 0% |
+| Phase 3 | 21 | 0 | 24 | **47%** |
 | Phase 4 | 0 | 0 | 35 | 0% |
-| **Total** | **48** | **12** | **143** | **24%** |
+| **Total** | **83** | **8** | **127** | **38%** |
 
 ### Critical Path (Must Complete for MVP)
 
@@ -454,6 +489,7 @@ P1-130 → P1-133 → MVP Complete
 |------|---------|
 | Initial | Created tracker with 203 tasks |
 | 2025-11-21 | **Major audit**: Updated all Phase 1 tasks to reflect actual implementation. 49% of Phase 1 complete. |
+| 2025-11-21 | **Feature update**: Added Contract Testing (3.7), Test Data Gen (3.8), Validation (3.9). Updated supplements (Express, FastAPI, Gin, Spring Boot, Django). Added coverage-guided generation. Overall 38% complete. |
 
 ---
 
@@ -464,11 +500,11 @@ These P0 tasks block MVP completion:
 | ID | Task | Category | Blocking |
 |----|------|----------|----------|
 | P1-020 | GitHub OAuth flow | Ingestion | Private repo support |
-| P1-040-046 | Endpoint Detection | Parsing | API test generation |
-| P1-060-066 | Test Planner | Planning | Priority-based generation |
+| ~~P1-040-046~~ | ~~Endpoint Detection~~ | ~~Parsing~~ | ✅ Done - 5 frameworks |
+| ~~P1-060-066~~ | ~~Test Planner~~ | ~~Planning~~ | ✅ Done |
 | P1-074-076 | LLM Cache/Budget | LLM | Cost control |
-| P1-084 | API test DSL generator | Generator | API tests |
-| P1-092 | Supertest adapter | Adapters | API test output |
+| ~~P1-084~~ | ~~API test DSL generator~~ | ~~Generator~~ | ✅ Done |
+| ~~P1-092~~ | ~~Supertest adapter~~ | ~~Adapters~~ | ✅ Done - 3 emitters |
 | P1-110-114 | GitHub Integration | Integration | PR creation |
 | P1-131-137 | Worker Implementation | Workers | Async processing |
 | P1-144 | Auth middleware | API | Security |
