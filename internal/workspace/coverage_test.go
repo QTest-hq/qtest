@@ -1,0 +1,268 @@
+package workspace
+
+import (
+	"testing"
+)
+
+func TestNewCoverageCollector(t *testing.T) {
+	ws := &Workspace{
+		path:     "/tmp/test-workspace",
+		Language: "go",
+	}
+
+	collector := NewCoverageCollector(ws)
+
+	if collector == nil {
+		t.Fatal("NewCoverageCollector() returned nil")
+	}
+	if collector.ws != ws {
+		t.Error("ws reference mismatch")
+	}
+	if collector.artifacts == nil {
+		t.Error("artifacts should not be nil")
+	}
+}
+
+func TestCoverageSummaryLine(t *testing.T) {
+	report := &CoverageReport{
+		Summary: CoverageSummary{
+			CoveragePercent: 85.5,
+			CoveredLines:    855,
+			TotalLines:      1000,
+		},
+	}
+
+	line := CoverageSummaryLine(report)
+
+	expected := "Coverage: 85.5% (855/1000 lines)"
+	if line != expected {
+		t.Errorf("CoverageSummaryLine() = %s, want %s", line, expected)
+	}
+}
+
+func TestCoverageSummaryLine_ZeroCoverage(t *testing.T) {
+	report := &CoverageReport{
+		Summary: CoverageSummary{
+			CoveragePercent: 0,
+			CoveredLines:    0,
+			TotalLines:      100,
+		},
+	}
+
+	line := CoverageSummaryLine(report)
+
+	expected := "Coverage: 0.0% (0/100 lines)"
+	if line != expected {
+		t.Errorf("CoverageSummaryLine() = %s, want %s", line, expected)
+	}
+}
+
+func TestCoverageSummaryLine_FullCoverage(t *testing.T) {
+	report := &CoverageReport{
+		Summary: CoverageSummary{
+			CoveragePercent: 100.0,
+			CoveredLines:    500,
+			TotalLines:      500,
+		},
+	}
+
+	line := CoverageSummaryLine(report)
+
+	expected := "Coverage: 100.0% (500/500 lines)"
+	if line != expected {
+		t.Errorf("CoverageSummaryLine() = %s, want %s", line, expected)
+	}
+}
+
+func TestCoverageSummary_Fields(t *testing.T) {
+	summary := CoverageSummary{
+		TotalLines:      1000,
+		CoveredLines:    800,
+		CoveragePercent: 80.0,
+		ByPackage: map[string]float64{
+			"main":  85.0,
+			"utils": 75.0,
+		},
+	}
+
+	if summary.TotalLines != 1000 {
+		t.Errorf("TotalLines = %d, want 1000", summary.TotalLines)
+	}
+	if summary.CoveredLines != 800 {
+		t.Errorf("CoveredLines = %d, want 800", summary.CoveredLines)
+	}
+	if summary.CoveragePercent != 80.0 {
+		t.Errorf("CoveragePercent = %f, want 80.0", summary.CoveragePercent)
+	}
+	if len(summary.ByPackage) != 2 {
+		t.Errorf("len(ByPackage) = %d, want 2", len(summary.ByPackage))
+	}
+	if summary.ByPackage["main"] != 85.0 {
+		t.Errorf("ByPackage[main] = %f, want 85.0", summary.ByPackage["main"])
+	}
+}
+
+func TestCoverageSummary_Defaults(t *testing.T) {
+	summary := CoverageSummary{}
+
+	if summary.TotalLines != 0 {
+		t.Errorf("default TotalLines = %d, want 0", summary.TotalLines)
+	}
+	if summary.CoveredLines != 0 {
+		t.Errorf("default CoveredLines = %d, want 0", summary.CoveredLines)
+	}
+	if summary.CoveragePercent != 0 {
+		t.Errorf("default CoveragePercent = %f, want 0", summary.CoveragePercent)
+	}
+	if summary.ByPackage != nil {
+		t.Error("default ByPackage should be nil")
+	}
+}
+
+func TestFileCoverage_Defaults(t *testing.T) {
+	fc := FileCoverage{}
+
+	if fc.Path != "" {
+		t.Errorf("default Path = %s, want empty", fc.Path)
+	}
+	if fc.TotalLines != 0 {
+		t.Errorf("default TotalLines = %d, want 0", fc.TotalLines)
+	}
+	if fc.CoveredLines != 0 {
+		t.Errorf("default CoveredLines = %d, want 0", fc.CoveredLines)
+	}
+	if fc.CoveragePercent != 0 {
+		t.Errorf("default CoveragePercent = %f, want 0", fc.CoveragePercent)
+	}
+	if fc.UncoveredLines != nil {
+		t.Error("default UncoveredLines should be nil")
+	}
+}
+
+func TestMutationSummary_Fields(t *testing.T) {
+	summary := MutationSummary{
+		TotalMutants:  100,
+		Killed:        85,
+		Survived:      10,
+		Timeout:       5,
+		MutationScore: 85.0,
+	}
+
+	if summary.TotalMutants != 100 {
+		t.Errorf("TotalMutants = %d, want 100", summary.TotalMutants)
+	}
+	if summary.Killed != 85 {
+		t.Errorf("Killed = %d, want 85", summary.Killed)
+	}
+	if summary.Survived != 10 {
+		t.Errorf("Survived = %d, want 10", summary.Survived)
+	}
+	if summary.Timeout != 5 {
+		t.Errorf("Timeout = %d, want 5", summary.Timeout)
+	}
+	if summary.MutationScore != 85.0 {
+		t.Errorf("MutationScore = %f, want 85.0", summary.MutationScore)
+	}
+}
+
+func TestTestMutations_Fields(t *testing.T) {
+	tm := TestMutations{
+		TestID:        "test-1",
+		MutantsTested: 50,
+		Killed:        45,
+		Score:         90.0,
+	}
+
+	if tm.TestID != "test-1" {
+		t.Errorf("TestID = %s, want test-1", tm.TestID)
+	}
+	if tm.MutantsTested != 50 {
+		t.Errorf("MutantsTested = %d, want 50", tm.MutantsTested)
+	}
+	if tm.Killed != 45 {
+		t.Errorf("Killed = %d, want 45", tm.Killed)
+	}
+	if tm.Score != 90.0 {
+		t.Errorf("Score = %f, want 90.0", tm.Score)
+	}
+}
+
+func TestSurvivedMutant_Fields(t *testing.T) {
+	mutant := SurvivedMutant{
+		ID:                  "mut-1",
+		Operator:            "MATH",
+		Location:            "main.go:10",
+		Original:            "+",
+		Mutated:             "-",
+		TestThatShouldCatch: "TestAdd",
+	}
+
+	if mutant.ID != "mut-1" {
+		t.Errorf("ID = %s, want mut-1", mutant.ID)
+	}
+	if mutant.Operator != "MATH" {
+		t.Errorf("Operator = %s, want MATH", mutant.Operator)
+	}
+	if mutant.Original != "+" {
+		t.Errorf("Original = %s, want +", mutant.Original)
+	}
+	if mutant.Mutated != "-" {
+		t.Errorf("Mutated = %s, want -", mutant.Mutated)
+	}
+	if mutant.TestThatShouldCatch != "TestAdd" {
+		t.Errorf("TestThatShouldCatch = %s, want TestAdd", mutant.TestThatShouldCatch)
+	}
+}
+
+func TestExecutionSummary_Fields(t *testing.T) {
+	summary := ExecutionSummary{
+		Total:    100,
+		Passed:   90,
+		Failed:   8,
+		Skipped:  2,
+		PassRate: 90.0,
+	}
+
+	if summary.Total != 100 {
+		t.Errorf("Total = %d, want 100", summary.Total)
+	}
+	if summary.Passed != 90 {
+		t.Errorf("Passed = %d, want 90", summary.Passed)
+	}
+	if summary.Failed != 8 {
+		t.Errorf("Failed = %d, want 8", summary.Failed)
+	}
+	if summary.Skipped != 2 {
+		t.Errorf("Skipped = %d, want 2", summary.Skipped)
+	}
+	if summary.PassRate != 90.0 {
+		t.Errorf("PassRate = %f, want 90.0", summary.PassRate)
+	}
+}
+
+func TestGenerationResults_Fields(t *testing.T) {
+	results := GenerationResults{
+		TotalTargets: 100,
+		Completed:    90,
+		Failed:       5,
+		Skipped:      5,
+		TestsWritten: 85,
+		Commits:      10,
+	}
+
+	if results.TotalTargets != 100 {
+		t.Errorf("TotalTargets = %d, want 100", results.TotalTargets)
+	}
+	if results.Completed != 90 {
+		t.Errorf("Completed = %d, want 90", results.Completed)
+	}
+	if results.Failed != 5 {
+		t.Errorf("Failed = %d, want 5", results.Failed)
+	}
+	if results.TestsWritten != 85 {
+		t.Errorf("TestsWritten = %d, want 85", results.TestsWritten)
+	}
+	if results.Commits != 10 {
+		t.Errorf("Commits = %d, want 10", results.Commits)
+	}
+}
