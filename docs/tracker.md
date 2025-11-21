@@ -285,9 +285,10 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P2-040 | Design E2E DSL extensions | 🔴 | P0 | - | Steps, selectors |
 | P2-041 | Implement E2E test DSL generator | 🔴 | P0 | P2-020, P2-040 | Flow → DSL |
 | P2-042 | Design E2E generation prompts | 🔴 | P0 | - | LLM prompts |
-| P2-043 | Implement Playwright adapter | 🔴 | P0 | P1-090 | DSL → Playwright code |
-| P2-044 | Handle selector generation | 🔴 | P0 | P2-005 | Prefer test-id, fallback |
-| P2-045 | Implement wait strategies | 🔴 | P1 | P2-043 | Auto-wait, explicit waits |
+| P2-043 | Implement Playwright emitter | 🟢 | P0 | P1-090 | emitter/playwright.go - DSL → Playwright TS |
+| P2-043a | Implement Cypress emitter | 🟢 | P0 | P1-090 | emitter/cypress.go - DSL → Cypress JS |
+| P2-044 | Handle selector generation | 🟡 | P0 | P2-005 | Basic support in emitters (@testid, $data-cy) |
+| P2-045 | Implement wait strategies | 🟡 | P1 | P2-043 | Basic wait support in emitters |
 | P2-046 | Write E2E generation tests | 🔴 | P1 | P2-041-045 | |
 
 ### 2.6 E2E Validation
@@ -472,10 +473,10 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | Phase | 🟢 Completed | 🟡 In Progress | 🔴 Not Started | % Done |
 |-------|-------------|----------------|----------------|--------|
 | Phase 1 | 71 | 7 | 30 | **66%** |
-| Phase 2 | 0 | 0 | 35 | 0% |
+| Phase 2 | 2 | 2 | 32 | **6%** |
 | Phase 3 | 21 | 0 | 24 | **47%** |
 | Phase 4 | 0 | 0 | 35 | 0% |
-| **Total** | **92** | **7** | **124** | **41%** |
+| **Total** | **94** | **9** | **121** | **42%** |
 
 ### Critical Path (Must Complete for MVP)
 
@@ -495,6 +496,7 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-21 | **Major audit**: Updated all Phase 1 tasks to reflect actual implementation. 49% of Phase 1 complete. |
 | 2025-11-21 | **Feature update**: Added Contract Testing (3.7), Test Data Gen (3.8), Validation (3.9). Updated supplements (Express, FastAPI, Gin, Spring Boot, Django). Added coverage-guided generation. Overall 38% complete. |
 | 2025-11-21 | **Session 2 update**: Added LLM caching (cache.go), GitHub PR integration (pr.go, workspace runner), JUnit emitter, RSpec emitter, NestJS supplement. Phase 1 now 66% complete. Overall 41% complete. |
+| 2025-11-21 | **E2E emitters**: Added Playwright emitter (playwright.go) and Cypress emitter (cypress.go) for UI/E2E test generation. Phase 2 started at 6%. Overall 42% complete. |
 
 ---
 

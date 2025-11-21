@@ -46,6 +46,10 @@ func NewRegistry() *Registry {
 	r.Register(&JUnitEmitter{})
 	r.Register(&RSpecEmitter{})
 
+	// E2E test emitters
+	r.Register(&PlaywrightEmitter{})
+	r.Register(&CypressEmitter{})
+
 	return r
 }
 
