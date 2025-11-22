@@ -196,13 +196,13 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-130 | Set up NATS JetStream | 🟢 | P0 | - | docker-compose + config |
 | P1-131 | Define job schemas | 🟢 | P0 | - | internal/jobs/types.go - 6 job types with payloads |
 | P1-132 | Implement base worker | 🟢 | P0 | P1-130 | worker/pool.go + worker/workers.go |
-| P1-133 | Implement ingestion worker | 🟡 | P0 | P1-132, P1-021 | Stub - needs full implementation |
-| P1-134 | Implement modeling worker | 🟡 | P0 | P1-132, P1-051 | Stub - needs full implementation |
-| P1-135 | Implement planning worker | 🟡 | P0 | P1-132, P1-061 | Stub - needs full implementation |
-| P1-136 | Implement generation worker | 🟢 | P0 | P1-132, P1-083 | worker/generation.go - fully implemented |
-| P1-137 | Implement integration worker | 🟡 | P0 | P1-132, P1-114 | Stub - needs full implementation |
+| P1-133 | Implement ingestion worker | 🟢 | P0 | P1-132, P1-021 | worker/workers.go - git clone, language detection, chains to modeling |
+| P1-134 | Implement modeling worker | 🟢 | P0 | P1-132, P1-051 | worker/workers.go - parses files, builds model, persists to DB |
+| P1-135 | Implement planning worker | 🟢 | P0 | P1-132, P1-061 | worker/workers.go - calculates test distribution, chains to generation |
+| P1-136 | Implement generation worker | 🟢 | P0 | P1-132, P1-083 | worker/workers.go - LLM test generation, writes files |
+| P1-137 | Implement integration worker | 🟢 | P0 | P1-132, P1-114 | worker/workers.go - validates tests, creates branch, commits |
 | P1-138 | Add job retry logic | 🟢 | P1 | P1-132 | jobs/repository.go - retry with backoff |
-| P1-139 | Write worker tests | 🟢 | P1 | P1-133-138 | tests/integration/worker_test.go |
+| P1-139 | Write worker tests | 🟢 | P1 | P1-133-138 | tests/integration/worker_test.go + internal/worker/*_test.go |
 
 ### 1.15 API Server
 
@@ -472,11 +472,11 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | Phase | 🟢 Completed | 🟡 In Progress | 🔴 Not Started | % Done |
 |-------|-------------|----------------|----------------|--------|
-| Phase 1 | 79 | 8 | 21 | **73%** |
+| Phase 1 | 83 | 4 | 21 | **77%** |
 | Phase 2 | 2 | 2 | 32 | **6%** |
 | Phase 3 | 21 | 0 | 24 | **47%** |
 | Phase 4 | 0 | 0 | 35 | 0% |
-| **Total** | **102** | **10** | **112** | **46%** |
+| **Total** | **106** | **6** | **112** | **48%** |
 
 ### Critical Path (Must Complete for MVP)
 
@@ -498,6 +498,7 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-21 | **Session 2 update**: Added LLM caching (cache.go), GitHub PR integration (pr.go, workspace runner), JUnit emitter, RSpec emitter, NestJS supplement. Phase 1 now 66% complete. Overall 41% complete. |
 | 2025-11-21 | **E2E emitters**: Added Playwright emitter (playwright.go) and Cypress emitter (cypress.go) for UI/E2E test generation. Phase 2 started at 6%. Overall 42% complete. |
 | 2025-11-22 | **Session 3 update**: Added GitHub OAuth (auth/github.go, session.go, handlers.go with 27 tests), LLM usage tracking (usage.go with budget limits, rate limiting, cost estimation), worker system wiring (cmd/worker/main.go), worker integration tests. Phase 1 now 73% complete. Overall 46% complete. |
+| 2025-11-22 | **Worker audit**: Discovered ALL 6 workers (Ingestion, Modeling, Planning, Generation, Mutation, Integration) are fully implemented in workers.go. Updated tracker - Phase 1 now 77% complete. Overall 48% complete. |
 
 ---
 
@@ -516,7 +517,7 @@ These P0 tasks block MVP completion:
 | ~~P1-091-092~~ | ~~Test emitters~~ | ~~Adapters~~ | ✅ Done - 5 emitters (Supertest, Pytest, Go-HTTP, JUnit, RSpec) |
 | ~~P1-112-114~~ | ~~GitHub PR Integration~~ | ~~Integration~~ | ✅ Done - Branch, Commit, PR creation |
 | P1-110 | GitHub App auth | Integration | Full OAuth flow (token auth works) |
-| P1-133-135,137 | Worker Stubs | Workers | Ingestion, Modeling, Planning, Integration workers |
+| ~~P1-133-137~~ | ~~Worker Implementation~~ | ~~Workers~~ | ✅ Done - All 6 workers fully implemented |
 | ~~P1-144~~ | ~~Auth middleware~~ | ~~API~~ | ✅ Done - needs API wiring |
 | **NEW** | Wire auth to API | API | Connect auth middleware to server |
 
