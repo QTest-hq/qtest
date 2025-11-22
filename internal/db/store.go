@@ -212,8 +212,13 @@ func (s *Store) GetSystemModel(ctx context.Context, id uuid.UUID) (*SystemModel,
 
 // CreateGenerationRun creates a new generation run
 func (s *Store) CreateGenerationRun(ctx context.Context, run *GenerationRun) error {
-	run.ID = uuid.New()
-	run.Status = "pending"
+	// Only generate a new UUID if one isn't already set
+	if run.ID == uuid.Nil {
+		run.ID = uuid.New()
+	}
+	if run.Status == "" {
+		run.Status = "pending"
+	}
 	run.CreatedAt = time.Now()
 
 	if run.Config == nil {

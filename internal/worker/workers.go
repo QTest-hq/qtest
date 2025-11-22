@@ -562,6 +562,24 @@ func (w *PlanningWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 		if tier == 0 {
 			tier = 1 // Default to fast tier
 		}
+
+		// Create generation_runs record in database (required for foreign key constraint)
+		if w.store != nil {
+			genRun := &db.GenerationRun{
+				ID:           runID,
+				RepositoryID: payload.RepositoryID,
+				Status:       "pending",
+				Config:       []byte(`{}`),
+			}
+			if err := w.store.CreateGenerationRun(ctx, genRun); err != nil {
+				log.Warn().Err(err).Msg("failed to create generation run record")
+			} else {
+				log.Info().Str("run_id", runID.String()).Msg("created generation run record")
+			}
+		} else {
+			log.Warn().Msg("planning worker has no store, cannot create generation run record")
+		}
+
 		opts := jobs.GenerationJobOptions{
 			MaxTests:    payload.MaxTests,
 			LLMTier:     tier,
