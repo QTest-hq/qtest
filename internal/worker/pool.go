@@ -22,6 +22,7 @@ const (
 	WorkerModeling    WorkerType = "modeling"
 	WorkerPlanning    WorkerType = "planning"
 	WorkerGeneration  WorkerType = "generation"
+	WorkerValidation  WorkerType = "validation"
 	WorkerMutation    WorkerType = "mutation"
 	WorkerIntegration WorkerType = "integration"
 	WorkerAll         WorkerType = "all"
@@ -89,6 +90,7 @@ func (p *Pool) initWorkers() error {
 		p.addWorker(jobs.JobTypeModeling)
 		p.addWorker(jobs.JobTypePlanning)
 		p.addWorker(jobs.JobTypeGeneration)
+		p.addWorker(jobs.JobTypeValidation)
 		p.addWorker(jobs.JobTypeMutation)
 		p.addWorker(jobs.JobTypeIntegration)
 	case WorkerIngestion:
@@ -99,6 +101,8 @@ func (p *Pool) initWorkers() error {
 		p.addWorker(jobs.JobTypePlanning)
 	case WorkerGeneration:
 		p.addWorker(jobs.JobTypeGeneration)
+	case WorkerValidation:
+		p.addWorker(jobs.JobTypeValidation)
 	case WorkerMutation:
 		p.addWorker(jobs.JobTypeMutation)
 	case WorkerIntegration:
@@ -131,6 +135,8 @@ func (p *Pool) addWorker(jobType jobs.JobType) {
 		worker = NewPlanningWorker(base, p.store)
 	case jobs.JobTypeGeneration:
 		worker = NewGenerationWorker(base, p.cfg, p.store, p.llmRouter)
+	case jobs.JobTypeValidation:
+		worker = NewValidationWorker(base, p.store, p.llmRouter)
 	case jobs.JobTypeMutation:
 		worker = NewMutationWorker(base, p.store, p.cfg)
 	case jobs.JobTypeIntegration:

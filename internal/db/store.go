@@ -292,6 +292,52 @@ func (s *Store) CreateGeneratedTest(ctx context.Context, test *GeneratedTest) er
 }
 
 // ListTestsByRun lists all tests for a run
+// ListTests returns all tests with optional filtering
+func (s *Store) ListTests(ctx context.Context, runID *uuid.UUID, status string, limit int) ([]GeneratedTest, error) {
+	query := `
+		SELECT id, run_id, name, type, target_file, target_function, dsl, generated_code,
+		       framework, status, rejection_reason, mutation_score, metadata, created_at, updated_at
+		FROM generated_tests
+		WHERE 1=1`
+	args := make([]interface{}, 0)
+	argNum := 1
+
+	if runID != nil {
+		query += fmt.Sprintf(" AND run_id = $%d", argNum)
+		args = append(args, *runID)
+		argNum++
+	}
+	if status != "" {
+		query += fmt.Sprintf(" AND status = $%d", argNum)
+		args = append(args, status)
+		argNum++
+	}
+	query += " ORDER BY created_at DESC"
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d", argNum)
+		args = append(args, limit)
+	}
+
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tests: %w", err)
+	}
+	defer rows.Close()
+
+	tests := make([]GeneratedTest, 0)
+	for rows.Next() {
+		var test GeneratedTest
+		if err := rows.Scan(&test.ID, &test.RunID, &test.Name, &test.Type, &test.TargetFile,
+			&test.TargetFunction, &test.DSL, &test.GeneratedCode, &test.Framework, &test.Status,
+			&test.RejectionReason, &test.MutationScore, &test.Metadata, &test.CreatedAt, &test.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan test: %w", err)
+		}
+		tests = append(tests, test)
+	}
+
+	return tests, nil
+}
+
 func (s *Store) ListTestsByRun(ctx context.Context, runID uuid.UUID) ([]GeneratedTest, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, run_id, name, type, target_file, target_function, dsl, generated_code,

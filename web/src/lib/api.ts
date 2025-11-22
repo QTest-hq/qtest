@@ -66,6 +66,64 @@ export interface HealthStatus {
   nats?: string;
 }
 
+// IRSpec types - Universal Intermediate Representation for tests
+export interface IRVariable {
+  name: string;
+  value: unknown;
+  type: "int" | "float" | "string" | "bool" | "null" | "array" | "object";
+}
+
+export interface IRAction {
+  call: string;
+  args?: string[];
+}
+
+export interface IRAssertion {
+  type: "equals" | "not_equals" | "contains" | "greater_than" | "less_than" | "throws" | "truthy" | "falsy" | "nil" | "not_nil" | "length";
+  actual: string;
+  expected?: unknown;
+  message?: string;
+}
+
+export interface IRTestCase {
+  name: string;
+  description?: string;
+  given: IRVariable[];
+  when: IRAction;
+  then: IRAssertion[];
+  tags?: string[];
+}
+
+export interface IRTestSuite {
+  function_name: string;
+  description?: string;
+  tests: IRTestCase[];
+}
+
+export interface TestMetadata {
+  irspec?: IRTestSuite;
+  test_specs?: unknown;
+  irspec_mode?: boolean;
+}
+
+export interface GeneratedTest {
+  id: string;
+  run_id: string;
+  name: string;
+  type: string;
+  target_file: string;
+  target_function?: string;
+  dsl?: unknown;
+  generated_code?: string;
+  framework?: string;
+  status: string;
+  rejection_reason?: string;
+  mutation_score?: number;
+  metadata?: TestMetadata;
+  created_at: string;
+  updated_at: string;
+}
+
 class ApiClient {
   private baseUrl: string;
   private sessionId?: string;
@@ -229,6 +287,35 @@ class ApiClient {
 
   async getMutationRun(id: string): Promise<MutationRun> {
     return this.request(`/api/v1/mutation/${id}`);
+  }
+
+  // Generated Tests endpoints
+  async getTest(id: string): Promise<GeneratedTest> {
+    return this.request(`/api/v1/tests/${id}`);
+  }
+
+  async listTests(params?: {
+    run_id?: string;
+    status?: string;
+    limit?: number;
+  }): Promise<GeneratedTest[]> {
+    const searchParams = new URLSearchParams();
+    if (params?.run_id) searchParams.set("run_id", params.run_id);
+    if (params?.status) searchParams.set("status", params.status);
+    if (params?.limit) searchParams.set("limit", params.limit.toString());
+    const query = searchParams.toString();
+    return this.request(`/api/v1/tests${query ? `?${query}` : ""}`);
+  }
+
+  async acceptTest(id: string): Promise<void> {
+    await this.request(`/api/v1/tests/${id}/accept`, { method: "PUT" });
+  }
+
+  async rejectTest(id: string, reason?: string): Promise<void> {
+    await this.request(`/api/v1/tests/${id}/reject`, {
+      method: "PUT",
+      body: JSON.stringify({ reason }),
+    });
   }
 }
 

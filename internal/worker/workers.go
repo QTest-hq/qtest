@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -20,6 +21,7 @@ import (
 	"github.com/QTest-hq/qtest/internal/llm"
 	"github.com/QTest-hq/qtest/internal/mutation"
 	"github.com/QTest-hq/qtest/internal/parser"
+	"github.com/QTest-hq/qtest/internal/validator"
 	"github.com/QTest-hq/qtest/pkg/dsl"
 	"github.com/QTest-hq/qtest/pkg/model"
 )
@@ -662,7 +664,9 @@ func (w *GenerationWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 
 	// Generate tests for source files in workspace
 	var testFilePaths []string
+	var testIDs []string
 	var failedIntents []string
+	var language string
 	testsGenerated := 0
 
 	err := filepath.Walk(workspacePath, func(path string, info os.FileInfo, walkErr error) error {
@@ -673,6 +677,18 @@ func (w *GenerationWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 		ext := filepath.Ext(path)
 		if ext != ".go" && ext != ".py" && ext != ".ts" && ext != ".js" {
 			return nil
+		}
+
+		// Detect language from first file
+		if language == "" {
+			switch ext {
+			case ".go":
+				language = "go"
+			case ".py":
+				language = "python"
+			case ".ts", ".js":
+				language = "typescript"
+			}
 		}
 
 		// Skip test files
@@ -708,8 +724,11 @@ func (w *GenerationWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 			testFilePaths = append(testFilePaths, testPath)
 			testsGenerated++
 
-			// Persist to database
-			w.persistGeneratedTest(ctx, payload.GenerationRunID, test, testPath)
+			// Persist to database and collect ID
+			testID := w.persistGeneratedTest(ctx, payload.GenerationRunID, test, testPath)
+			if testID != "" {
+				testIDs = append(testIDs, testID)
+			}
 		}
 
 		return nil
@@ -740,26 +759,34 @@ func (w *GenerationWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 		return fmt.Errorf("failed to complete job: %w", err)
 	}
 
-	// Chain to mutation jobs if requested
-	if w.Pipeline() != nil && payload.RunMutation && len(result.TestFilePaths) > 0 {
-		for _, testPath := range result.TestFilePaths {
-			sourcePath := deriveSourcePath(testPath)
-			if sourcePath == "" {
-				log.Warn().Str("test_path", testPath).Msg("could not derive source path for mutation testing")
-				continue
-			}
-			_, err := w.Pipeline().CreateMutationJob(ctx, job.ID, payload.RepositoryID, payload.GenerationRunID, testPath, sourcePath)
-			if err != nil {
-				log.Warn().Err(err).Str("test_path", testPath).Msg("failed to create mutation job")
-			}
-		}
-	}
-
-	// Chain to integration job if tests were generated
+	// Chain to validation job if tests were generated
+	// Validation will then chain to mutation/integration as needed
 	if w.Pipeline() != nil && len(result.TestFilePaths) > 0 {
-		_, err := w.Pipeline().CreateIntegrationJob(ctx, job.ID, payload.RepositoryID, payload.GenerationRunID, result.TestFilePaths, payload.CreatePR)
+		opts := jobs.ValidationJobOptions{
+			AutoFix:        true, // Enable auto-fix for failing tests
+			MaxFixAttempts: 3,
+			RunMutation:    payload.RunMutation,
+			CreatePR:       payload.CreatePR,
+		}
+		_, err := w.Pipeline().CreateValidationJob(
+			ctx,
+			job.ID,
+			payload.RepositoryID,
+			payload.GenerationRunID,
+			testIDs,
+			result.TestFilePaths,
+			workspacePath,
+			language,
+			opts,
+		)
 		if err != nil {
-			log.Warn().Err(err).Msg("failed to create integration job")
+			log.Warn().Err(err).Msg("failed to create validation job")
+
+			// Fallback: chain directly to integration if validation job creation fails
+			_, err := w.Pipeline().CreateIntegrationJob(ctx, job.ID, payload.RepositoryID, payload.GenerationRunID, result.TestFilePaths, payload.CreatePR)
+			if err != nil {
+				log.Warn().Err(err).Msg("failed to create integration job")
+			}
 		}
 	}
 
@@ -887,16 +914,16 @@ func (w *GenerationWorker) writeTestFile(sourcePath string, test generator.Gener
 	return testPath, nil
 }
 
-// persistGeneratedTest saves the generated test to the database
-func (w *GenerationWorker) persistGeneratedTest(ctx context.Context, runID uuid.UUID, test generator.GeneratedTest, testPath string) {
+// persistGeneratedTest saves the generated test to the database and returns its ID
+func (w *GenerationWorker) persistGeneratedTest(ctx context.Context, runID uuid.UUID, test generator.GeneratedTest, testPath string) string {
 	if w.store == nil {
-		return
+		return ""
 	}
 
 	dslJSON, err := json.Marshal(test.DSL)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to marshal DSL")
-		return
+		return ""
 	}
 
 	framework := detectFramework(testPath)
@@ -927,7 +954,10 @@ func (w *GenerationWorker) persistGeneratedTest(ctx context.Context, runID uuid.
 
 	if err := w.store.CreateGeneratedTest(ctx, dbTest); err != nil {
 		log.Warn().Err(err).Msg("failed to persist generated test")
+		return ""
 	}
+
+	return dbTest.ID.String()
 }
 
 // detectFramework returns the test framework based on file extension
@@ -1089,6 +1119,219 @@ func (w *MutationWorker) updateTestMutationScore(ctx context.Context, payload jo
 			}
 		}
 	}
+}
+
+// ValidationWorker validates generated tests compile and run
+type ValidationWorker struct {
+	*BaseWorker
+	store     *db.Store
+	llmRouter *llm.Router
+}
+
+func NewValidationWorker(base *BaseWorker, store *db.Store, llmRouter *llm.Router) *ValidationWorker {
+	w := &ValidationWorker{BaseWorker: base, store: store, llmRouter: llmRouter}
+	base.handler = w.handleJob
+	return w
+}
+
+func (w *ValidationWorker) Name() string { return "validation" }
+
+func (w *ValidationWorker) handleJob(ctx context.Context, job *jobs.Job) error {
+	var payload jobs.ValidationPayload
+	if err := job.GetPayload(&payload); err != nil {
+		return fmt.Errorf("failed to parse payload: %w", err)
+	}
+
+	log.Info().
+		Str("run_id", payload.GenerationRunID.String()).
+		Int("test_count", len(payload.TestFilePaths)).
+		Bool("auto_fix", payload.AutoFix).
+		Msg("validating generated tests")
+
+	startTime := time.Now()
+	results := make([]jobs.TestValidationRes, 0, len(payload.TestFilePaths))
+	var passedTests, failedTests, fixedTests int
+
+	// Create validator for the language
+	v := validator.NewValidator(payload.WorkspacePath, payload.Language)
+
+	// Process each test file
+	for i, testFile := range payload.TestFilePaths {
+		testID := ""
+		if i < len(payload.TestIDs) {
+			testID = payload.TestIDs[i]
+		}
+
+		testStart := time.Now()
+		log.Debug().Str("file", testFile).Msg("validating test file")
+
+		res := jobs.TestValidationRes{
+			TestID:   testID,
+			TestFile: testFile,
+		}
+
+		// Run the test
+		testResult, err := v.RunTests(ctx, testFile)
+		if err != nil {
+			res.Status = "compile_error"
+			res.ErrorMessage = err.Error()
+			res.ValidationMs = time.Since(testStart).Milliseconds()
+			results = append(results, res)
+			failedTests++
+
+			// Update test status in database
+			w.updateTestStatus(ctx, testID, "compile_error", err.Error())
+			continue
+		}
+
+		res.Output = testResult.Output
+
+		if testResult.Passed {
+			res.Status = "validated"
+			res.ValidationMs = time.Since(testStart).Milliseconds()
+			results = append(results, res)
+			passedTests++
+
+			// Update test status in database
+			w.updateTestStatus(ctx, testID, "validated", "")
+			continue
+		}
+
+		// Test failed - try auto-fix if enabled
+		res.Status = "test_failure"
+		res.ErrorMessage = v.FormatErrorsForLLM(testResult)
+
+		if payload.AutoFix && w.llmRouter != nil {
+			maxAttempts := payload.MaxFixAttempts
+			if maxAttempts == 0 {
+				maxAttempts = 3
+			}
+
+			fixer := validator.NewFixer(w.llmRouter, llm.Tier2)
+			fixResult, fixErr := fixer.FixTest(ctx, testFile, testResult, v)
+			res.FixAttempts = fixResult.Attempts
+
+			if fixErr == nil && fixResult.Fixed {
+				res.Status = "fixed"
+				res.Output = fixResult.Explanation
+				fixedTests++
+				passedTests++ // Fixed tests count as passed
+
+				// Update test status in database
+				w.updateTestStatus(ctx, testID, "fixed", "")
+				log.Info().Str("file", testFile).Int("attempts", fixResult.Attempts).Msg("test fixed")
+			} else {
+				failedTests++
+				// Update test status in database
+				w.updateTestStatus(ctx, testID, "test_failure", res.ErrorMessage)
+				log.Warn().Str("file", testFile).Msg("failed to fix test")
+			}
+		} else {
+			failedTests++
+			// Update test status in database
+			w.updateTestStatus(ctx, testID, "test_failure", res.ErrorMessage)
+		}
+
+		res.ValidationMs = time.Since(testStart).Milliseconds()
+		results = append(results, res)
+	}
+
+	// Build result
+	result := jobs.ValidationResult{
+		TotalTests:     len(payload.TestFilePaths),
+		PassedTests:    passedTests,
+		FailedTests:    failedTests,
+		FixedTests:     fixedTests,
+		ValidationTime: time.Since(startTime),
+		Results:        results,
+	}
+
+	log.Info().
+		Int("total", result.TotalTests).
+		Int("passed", result.PassedTests).
+		Int("failed", result.FailedTests).
+		Int("fixed", result.FixedTests).
+		Dur("duration", result.ValidationTime).
+		Msg("validation completed")
+
+	if err := w.Repository().Complete(ctx, job.ID, result); err != nil {
+		return fmt.Errorf("failed to complete job: %w", err)
+	}
+
+	// Collect validated test file paths for chaining
+	var validatedPaths []string
+	for _, r := range results {
+		if r.Status == "validated" || r.Status == "fixed" {
+			validatedPaths = append(validatedPaths, r.TestFile)
+		}
+	}
+
+	// Chain to mutation jobs if requested and tests passed
+	if w.Pipeline() != nil && payload.RunMutation && len(validatedPaths) > 0 {
+		for _, testPath := range validatedPaths {
+			sourcePath := deriveSourcePath(testPath)
+			if sourcePath == "" {
+				log.Warn().Str("test_path", testPath).Msg("could not derive source path for mutation testing")
+				continue
+			}
+			_, err := w.Pipeline().CreateMutationJob(ctx, job.ID, payload.RepositoryID, payload.GenerationRunID, testPath, sourcePath)
+			if err != nil {
+				log.Warn().Err(err).Str("test_path", testPath).Msg("failed to create mutation job")
+			}
+		}
+	}
+
+	// Chain to integration job if tests were validated
+	if w.Pipeline() != nil && len(validatedPaths) > 0 {
+		_, err := w.Pipeline().CreateIntegrationJob(ctx, job.ID, payload.RepositoryID, payload.GenerationRunID, validatedPaths, payload.CreatePR)
+		if err != nil {
+			log.Warn().Err(err).Msg("failed to create integration job")
+		}
+	}
+
+	return nil
+}
+
+// updateTestStatus updates a test's validation status in the database
+func (w *ValidationWorker) updateTestStatus(ctx context.Context, testID, status, errorMsg string) {
+	if w.store == nil || testID == "" {
+		return
+	}
+
+	id, err := uuid.Parse(testID)
+	if err != nil {
+		log.Warn().Str("test_id", testID).Msg("invalid test ID")
+		return
+	}
+
+	var reason *string
+	if errorMsg != "" {
+		reason = &errorMsg
+	}
+
+	if err := w.store.UpdateTestStatus(ctx, id, status, reason); err != nil {
+		log.Warn().Err(err).Str("test_id", testID).Msg("failed to update test status")
+	}
+}
+
+// getWorkspacePath retrieves workspace path from the job chain
+func (w *ValidationWorker) getWorkspacePath(ctx context.Context, job *jobs.Job) string {
+	current := job
+	for current.ParentJobID != nil {
+		parent, err := w.Repository().GetByID(ctx, *current.ParentJobID)
+		if err != nil || parent == nil {
+			break
+		}
+
+		if parent.Type == jobs.JobTypeIngestion {
+			var result jobs.IngestionResult
+			if err := parent.GetResult(&result); err == nil {
+				return result.WorkspacePath
+			}
+		}
+		current = parent
+	}
+	return ""
 }
 
 // IntegrationWorker integrates generated tests into the repository

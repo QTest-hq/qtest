@@ -16,6 +16,7 @@ const (
 	JobTypeModeling    JobType = "modeling"
 	JobTypePlanning    JobType = "planning"
 	JobTypeGeneration  JobType = "generation"
+	JobTypeValidation  JobType = "validation"
 	JobTypeMutation    JobType = "mutation"
 	JobTypeIntegration JobType = "integration"
 )
@@ -112,6 +113,21 @@ type MutationPayload struct {
 	SourceFilePath  string    `json:"source_file_path"`
 }
 
+// ValidationPayload is the payload for validation jobs
+type ValidationPayload struct {
+	RepositoryID    uuid.UUID `json:"repository_id"`
+	GenerationRunID uuid.UUID `json:"generation_run_id"`
+	TestIDs         []string  `json:"test_ids"`         // IDs of GeneratedTest records to validate
+	TestFilePaths   []string  `json:"test_file_paths"`  // Paths to test files
+	WorkspacePath   string    `json:"workspace_path"`   // Repository workspace path
+	Language        string    `json:"language"`         // Programming language
+	AutoFix         bool      `json:"auto_fix"`         // Whether to attempt auto-fixing
+	MaxFixAttempts  int       `json:"max_fix_attempts"` // Max LLM fix attempts (default 3)
+	// Pipeline continuation
+	RunMutation bool `json:"run_mutation"` // Whether to run mutation testing after validation
+	CreatePR    bool `json:"create_pr"`    // Whether to create a PR at the end
+}
+
 // IntegrationPayload is the payload for integration jobs
 type IntegrationPayload struct {
 	RepositoryID    uuid.UUID `json:"repository_id"`
@@ -161,6 +177,27 @@ type MutationResult struct {
 	MutantsLived   int     `json:"mutants_lived"`
 	MutationScore  float64 `json:"mutation_score"`
 	ReportFilePath string  `json:"report_file_path,omitempty"`
+}
+
+// ValidationResult is the result of a validation job
+type ValidationResult struct {
+	TotalTests     int                 `json:"total_tests"`
+	PassedTests    int                 `json:"passed_tests"`
+	FailedTests    int                 `json:"failed_tests"`
+	FixedTests     int                 `json:"fixed_tests"`
+	ValidationTime time.Duration       `json:"validation_time"`
+	Results        []TestValidationRes `json:"results"`
+}
+
+// TestValidationRes holds validation result for a single test
+type TestValidationRes struct {
+	TestID        string `json:"test_id"`
+	TestFile      string `json:"test_file"`
+	Status        string `json:"status"` // "validated", "compile_error", "test_failure", "fixed"
+	Output        string `json:"output,omitempty"`
+	ErrorMessage  string `json:"error_message,omitempty"`
+	FixAttempts   int    `json:"fix_attempts"`
+	ValidationMs  int64  `json:"validation_ms"`
 }
 
 // IntegrationResult is the result of an integration job

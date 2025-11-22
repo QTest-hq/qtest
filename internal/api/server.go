@@ -157,6 +157,7 @@ func (s *Server) setupRoutes() {
 
 		// Tests
 		r.Route("/tests", func(r chi.Router) {
+			r.Get("/", s.listTests)
 			r.Get("/{testID}", s.getTest)
 			r.Put("/{testID}/accept", s.acceptTest)
 			r.Put("/{testID}/reject", s.rejectTest)
@@ -482,6 +483,44 @@ func (s *Server) getRunTests(w http.ResponseWriter, r *http.Request) {
 }
 
 // Test handlers
+func (s *Server) listTests(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	// Parse optional run_id filter
+	var runID *uuid.UUID
+	if runIDStr := q.Get("run_id"); runIDStr != "" {
+		parsed, err := uuid.Parse(runIDStr)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, "invalid run_id")
+			return
+		}
+		runID = &parsed
+	}
+
+	// Parse status filter
+	status := q.Get("status")
+
+	// Parse limit (default 50)
+	limit := 50
+	if limitStr := q.Get("limit"); limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
+			limit = parsed
+			if limit > 200 {
+				limit = 200
+			}
+		}
+	}
+
+	tests, err := s.store.ListTests(r.Context(), runID, status, limit)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to list tests")
+		respondError(w, http.StatusInternalServerError, "failed to list tests")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, tests)
+}
+
 func (s *Server) getTest(w http.ResponseWriter, r *http.Request) {
 	testID, err := uuid.Parse(chi.URLParam(r, "testID"))
 	if err != nil {

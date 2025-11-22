@@ -192,6 +192,43 @@ func (p *Pipeline) CreateGenerationJob(ctx context.Context, parentID uuid.UUID, 
 	return job, nil
 }
 
+// ValidationJobOptions configures a validation job
+type ValidationJobOptions struct {
+	AutoFix        bool   // Whether to auto-fix failing tests with LLM
+	MaxFixAttempts int    // Max attempts to fix a failing test
+	RunMutation    bool   // Whether to run mutation testing after validation
+	CreatePR       bool   // Whether to create a PR at the end
+}
+
+// CreateValidationJob creates a validation job after generation completes
+func (p *Pipeline) CreateValidationJob(ctx context.Context, parentID uuid.UUID, repoID, runID uuid.UUID, testIDs, testPaths []string, workspacePath, language string, opts ValidationJobOptions) (*Job, error) {
+	maxFixAttempts := opts.MaxFixAttempts
+	if maxFixAttempts == 0 {
+		maxFixAttempts = 3
+	}
+
+	payload := ValidationPayload{
+		RepositoryID:    repoID,
+		GenerationRunID: runID,
+		TestIDs:         testIDs,
+		TestFilePaths:   testPaths,
+		WorkspacePath:   workspacePath,
+		Language:        language,
+		AutoFix:         opts.AutoFix,
+		MaxFixAttempts:  maxFixAttempts,
+		RunMutation:     opts.RunMutation,
+		CreatePR:        opts.CreatePR,
+	}
+
+	job, err := p.ChainJob(ctx, parentID, JobTypeValidation, payload)
+	if err != nil {
+		return nil, err
+	}
+	job.GenerationRunID = &runID
+
+	return job, nil
+}
+
 // CreateIntegrationJob creates an integration job after generation completes
 func (p *Pipeline) CreateIntegrationJob(ctx context.Context, parentID uuid.UUID, repoID, runID uuid.UUID, testPaths []string, createPR bool) (*Job, error) {
 	payload := IntegrationPayload{
