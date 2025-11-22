@@ -46,11 +46,11 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-020 | Implement GitHub OAuth flow | 🔴 | P0 | - | OAuth2 for private repos |
+| P1-020 | Implement GitHub OAuth flow | 🟢 | P0 | - | internal/auth/github.go - OAuth2 with state management |
 | P1-021 | Implement repository cloner (go-git) | 🟢 | P0 | - | internal/github/repo.go |
-| P1-022 | Add private repo clone support | 🟡 | P0 | P1-020, P1-021 | Token support exists, OAuth missing |
+| P1-022 | Add private repo clone support | 🟢 | P0 | P1-020, P1-021 | Token + OAuth support complete |
 | P1-023 | Implement language detection | 🟢 | P0 | P1-021 | internal/parser/languages.go |
-| P1-024 | Implement framework detection | 🔴 | P1 | P1-023 | Express, FastAPI, Spring missing |
+| P1-024 | Implement framework detection | 🟢 | P1 | P1-023 | 6 frameworks: Express, FastAPI, Gin, Spring, Django, NestJS |
 | P1-025 | Build file tree extraction | 🟢 | P0 | P1-021 | workspace/targets.go |
 | P1-026 | Implement clone timeout handling | 🟡 | P1 | P1-021 | Basic timeout, needs hardening |
 | P1-027 | Add repo size validation | 🔴 | P1 | P1-021 | Not implemented |
@@ -116,11 +116,11 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 |----|------|--------|----------|--------------|-------|
 | P1-070 | Define LLMClient interface | 🟢 | P0 | - | internal/llm/types.go |
 | P1-071 | Implement Anthropic Claude client | 🟢 | P0 | P1-070 | internal/llm/anthropic.go |
-| P1-072 | Implement OpenAI client | 🔴 | P1 | P1-070 | Not implemented |
+| P1-072 | Implement OpenAI client | 🟡 | P1 | P1-070 | Stub exists, needs completion |
 | P1-073 | Implement tiered model router | 🟢 | P0 | P1-071 | internal/llm/router.go - Tier1/2/3 |
 | P1-074 | Implement request cache | 🟢 | P0 | P1-071 | internal/llm/cache.go - MemoryCache + CachedRouter |
-| P1-075 | Implement budget manager | 🔴 | P0 | P1-071 | Not implemented |
-| P1-076 | Implement usage tracker | 🔴 | P0 | P1-071 | Not implemented |
+| P1-075 | Implement budget manager | 🟢 | P0 | P1-071 | internal/llm/usage.go - BudgetConfig with limits |
+| P1-076 | Implement usage tracker | 🟢 | P0 | P1-071 | internal/llm/usage.go - UsageTracker + TrackedRouter |
 | P1-077 | Implement fallback logic | 🟢 | P1 | P1-071, P1-072 | router.go with retry + backoff |
 | P1-078 | Write LLM integration tests | 🔴 | P1 | P1-071-077 | No tests |
 
@@ -194,15 +194,15 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
 | P1-130 | Set up NATS JetStream | 🟢 | P0 | - | docker-compose + config |
-| P1-131 | Define job schemas | 🔴 | P0 | - | **NOT STARTED** |
-| P1-132 | Implement base worker | 🟡 | P0 | P1-130 | worker/pool.go skeleton |
-| P1-133 | Implement ingestion worker | 🔴 | P0 | P1-132, P1-021 | Stub only |
-| P1-134 | Implement modeling worker | 🔴 | P0 | P1-132, P1-051 | Stub only |
-| P1-135 | Implement planning worker | 🔴 | P0 | P1-132, P1-061 | Stub only |
-| P1-136 | Implement generation worker | 🔴 | P0 | P1-132, P1-083 | Stub only |
-| P1-137 | Implement integration worker | 🔴 | P0 | P1-132, P1-114 | Stub only |
-| P1-138 | Add job retry logic | 🔴 | P1 | P1-132 | Not implemented |
-| P1-139 | Write worker tests | 🔴 | P1 | P1-133-138 | No tests |
+| P1-131 | Define job schemas | 🟢 | P0 | - | internal/jobs/types.go - 6 job types with payloads |
+| P1-132 | Implement base worker | 🟢 | P0 | P1-130 | worker/pool.go + worker/workers.go |
+| P1-133 | Implement ingestion worker | 🟡 | P0 | P1-132, P1-021 | Stub - needs full implementation |
+| P1-134 | Implement modeling worker | 🟡 | P0 | P1-132, P1-051 | Stub - needs full implementation |
+| P1-135 | Implement planning worker | 🟡 | P0 | P1-132, P1-061 | Stub - needs full implementation |
+| P1-136 | Implement generation worker | 🟢 | P0 | P1-132, P1-083 | worker/generation.go - fully implemented |
+| P1-137 | Implement integration worker | 🟡 | P0 | P1-132, P1-114 | Stub - needs full implementation |
+| P1-138 | Add job retry logic | 🟢 | P1 | P1-132 | jobs/repository.go - retry with backoff |
+| P1-139 | Write worker tests | 🟢 | P1 | P1-133-138 | tests/integration/worker_test.go |
 
 ### 1.15 API Server
 
@@ -212,7 +212,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-141 | Implement health endpoint | 🟢 | P0 | P1-140 | /health, /ready |
 | P1-142 | Implement repos endpoints | 🟡 | P0 | P1-140, P1-013 | Routes exist, handlers TODO |
 | P1-143 | Implement runs endpoints | 🟡 | P0 | P1-140, P1-015 | Routes exist, handlers TODO |
-| P1-144 | Implement auth middleware | 🔴 | P0 | P1-020 | Not wired |
+| P1-144 | Implement auth middleware | 🟢 | P0 | P1-020 | internal/auth/session.go - RequireAuth/OptionalAuth (needs API wiring) |
 | P1-145 | Implement rate limiting | 🔴 | P1 | P1-140 | Not implemented |
 | P1-146 | Add OpenAPI documentation | 🔴 | P1 | P1-142-143 | Not implemented |
 | P1-147 | Write API tests | 🔴 | P1 | P1-142-145 | No tests |
@@ -468,15 +468,15 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | Phase 4: Scale | 35 | 20 | 14 | 1 |
 | **Total** | **203** | **137** | **65** | **1** |
 
-### Progress Tracking (Updated 2025-11-21)
+### Progress Tracking (Updated 2025-11-22)
 
 | Phase | 🟢 Completed | 🟡 In Progress | 🔴 Not Started | % Done |
 |-------|-------------|----------------|----------------|--------|
-| Phase 1 | 71 | 7 | 30 | **66%** |
+| Phase 1 | 79 | 8 | 21 | **73%** |
 | Phase 2 | 2 | 2 | 32 | **6%** |
 | Phase 3 | 21 | 0 | 24 | **47%** |
 | Phase 4 | 0 | 0 | 35 | 0% |
-| **Total** | **94** | **9** | **121** | **42%** |
+| **Total** | **102** | **10** | **112** | **46%** |
 
 ### Critical Path (Must Complete for MVP)
 
@@ -497,6 +497,7 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-21 | **Feature update**: Added Contract Testing (3.7), Test Data Gen (3.8), Validation (3.9). Updated supplements (Express, FastAPI, Gin, Spring Boot, Django). Added coverage-guided generation. Overall 38% complete. |
 | 2025-11-21 | **Session 2 update**: Added LLM caching (cache.go), GitHub PR integration (pr.go, workspace runner), JUnit emitter, RSpec emitter, NestJS supplement. Phase 1 now 66% complete. Overall 41% complete. |
 | 2025-11-21 | **E2E emitters**: Added Playwright emitter (playwright.go) and Cypress emitter (cypress.go) for UI/E2E test generation. Phase 2 started at 6%. Overall 42% complete. |
+| 2025-11-22 | **Session 3 update**: Added GitHub OAuth (auth/github.go, session.go, handlers.go with 27 tests), LLM usage tracking (usage.go with budget limits, rate limiting, cost estimation), worker system wiring (cmd/worker/main.go), worker integration tests. Phase 1 now 73% complete. Overall 46% complete. |
 
 ---
 
@@ -506,17 +507,18 @@ These P0 tasks block MVP completion:
 
 | ID | Task | Category | Blocking |
 |----|------|----------|----------|
-| P1-020 | GitHub OAuth flow | Ingestion | Private repo support |
+| ~~P1-020~~ | ~~GitHub OAuth flow~~ | ~~Ingestion~~ | ✅ Done - internal/auth/github.go |
 | ~~P1-040-046~~ | ~~Endpoint Detection~~ | ~~Parsing~~ | ✅ Done - 6 frameworks (Express, FastAPI, Gin, Spring Boot, Django, NestJS) |
 | ~~P1-060-066~~ | ~~Test Planner~~ | ~~Planning~~ | ✅ Done |
 | ~~P1-074~~ | ~~LLM Cache~~ | ~~LLM~~ | ✅ Done - MemoryCache + CachedRouter |
-| P1-075-076 | LLM Budget/Usage | LLM | Cost control |
+| ~~P1-075-076~~ | ~~LLM Budget/Usage~~ | ~~LLM~~ | ✅ Done - internal/llm/usage.go |
 | ~~P1-084~~ | ~~API test DSL generator~~ | ~~Generator~~ | ✅ Done |
 | ~~P1-091-092~~ | ~~Test emitters~~ | ~~Adapters~~ | ✅ Done - 5 emitters (Supertest, Pytest, Go-HTTP, JUnit, RSpec) |
 | ~~P1-112-114~~ | ~~GitHub PR Integration~~ | ~~Integration~~ | ✅ Done - Branch, Commit, PR creation |
-| P1-110 | GitHub App auth | Integration | Full OAuth flow |
-| P1-131-137 | Worker Implementation | Workers | Async processing |
-| P1-144 | Auth middleware | API | Security |
+| P1-110 | GitHub App auth | Integration | Full OAuth flow (token auth works) |
+| P1-133-135,137 | Worker Stubs | Workers | Ingestion, Modeling, Planning, Integration workers |
+| ~~P1-144~~ | ~~Auth middleware~~ | ~~API~~ | ✅ Done - needs API wiring |
+| **NEW** | Wire auth to API | API | Connect auth middleware to server |
 
 ---
 
