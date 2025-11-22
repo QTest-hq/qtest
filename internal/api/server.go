@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/QTest-hq/qtest/internal/auth"
 	"github.com/QTest-hq/qtest/internal/config"
 	"github.com/QTest-hq/qtest/internal/db"
 	gh "github.com/QTest-hq/qtest/internal/github"
@@ -38,6 +39,10 @@ type Server struct {
 	nats        *qtestnats.Client
 	jobRepo     JobRepository
 	pipeline    *jobs.Pipeline
+
+	// Auth components
+	authHandlers  *auth.Handlers
+	authMiddleware *auth.Middleware
 }
 
 // NewServer creates a new API server
@@ -62,6 +67,13 @@ func (s *Server) SetJobSystem(jobRepo *jobs.Repository, natsClient *qtestnats.Cl
 	if jobRepo != nil {
 		s.pipeline = jobs.NewPipeline(jobRepo, natsClient)
 	}
+}
+
+// SetAuth configures the authentication system
+func (s *Server) SetAuth(handlers *auth.Handlers, middleware *auth.Middleware) {
+	s.authHandlers = handlers
+	s.authMiddleware = middleware
+	log.Info().Msg("auth system configured")
 }
 
 // Router returns the HTTP router
@@ -98,8 +110,23 @@ func (s *Server) setupRoutes() {
 	s.router.Get("/health", s.healthCheck)
 	s.router.Get("/ready", s.readyCheck)
 
+	// Auth routes (public)
+	s.router.Route("/auth", func(r chi.Router) {
+		r.Get("/login", s.handleLogin)
+		r.Get("/callback", s.handleCallback)
+		r.Post("/logout", s.handleLogout)
+		r.Get("/logout", s.handleLogout) // Support GET for browser redirects
+	})
+
 	// API v1
 	s.router.Route("/api/v1", func(r chi.Router) {
+		// Auth - user info (requires auth)
+		r.Route("/auth", func(r chi.Router) {
+			r.Get("/me", s.handleMe)
+			r.Post("/refresh", s.handleRefresh)
+			r.Get("/repos", s.handleUserRepos)
+		})
+
 		// Repositories
 		r.Route("/repos", func(r chi.Router) {
 			r.Post("/", s.createRepo)
@@ -552,4 +579,67 @@ func (s *Server) rejectTest(w http.ResponseWriter, r *http.Request) {
 	test.Status = "rejected"
 	test.RejectionReason = reason
 	respondJSON(w, http.StatusOK, test)
+}
+
+// Auth handlers - delegate to auth package
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if s.authHandlers == nil {
+		respondError(w, http.StatusServiceUnavailable, "auth not configured")
+		return
+	}
+	s.authHandlers.HandleLogin(w, r)
+}
+
+func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
+	if s.authHandlers == nil {
+		respondError(w, http.StatusServiceUnavailable, "auth not configured")
+		return
+	}
+	s.authHandlers.HandleCallback(w, r)
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if s.authHandlers == nil {
+		respondError(w, http.StatusServiceUnavailable, "auth not configured")
+		return
+	}
+	s.authHandlers.HandleLogout(w, r)
+}
+
+func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
+	if s.authHandlers == nil {
+		respondError(w, http.StatusServiceUnavailable, "auth not configured")
+		return
+	}
+	// Check auth middleware if configured
+	if s.authMiddleware != nil {
+		// Get session from request
+		session, ok := auth.GetSessionFromContext(r.Context())
+		if !ok {
+			respondError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		// Add session to context for handler
+		ctx := r.Context()
+		ctx = context.WithValue(ctx, auth.SessionKey, session)
+		r = r.WithContext(ctx)
+	}
+	s.authHandlers.HandleMe(w, r)
+}
+
+func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
+	if s.authHandlers == nil {
+		respondError(w, http.StatusServiceUnavailable, "auth not configured")
+		return
+	}
+	s.authHandlers.HandleRefresh(w, r)
+}
+
+func (s *Server) handleUserRepos(w http.ResponseWriter, r *http.Request) {
+	if s.authHandlers == nil {
+		respondError(w, http.StatusServiceUnavailable, "auth not configured")
+		return
+	}
+	s.authHandlers.HandleListRepos(w, r)
 }
