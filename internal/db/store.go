@@ -431,6 +431,21 @@ func (s *Store) UpdateTestMutationScore(ctx context.Context, id uuid.UUID, score
 	return nil
 }
 
+// UpdateTestQualityScore updates quality metrics for a generated test
+func (s *Store) UpdateTestQualityScore(ctx context.Context, id uuid.UUID, score float64, grade string, assertionCount int) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE generated_tests
+		SET quality_score = $2, quality_grade = $3, assertion_count = $4, updated_at = $5
+		WHERE id = $1
+	`, id, score, grade, assertionCount, time.Now())
+
+	if err != nil {
+		return fmt.Errorf("failed to update test quality score: %w", err)
+	}
+
+	return nil
+}
+
 // ListRunsByRepository lists all generation runs for a repository
 func (s *Store) ListRunsByRepository(ctx context.Context, repoID uuid.UUID, limit, offset int) ([]GenerationRun, error) {
 	rows, err := s.pool.Query(ctx, `

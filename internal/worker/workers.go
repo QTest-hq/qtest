@@ -1096,7 +1096,11 @@ func (w *MutationWorker) generateReport(sourceFile string, result *mutation.Resu
 	return reportPath
 }
 
+// MinMutationScore is the minimum acceptable mutation score (50%)
+const MinMutationScore = 0.50
+
 // updateTestMutationScore updates the mutation score for the test in the database
+// and rejects tests with scores below the minimum threshold
 func (w *MutationWorker) updateTestMutationScore(ctx context.Context, payload jobs.MutationPayload, score float64) {
 	if w.store == nil {
 		return
@@ -1117,6 +1121,26 @@ func (w *MutationWorker) updateTestMutationScore(ctx context.Context, payload jo
 			if err := w.store.UpdateTestMutationScore(ctx, test.ID, score); err != nil {
 				log.Warn().Err(err).Str("test_id", test.ID.String()).Msg("failed to update test mutation score")
 			}
+
+			// Enforce minimum mutation score threshold
+			if score < MinMutationScore {
+				reason := fmt.Sprintf("Mutation score %.1f%% is below minimum threshold %.1f%%", score*100, MinMutationScore*100)
+				log.Warn().
+					Str("test_id", test.ID.String()).
+					Float64("score", score).
+					Float64("threshold", MinMutationScore).
+					Msg("test rejected due to low mutation score")
+
+				// Update test status to quality_rejected
+				if err := w.store.UpdateTestStatus(ctx, test.ID, "quality_rejected", &reason); err != nil {
+					log.Warn().Err(err).Str("test_id", test.ID.String()).Msg("failed to update test status")
+				}
+			} else {
+				log.Info().
+					Str("test_id", test.ID.String()).
+					Float64("score", score).
+					Msg("test passed mutation score threshold")
+			}
 		}
 	}
 }
@@ -1124,12 +1148,18 @@ func (w *MutationWorker) updateTestMutationScore(ctx context.Context, payload jo
 // ValidationWorker validates generated tests compile and run
 type ValidationWorker struct {
 	*BaseWorker
-	store     *db.Store
-	llmRouter *llm.Router
+	store         *db.Store
+	llmRouter     *llm.Router
+	qualityConfig validator.QualityConfig
 }
 
 func NewValidationWorker(base *BaseWorker, store *db.Store, llmRouter *llm.Router) *ValidationWorker {
-	w := &ValidationWorker{BaseWorker: base, store: store, llmRouter: llmRouter}
+	w := &ValidationWorker{
+		BaseWorker:    base,
+		store:         store,
+		llmRouter:     llmRouter,
+		qualityConfig: validator.DefaultQualityConfig(),
+	}
 	base.handler = w.handleJob
 	return w
 }
@@ -1312,6 +1342,64 @@ func (w *ValidationWorker) updateTestStatus(ctx context.Context, testID, status,
 	if err := w.store.UpdateTestStatus(ctx, id, status, reason); err != nil {
 		log.Warn().Err(err).Str("test_id", testID).Msg("failed to update test status")
 	}
+}
+
+// runQualityCheck performs quality assessment on a validated test
+func (w *ValidationWorker) runQualityCheck(ctx context.Context, testFile, testID, workspacePath, language, targetFile, targetFunction string) (*validator.QualityScore, error) {
+	qualityChecker := validator.NewQualityChecker(
+		w.qualityConfig,
+		language,
+		workspacePath,
+		targetFile,
+		targetFunction,
+	)
+
+	// Use 0 for mutation score initially - will be updated after mutation testing
+	qualityScore, err := qualityChecker.Assess(ctx, testFile, 0.5) // Default 50% mutation score
+	if err != nil {
+		log.Warn().Err(err).Str("test_file", testFile).Msg("quality check failed")
+		return nil, err
+	}
+
+	// Update quality metrics in database
+	if w.store != nil && testID != "" {
+		id, parseErr := uuid.Parse(testID)
+		if parseErr == nil {
+			if err := w.store.UpdateTestQualityScore(ctx, id, qualityScore.Score, qualityScore.Grade, qualityScore.Breakdown.AssertionCount); err != nil {
+				log.Warn().Err(err).Str("test_id", testID).Msg("failed to update quality score")
+			}
+		}
+	}
+
+	log.Info().
+		Str("test_file", testFile).
+		Float64("score", qualityScore.Score).
+		Str("grade", qualityScore.Grade).
+		Bool("passed", qualityScore.Passed).
+		Msg("quality check complete")
+
+	return qualityScore, nil
+}
+
+// shouldRejectForQuality determines if test should be rejected based on quality
+func (w *ValidationWorker) shouldRejectForQuality(qualityScore *validator.QualityScore) (bool, string) {
+	if qualityScore == nil {
+		return false, "" // Can't reject without score
+	}
+
+	if !qualityScore.Passed {
+		var reasons []string
+		for _, issue := range qualityScore.Issues {
+			if issue.Severity == "critical" {
+				reasons = append(reasons, issue.Message)
+			}
+		}
+		if len(reasons) > 0 {
+			return true, strings.Join(reasons, "; ")
+		}
+		return true, fmt.Sprintf("Quality score %.1f%% below minimum %.1f%%", qualityScore.Score, w.qualityConfig.MinScore)
+	}
+	return false, ""
 }
 
 // getWorkspacePath retrieves workspace path from the job chain
