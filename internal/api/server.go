@@ -18,6 +18,17 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// JobRepository defines the interface for job storage operations
+type JobRepository interface {
+	Create(ctx context.Context, job *jobs.Job) error
+	GetByID(ctx context.Context, id uuid.UUID) (*jobs.Job, error)
+	ListByStatus(ctx context.Context, status jobs.JobStatus, limit int) ([]*jobs.Job, error)
+	ListPendingByType(ctx context.Context, jobType jobs.JobType, limit int) ([]*jobs.Job, error)
+	ListByRepository(ctx context.Context, repoID uuid.UUID, limit int) ([]*jobs.Job, error)
+	Cancel(ctx context.Context, jobID uuid.UUID) error
+	Retry(ctx context.Context, jobID uuid.UUID) error
+}
+
 // Server represents the API server
 type Server struct {
 	cfg         *config.Config
@@ -25,7 +36,7 @@ type Server struct {
 	store       *db.Store
 	repoService *gh.RepoService
 	nats        *qtestnats.Client
-	jobRepo     *jobs.Repository
+	jobRepo     JobRepository
 	pipeline    *jobs.Pipeline
 }
 
