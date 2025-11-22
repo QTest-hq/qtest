@@ -1,6 +1,6 @@
 // QTest API Client
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://192.168.1.131:8080";
 
 export interface Repository {
   id: string;
@@ -99,7 +99,6 @@ class ApiClient {
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
       ...options,
       headers,
-      credentials: "include",
     });
 
     if (!response.ok) {

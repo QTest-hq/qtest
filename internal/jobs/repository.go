@@ -330,6 +330,21 @@ func (r *Repository) ListPendingByType(ctx context.Context, jobType JobType, lim
 	return r.queryJobs(ctx, query, jobType, limit)
 }
 
+// ListRecent returns the most recent jobs regardless of status
+func (r *Repository) ListRecent(ctx context.Context, limit int) ([]*Job, error) {
+	query := `
+		SELECT id, type, status, priority, repository_id, generation_run_id,
+			   parent_job_id, payload, result, error_message, error_details,
+			   retry_count, max_retries, created_at, updated_at, started_at,
+			   completed_at, locked_until, worker_id
+		FROM jobs
+		ORDER BY created_at DESC
+		LIMIT $1
+	`
+
+	return r.queryJobs(ctx, query, limit)
+}
+
 // GetChildJobs returns all child jobs of a parent job
 func (r *Repository) GetChildJobs(ctx context.Context, parentID uuid.UUID) ([]*Job, error) {
 	query := `

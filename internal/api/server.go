@@ -26,6 +26,7 @@ type JobRepository interface {
 	ListByStatus(ctx context.Context, status jobs.JobStatus, limit int) ([]*jobs.Job, error)
 	ListPendingByType(ctx context.Context, jobType jobs.JobType, limit int) ([]*jobs.Job, error)
 	ListByRepository(ctx context.Context, repoID uuid.UUID, limit int) ([]*jobs.Job, error)
+	ListRecent(ctx context.Context, limit int) ([]*jobs.Job, error)
 	Cancel(ctx context.Context, jobID uuid.UUID) error
 	Retry(ctx context.Context, jobID uuid.UUID) error
 }

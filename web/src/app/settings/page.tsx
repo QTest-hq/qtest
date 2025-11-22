@@ -64,7 +64,7 @@ export default function SettingsPage() {
               </button>
             </div>
             <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-              API endpoint: {process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}
+              API endpoint: http://192.168.1.131:8080
             </p>
           </div>
 

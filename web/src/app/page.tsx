@@ -1,17 +1,44 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
-
-const stats = [
-  { name: "Total Repositories", value: "0", change: "+0 this week" },
-  { name: "Tests Generated", value: "0", change: "+0 this week" },
-  { name: "Jobs Running", value: "0", change: "0 pending" },
-  { name: "Mutation Score", value: "N/A", change: "No data yet" },
-];
-
-const recentActivity = [
-  { type: "info", message: "Welcome to QTest! Add a repository to get started.", time: "Just now" },
-];
+import { api, Repository, Job } from "@/lib/api";
 
 export default function Dashboard() {
+  const [apiStatus, setApiStatus] = useState<"checking" | "online" | "offline">("checking");
+  const [repos, setRepos] = useState<Repository[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
+
+  useEffect(() => {
+    checkApiHealth();
+    loadData();
+  }, []);
+
+  async function checkApiHealth() {
+    try {
+      await api.health();
+      setApiStatus("online");
+    } catch {
+      setApiStatus("offline");
+    }
+  }
+
+  async function loadData() {
+    try {
+      const [reposData, jobsData] = await Promise.all([
+        api.listRepos().catch(() => []),
+        api.listJobs({ limit: 10 }).catch(() => []),
+      ]);
+      setRepos(reposData);
+      setJobs(jobsData);
+    } catch {
+      // Ignore errors
+    }
+  }
+
+  const runningJobs = jobs.filter((j) => j.status === "running").length;
+  const pendingJobs = jobs.filter((j) => j.status === "pending").length;
+
   return (
     <div className="flex h-screen">
       <Sidebar />
@@ -28,16 +55,33 @@ export default function Dashboard() {
         <div className="p-8">
           {/* Stats */}
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {stats.map((stat) => (
-              <div
-                key={stat.name}
-                className="rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200 dark:bg-gray-800 dark:ring-gray-700"
-              >
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{stat.name}</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{stat.value}</p>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{stat.change}</p>
-              </div>
-            ))}
+            <div className="rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200 dark:bg-gray-800 dark:ring-gray-700">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Repositories</p>
+              <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{repos.length}</p>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Connected repos</p>
+            </div>
+            <div className="rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200 dark:bg-gray-800 dark:ring-gray-700">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Jobs</p>
+              <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{jobs.length}</p>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">All time</p>
+            </div>
+            <div className="rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200 dark:bg-gray-800 dark:ring-gray-700">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Jobs Running</p>
+              <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{runningJobs}</p>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{pendingJobs} pending</p>
+            </div>
+            <div className="rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200 dark:bg-gray-800 dark:ring-gray-700">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">API Status</p>
+              <p className={`mt-2 text-3xl font-semibold ${
+                apiStatus === "online" ? "text-green-600" :
+                apiStatus === "offline" ? "text-red-600" : "text-yellow-600"
+              }`}>
+                {apiStatus === "online" ? "Online" : apiStatus === "offline" ? "Offline" : "..."}
+              </p>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {apiStatus === "online" ? "All systems go" : "Check server"}
+              </p>
+            </div>
           </div>
 
           {/* Quick Actions */}
@@ -87,43 +131,65 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Recent Activity */}
+          {/* Recent Jobs */}
           <div className="mt-8">
-            <h2 className="text-lg font-medium text-gray-900 dark:text-white">Recent Activity</h2>
+            <h2 className="text-lg font-medium text-gray-900 dark:text-white">Recent Jobs</h2>
             <div className="mt-4 rounded-lg bg-white shadow-sm ring-1 ring-gray-200 dark:bg-gray-800 dark:ring-gray-700">
-              <ul className="divide-y divide-gray-200 dark:divide-gray-700">
-                {recentActivity.map((activity, idx) => (
-                  <li key={idx} className="px-6 py-4">
-                    <div className="flex items-center">
-                      <div className={`h-2 w-2 rounded-full ${
-                        activity.type === "success" ? "bg-green-400" :
-                        activity.type === "error" ? "bg-red-400" :
-                        "bg-blue-400"
-                      }`} />
-                      <p className="ml-3 text-sm text-gray-700 dark:text-gray-300">{activity.message}</p>
-                      <span className="ml-auto text-sm text-gray-400">{activity.time}</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              {jobs.length === 0 ? (
+                <div className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                  No jobs yet. Start a pipeline to generate tests.
+                </div>
+              ) : (
+                <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {jobs.slice(0, 5).map((job) => (
+                    <li key={job.id} className="px-6 py-4">
+                      <div className="flex items-center">
+                        <div className={`h-2 w-2 rounded-full ${
+                          job.status === "completed" ? "bg-green-400" :
+                          job.status === "running" ? "bg-blue-400 animate-pulse" :
+                          job.status === "failed" ? "bg-red-400" :
+                          "bg-yellow-400"
+                        }`} />
+                        <p className="ml-3 text-sm text-gray-700 dark:text-gray-300">
+                          {job.type} job - {job.status}
+                        </p>
+                        <span className="ml-auto text-sm text-gray-400">
+                          {new Date(job.created_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
 
-          {/* API Status */}
+          {/* System Status */}
           <div className="mt-8">
             <h2 className="text-lg font-medium text-gray-900 dark:text-white">System Status</h2>
             <div className="mt-4 rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200 dark:bg-gray-800 dark:ring-gray-700">
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
-                  <div className="h-3 w-3 rounded-full bg-yellow-400 animate-pulse" />
+                  <div className={`h-3 w-3 rounded-full ${
+                    apiStatus === "online" ? "bg-green-400" :
+                    apiStatus === "offline" ? "bg-red-400" :
+                    "bg-yellow-400 animate-pulse"
+                  }`} />
                   <span className="ml-3 text-sm font-medium text-gray-700 dark:text-gray-300">
                     API Server
                   </span>
                 </div>
-                <span className="text-sm text-gray-500">Checking...</span>
+                <span className={`text-sm ${
+                  apiStatus === "online" ? "text-green-600" :
+                  apiStatus === "offline" ? "text-red-600" :
+                  "text-yellow-600"
+                }`}>
+                  {apiStatus === "online" ? "Connected" :
+                   apiStatus === "offline" ? "Disconnected" : "Checking..."}
+                </span>
               </div>
               <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                Make sure the QTest API server is running at http://localhost:8080
+                API endpoint: http://192.168.1.131:8080
               </p>
             </div>
           </div>

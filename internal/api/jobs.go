@@ -72,13 +72,15 @@ func jobToResponse(j *jobs.Job) *JobResponse {
 		GenerationRunID: j.GenerationRunID,
 		ParentJobID:     j.ParentJobID,
 		Payload:         j.Payload,
-		Result:          j.Result,
 		ErrorMessage:    j.ErrorMessage,
 		RetryCount:      j.RetryCount,
 		MaxRetries:      j.MaxRetries,
 		CreatedAt:       j.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		UpdatedAt:       j.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 		WorkerID:        j.WorkerID,
+	}
+	if j.Result != nil {
+		resp.Result = *j.Result
 	}
 
 	if j.StartedAt != nil {
@@ -198,8 +200,8 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 	} else if jobType != "" {
 		jobList, err = s.jobRepo.ListPendingByType(r.Context(), jobs.JobType(jobType), limit)
 	} else {
-		// List all pending jobs by default
-		jobList, err = s.jobRepo.ListByStatus(r.Context(), jobs.StatusPending, limit)
+		// List all recent jobs by default
+		jobList, err = s.jobRepo.ListRecent(r.Context(), limit)
 	}
 
 	if err != nil {

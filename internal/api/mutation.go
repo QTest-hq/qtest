@@ -209,10 +209,17 @@ func (s *Server) listMutationRuns(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else {
-		// Get all mutation jobs
-		allJobs, err := s.jobRepo.ListPendingByType(r.Context(), jobs.JobTypeMutation, limit)
+		// Get all recent jobs and filter to mutation jobs
+		allJobs, err := s.jobRepo.ListRecent(r.Context(), limit*5)
 		if err == nil {
-			jobList = allJobs
+			for _, j := range allJobs {
+				if j.Type == jobs.JobTypeMutation {
+					jobList = append(jobList, j)
+					if len(jobList) >= limit {
+						break
+					}
+				}
+			}
 		}
 	}
 
@@ -295,7 +302,7 @@ func mutationJobToResponse(job *jobs.Job) *MutationRunResponse {
 	}
 
 	// Parse result if completed
-	if job.Status == jobs.StatusCompleted && len(job.Result) > 0 {
+	if job.Status == jobs.StatusCompleted && job.Result != nil && len(*job.Result) > 0 {
 		var result jobs.MutationResult
 		if err := job.GetResult(&result); err == nil {
 			resp.Result = &MutationResultResponse{

@@ -41,10 +41,10 @@ type Job struct {
 	RepositoryID    *uuid.UUID      `json:"repository_id,omitempty" db:"repository_id"`
 	GenerationRunID *uuid.UUID      `json:"generation_run_id,omitempty" db:"generation_run_id"`
 	ParentJobID     *uuid.UUID      `json:"parent_job_id,omitempty" db:"parent_job_id"`
-	Payload         json.RawMessage `json:"payload" db:"payload"`
-	Result          json.RawMessage `json:"result,omitempty" db:"result"`
-	ErrorMessage    *string         `json:"error_message,omitempty" db:"error_message"`
-	ErrorDetails    json.RawMessage `json:"error_details,omitempty" db:"error_details"`
+	Payload         json.RawMessage  `json:"payload" db:"payload"`
+	Result          *json.RawMessage `json:"result,omitempty" db:"result"`
+	ErrorMessage    *string          `json:"error_message,omitempty" db:"error_message"`
+	ErrorDetails    *json.RawMessage `json:"error_details,omitempty" db:"error_details"`
 	RetryCount      int             `json:"retry_count" db:"retry_count"`
 	MaxRetries      int             `json:"max_retries" db:"max_retries"`
 	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
@@ -212,13 +212,17 @@ func (j *Job) SetResult(result interface{}) error {
 	if err != nil {
 		return err
 	}
-	j.Result = data
+	raw := json.RawMessage(data)
+	j.Result = &raw
 	return nil
 }
 
 // GetResult unmarshals the result into the provided struct
 func (j *Job) GetResult(v interface{}) error {
-	return json.Unmarshal(j.Result, v)
+	if j.Result == nil {
+		return nil
+	}
+	return json.Unmarshal(*j.Result, v)
 }
 
 // CanRetry returns true if the job can be retried
