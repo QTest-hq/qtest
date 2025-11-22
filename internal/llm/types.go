@@ -28,6 +28,7 @@ type Request struct {
 	MaxTokens   int
 	Temperature float64
 	Stop        []string
+	JSONMode    bool // Force JSON output (supported by Ollama)
 }
 
 // Message represents a chat message

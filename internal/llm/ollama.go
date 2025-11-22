@@ -55,6 +55,7 @@ type ollamaRequest struct {
 	Model    string          `json:"model"`
 	Messages []ollamaMessage `json:"messages"`
 	Stream   bool            `json:"stream"`
+	Format   string          `json:"format,omitempty"` // "json" for structured output
 	Options  *ollamaOptions  `json:"options,omitempty"`
 }
 
@@ -109,6 +110,11 @@ func (c *OllamaClient) Complete(ctx context.Context, req *Request) (*Response, e
 		Model:    model,
 		Messages: messages,
 		Stream:   false,
+	}
+
+	// Enable JSON mode if requested
+	if req.JSONMode {
+		ollamaReq.Format = "json"
 	}
 
 	// Add options if specified

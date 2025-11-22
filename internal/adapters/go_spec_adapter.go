@@ -117,9 +117,9 @@ func (a *GoSpecAdapter) GenerateFromSpecs(specs []model.TestSpec, sourceFile str
 				Assertions: make([]string, 0),
 			}
 
-			// Generate setup from inputs
+			// Generate setup from inputs with type hints
 			if len(spec.Inputs) > 0 {
-				caseData.Setup = a.generateSetup(spec.Inputs)
+				caseData.Setup = a.generateSetup(spec)
 			}
 
 			// Generate action (function call)
@@ -172,37 +172,50 @@ func (a *GoSpecAdapter) GenerateFromSpecs(specs []model.TestSpec, sourceFile str
 	return buf.String(), nil
 }
 
-// generateSetup generates setup code from inputs
-func (a *GoSpecAdapter) generateSetup(inputs map[string]interface{}) string {
+// generateSetup generates setup code from inputs with type hints
+func (a *GoSpecAdapter) generateSetup(spec model.TestSpec) string {
 	var setup strings.Builder
 
-	// Separate named args from indexed args
-	var namedKeys []string
-	var indexedKeys []string
-	for key := range inputs {
-		if strings.HasPrefix(key, "arg") {
-			indexedKeys = append(indexedKeys, key)
+	// Use ArgOrder if available, otherwise sort keys
+	var keys []string
+	if len(spec.ArgOrder) > 0 {
+		keys = spec.ArgOrder
+	} else {
+		// Separate named args from indexed args
+		var namedKeys []string
+		var indexedKeys []string
+		for key := range spec.Inputs {
+			if strings.HasPrefix(key, "arg") {
+				indexedKeys = append(indexedKeys, key)
+			} else {
+				namedKeys = append(namedKeys, key)
+			}
+		}
+
+		// If we have named args, use those; otherwise use indexed args
+		if len(namedKeys) > 0 {
+			sort.Strings(namedKeys)
+			keys = namedKeys
 		} else {
-			namedKeys = append(namedKeys, key)
+			sort.Slice(indexedKeys, func(i, j int) bool {
+				numI, _ := strconv.Atoi(strings.TrimPrefix(indexedKeys[i], "arg"))
+				numJ, _ := strconv.Atoi(strings.TrimPrefix(indexedKeys[j], "arg"))
+				return numI < numJ
+			})
+			keys = indexedKeys
 		}
 	}
 
-	// If we have named args, use those; otherwise use indexed args
-	var keys []string
-	if len(namedKeys) > 0 {
-		sort.Strings(namedKeys)
-		keys = namedKeys
-	} else {
-		sort.Slice(indexedKeys, func(i, j int) bool {
-			numI, _ := strconv.Atoi(strings.TrimPrefix(indexedKeys[i], "arg"))
-			numJ, _ := strconv.Atoi(strings.TrimPrefix(indexedKeys[j], "arg"))
-			return numI < numJ
-		})
-		keys = indexedKeys
-	}
-
 	for _, key := range keys {
-		setup.WriteString(fmt.Sprintf("%s := %s\n\t\t", key, formatGoValue(inputs[key])))
+		value, ok := spec.Inputs[key]
+		if !ok {
+			continue
+		}
+		typeHint := ""
+		if spec.InputTypes != nil {
+			typeHint = spec.InputTypes[key]
+		}
+		setup.WriteString(fmt.Sprintf("%s := %s\n\t\t", key, formatGoValueWithType(value, typeHint)))
 	}
 	return strings.TrimSuffix(setup.String(), "\n\t\t")
 }
@@ -214,35 +227,89 @@ func (a *GoSpecAdapter) generateAction(spec model.TestSpec) string {
 		funcName = spec.TargetID
 	}
 
-	// Build args from inputs, prioritizing named params (a, b) over arg0, arg1
-	var namedArgs []string
-	var indexedArgs []string
+	// Use ArgOrder if available (preserves order from IRSpec)
+	var args []string
+	if len(spec.ArgOrder) > 0 {
+		args = spec.ArgOrder
+	} else {
+		// Build args from inputs, prioritizing named params (a, b) over arg0, arg1
+		var namedArgs []string
+		var indexedArgs []string
 
-	for key := range spec.Inputs {
-		if strings.HasPrefix(key, "arg") {
-			indexedArgs = append(indexedArgs, key)
-		} else {
-			namedArgs = append(namedArgs, key)
+		for key := range spec.Inputs {
+			if strings.HasPrefix(key, "arg") {
+				indexedArgs = append(indexedArgs, key)
+			} else {
+				namedArgs = append(namedArgs, key)
+			}
+		}
+
+		// Use named args if available (a, b), otherwise use indexed args (arg0, arg1)
+		if len(namedArgs) > 0 {
+			// Sort named args alphabetically for consistency
+			sort.Strings(namedArgs)
+			args = namedArgs
+		} else if len(indexedArgs) > 0 {
+			// Sort indexed args by number
+			sort.Slice(indexedArgs, func(i, j int) bool {
+				numI, _ := strconv.Atoi(strings.TrimPrefix(indexedArgs[i], "arg"))
+				numJ, _ := strconv.Atoi(strings.TrimPrefix(indexedArgs[j], "arg"))
+				return numI < numJ
+			})
+			args = indexedArgs
 		}
 	}
 
-	// Use named args if available (a, b), otherwise use indexed args (arg0, arg1)
-	var args []string
-	if len(namedArgs) > 0 {
-		// Sort named args alphabetically for consistency
-		sort.Strings(namedArgs)
-		args = namedArgs
-	} else if len(indexedArgs) > 0 {
-		// Sort indexed args by number
-		sort.Slice(indexedArgs, func(i, j int) bool {
-			numI, _ := strconv.Atoi(strings.TrimPrefix(indexedArgs[i], "arg"))
-			numJ, _ := strconv.Atoi(strings.TrimPrefix(indexedArgs[j], "arg"))
-			return numI < numJ
-		})
-		args = indexedArgs
+	return fmt.Sprintf("result := %s(%s)", funcName, strings.Join(args, ", "))
+}
+
+// formatGoValueWithType formats a value for Go code using type hints
+func formatGoValueWithType(val interface{}, typeHint string) string {
+	if val == nil {
+		return "nil"
 	}
 
-	return fmt.Sprintf("result := %s(%s)", funcName, strings.Join(args, ", "))
+	// Use type hint to generate appropriate Go code
+	switch typeHint {
+	case "int":
+		switch v := val.(type) {
+		case float64:
+			return fmt.Sprintf("%d", int(v))
+		case int:
+			return fmt.Sprintf("%d", v)
+		default:
+			return fmt.Sprintf("%v", v)
+		}
+	case "float":
+		return fmt.Sprintf("%v", val)
+	case "string":
+		return fmt.Sprintf("%q", val)
+	case "bool":
+		return fmt.Sprintf("%v", val)
+	case "null":
+		return "nil"
+	case "array":
+		if arr, ok := val.([]interface{}); ok {
+			elements := make([]string, len(arr))
+			for i, elem := range arr {
+				elements[i] = formatGoValue(elem)
+			}
+			return fmt.Sprintf("[]interface{}{%s}", strings.Join(elements, ", "))
+		}
+		return "[]interface{}{}"
+	case "object":
+		if m, ok := val.(map[string]interface{}); ok {
+			pairs := make([]string, 0, len(m))
+			for key, value := range m {
+				pairs = append(pairs, fmt.Sprintf("%q: %s", key, formatGoValue(value)))
+			}
+			return fmt.Sprintf("map[string]interface{}{%s}", strings.Join(pairs, ", "))
+		}
+		return "map[string]interface{}{}"
+	default:
+		// No type hint, use existing logic
+		return formatGoValue(val)
+	}
 }
 
 // generateAssertion generates Go assertion code from model.Assertion
@@ -252,53 +319,71 @@ func (a *GoSpecAdapter) generateAssertion(assertion model.Assertion) (code strin
 		actual = "result"
 	}
 
+	// Escape any quotes in the actual variable name for use in error messages
+	escapedActual := escapeStringForErrorMsg(actual)
+
 	switch assertion.Kind {
-	case "equality":
+	case "equality", "equals":
 		expected := formatGoValue(assertion.Expected)
 		return fmt.Sprintf(`if result != %s {
 			t.Errorf("%s: expected %%v, got %%v", %s, result)
-		}`, expected, actual, expected), false, false
+		}`, expected, escapedActual, expected), false, false
 
-	case "not_equal":
+	case "not_equal", "not_equals":
 		expected := formatGoValue(assertion.Expected)
 		return fmt.Sprintf(`if result == %s {
 			t.Errorf("%s: expected not %%v, but got %%v", %s, result)
-		}`, expected, actual, expected), false, false
+		}`, expected, escapedActual, expected), false, false
 
-	case "not_null":
+	case "not_null", "not_nil", "is_not_nil":
 		return fmt.Sprintf(`if result == nil {
 			t.Error("%s: expected non-nil value, got nil")
-		}`, actual), false, false
+		}`, escapedActual), false, false
 
-	case "null":
+	case "null", "nil", "is_nil":
 		return fmt.Sprintf(`if result != nil {
 			t.Errorf("%s: expected nil, got %%v", result)
-		}`, actual), false, false
+		}`, escapedActual), false, false
 
 	case "contains":
 		expected := formatGoValue(assertion.Expected)
 		// String contains check
 		return fmt.Sprintf(`if !strings.Contains(fmt.Sprintf("%%v", result), %s) {
 			t.Errorf("%s: expected to contain %%v, got %%v", %s, result)
-		}`, expected, actual, expected), true, false
+		}`, expected, escapedActual, expected), true, false
 
 	case "greater_than":
 		expected := formatGoValue(assertion.Expected)
 		return fmt.Sprintf(`if result <= %s {
 			t.Errorf("%s: expected > %%v, got %%v", %s, result)
-		}`, expected, actual, expected), false, false
+		}`, expected, escapedActual, expected), false, false
 
 	case "less_than":
 		expected := formatGoValue(assertion.Expected)
 		return fmt.Sprintf(`if result >= %s {
 			t.Errorf("%s: expected < %%v, got %%v", %s, result)
-		}`, expected, actual, expected), false, false
+		}`, expected, escapedActual, expected), false, false
 
-	case "type":
+	case "truthy":
+		return fmt.Sprintf(`if !result {
+			t.Error("%s: expected truthy value")
+		}`, escapedActual), false, false
+
+	case "falsy":
+		return fmt.Sprintf(`if result {
+			t.Error("%s: expected falsy value")
+		}`, escapedActual), false, false
+
+	case "throws", "error":
+		return `if err == nil {
+			t.Error("expected error, got nil")
+		}`, false, false
+
+	case "type", "type_is":
 		expected := assertion.Expected
 		return fmt.Sprintf(`if reflect.TypeOf(result).String() != %q {
 			t.Errorf("%s: expected type %%s, got %%s", %q, reflect.TypeOf(result).String())
-		}`, expected, actual, expected), false, true
+		}`, expected, escapedActual, expected), false, true
 
 	default:
 		// For unknown kinds, generate a generic equality check
@@ -306,10 +391,18 @@ func (a *GoSpecAdapter) generateAssertion(assertion model.Assertion) (code strin
 			expected := formatGoValue(assertion.Expected)
 			return fmt.Sprintf(`if result != %s {
 			t.Errorf("%s: expected %%v, got %%v", %s, result)
-		}`, expected, assertion.Kind, expected), false, false
+		}`, expected, escapedActual, expected), false, false
 		}
 		return "", false, false
 	}
+}
+
+// escapeStringForErrorMsg escapes quotes and special characters for use in Go error message strings
+func escapeStringForErrorMsg(s string) string {
+	// Replace backslashes first, then quotes
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
 }
 
 // formatGoValue formats a value for Go code

@@ -684,11 +684,12 @@ func (w *GenerationWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 
 		log.Debug().Str("file", path).Msg("generating tests for file")
 
-		// Generate tests for this file
+		// Generate tests for this file using IRSpec (structured JSON output)
 		tests, genErr := w.gen.GenerateForFile(ctx, path, generator.GenerateOptions{
-			Tier:     tier,
-			TestType: dsl.TestTypeUnit,
-			MaxTests: 5, // Limit per file
+			Tier:      tier,
+			TestType:  dsl.TestTypeUnit,
+			MaxTests:  5,        // Limit per file
+			UseIRSpec: true,     // Use IRSpec for structured output
 		})
 		if genErr != nil {
 			log.Warn().Err(genErr).Str("file", path).Msg("failed to generate tests")
@@ -908,6 +909,20 @@ func (w *GenerationWorker) persistGeneratedTest(ctx context.Context, runID uuid.
 		DSL:            dslJSON,
 		Framework:      &framework,
 		Status:         "pending",
+	}
+
+	// Store IRSpec JSON in metadata for traceability
+	if test.RawYAML != "" {
+		metadata := map[string]interface{}{
+			"irspec":      json.RawMessage(test.RawYAML),
+			"test_specs":  test.TestSpecs,
+			"irspec_mode": true,
+		}
+		metadataJSON, err := json.Marshal(metadata)
+		if err == nil {
+			rawMetadata := json.RawMessage(metadataJSON)
+			dbTest.Metadata = &rawMetadata
+		}
 	}
 
 	if err := w.store.CreateGeneratedTest(ctx, dbTest); err != nil {

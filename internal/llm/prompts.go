@@ -3,10 +3,41 @@ package llm
 import (
 	"fmt"
 	"strings"
+
+	"github.com/QTest-hq/qtest/pkg/model"
 )
 
 // Prompt templates for test generation
 
+// SystemPromptIRSpec is the system prompt for generating tests in IRSpec format
+// This uses Ollama's JSON mode for structured, parseable output
+const SystemPromptIRSpec = `You are an expert software engineer specializing in test-driven development.
+Generate tests in the universal IRSpec JSON format using Given-When-Then structure.
+
+REQUIREMENTS:
+1. Generate 3-6 high-quality test cases (quality over quantity)
+2. Cover: happy path, edge cases, boundary conditions, error handling
+3. Use realistic values within safe ranges (avoid overflow)
+4. Each test MUST have at least one assertion in the "then" section
+
+OUTPUT FORMAT:
+You MUST output valid JSON matching this schema:
+` + model.IRSpecJSONSchema + `
+
+EXAMPLE:
+` + model.IRSpecExample + `
+
+RULES:
+- Variable names in "given" should be lowercase (a, b, input, expected)
+- "when.call" uses $varname syntax to reference variables
+- "then.actual" is usually "result" for the function return value
+- "then.type" must be one of: equals, not_equals, contains, greater_than, less_than, throws, truthy, falsy, nil, not_nil
+- Use "tags" to categorize: happy_path, edge_case, boundary, error_handling
+- CRITICAL: ALL variables used in "when.args" MUST be defined in "given". For handler functions with req/res parameters (Express.js, FastAPI, etc.), define mock objects like: {"name": "req", "value": {"body": {...}}, "type": "object"}
+
+Output ONLY valid JSON. No markdown, no explanation.`
+
+// SystemPromptTestGeneration is the legacy YAML-based prompt (kept for backward compatibility)
 const SystemPromptTestGeneration = `You are an expert software engineer specializing in test-driven development.
 Your task is to generate high-quality, meaningful tests that:
 1. Test actual behavior, not implementation details
@@ -30,7 +61,27 @@ const SystemPromptCritic = `You are a test quality expert. Analyze the given tes
 
 Respond with JSON: {"quality": "high"|"medium"|"low", "issues": [...], "suggestions": [...]}`
 
-// TestGenerationPrompt creates a prompt for generating a unit test
+// IRSpecGenerationPrompt creates a prompt for generating tests in IRSpec JSON format
+// This is the new structured output approach using Ollama's JSON mode
+func IRSpecGenerationPrompt(functionCode, functionName, fileName, language string) string {
+	return fmt.Sprintf(`Generate tests for this %s function:
+
+File: %s
+Function: %s
+
+Code:
+%s
+
+Generate comprehensive tests in IRSpec JSON format. Include:
+- Happy path tests
+- Edge cases (zero, negative, empty, null)
+- Boundary conditions
+- Error scenarios if applicable
+
+Remember: Output ONLY valid JSON matching the IRSpec schema.`, language, fileName, functionName, functionCode)
+}
+
+// TestGenerationPrompt creates a prompt for generating a unit test (legacy YAML format)
 func TestGenerationPrompt(functionCode, functionName, fileName, language string, context string) string {
 	codeBlock := "```" + language + "\n" + functionCode + "\n```"
 	return fmt.Sprintf("Generate a unit test for the following %s function:\n\n"+

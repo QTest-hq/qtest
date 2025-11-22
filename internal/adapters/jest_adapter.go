@@ -21,7 +21,7 @@ func (a *JestAdapter) Framework() Framework {
 }
 
 func (a *JestAdapter) FileExtension() string {
-	return ".test.ts"
+	return ".ts"
 }
 
 func (a *JestAdapter) TestFileSuffix() string {

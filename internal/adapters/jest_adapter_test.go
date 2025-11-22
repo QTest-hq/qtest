@@ -23,8 +23,8 @@ func TestJestAdapter_Framework(t *testing.T) {
 
 func TestJestAdapter_FileExtension(t *testing.T) {
 	adapter := NewJestAdapter()
-	if adapter.FileExtension() != ".test.ts" {
-		t.Errorf("FileExtension() = %s, want .test.ts", adapter.FileExtension())
+	if adapter.FileExtension() != ".ts" {
+		t.Errorf("FileExtension() = %s, want .ts", adapter.FileExtension())
 	}
 }
 

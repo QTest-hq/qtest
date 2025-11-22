@@ -33,6 +33,7 @@ type GenerateOptions struct {
 	Framework  string
 	MaxTests   int
 	TargetFile string // Optional: specific file to target
+	UseIRSpec  bool   // Use IRSpec JSON mode for structured output
 }
 
 // GeneratedTest represents a generated test with metadata
@@ -75,9 +76,16 @@ func (g *Generator) GenerateForFile(ctx context.Context, filePath string, opts G
 			Str("function", fn.Name).
 			Int("index", i+1).
 			Int("total", len(parsed.Functions)).
+			Bool("irspec", opts.UseIRSpec).
 			Msg("generating test")
 
-		test, err := g.generateTestForFunction(ctx, &fn, parsed, opts)
+		var test *GeneratedTest
+		var err error
+		if opts.UseIRSpec {
+			test, err = g.GenerateWithIRSpec(ctx, &fn, parsed, opts)
+		} else {
+			test, err = g.generateTestForFunction(ctx, &fn, parsed, opts)
+		}
 		if err != nil {
 			log.Warn().Err(err).Str("function", fn.Name).Msg("failed to generate test")
 			continue
@@ -268,4 +276,110 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// GenerateWithIRSpec generates tests using the new IRSpec JSON format
+// This uses Ollama's JSON mode for structured, parseable output
+func (g *Generator) GenerateWithIRSpec(ctx context.Context, fn *parser.Function, file *parser.ParsedFile, opts GenerateOptions) (*GeneratedTest, error) {
+	// Read the file content to get the function body
+	content, err := os.ReadFile(file.Path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	// Extract function body from content
+	lines := splitLines(string(content))
+	functionCode := extractLines(lines, fn.StartLine, fn.EndLine)
+
+	// Create the IRSpec prompt
+	prompt := llm.IRSpecGenerationPrompt(
+		functionCode,
+		fn.Name,
+		file.Path,
+		string(file.Language),
+	)
+
+	// Call LLM with JSON mode enabled
+	resp, err := g.llmRouter.Complete(ctx, &llm.Request{
+		Tier:     opts.Tier,
+		System:   llm.SystemPromptIRSpec,
+		Messages: []llm.Message{{Role: "user", Content: prompt}},
+		JSONMode: true, // Force JSON output
+		Temperature: 0.2,
+		MaxTokens:   3000,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("LLM completion failed: %w", err)
+	}
+
+	log.Debug().
+		Str("function", fn.Name).
+		Str("raw_json", resp.Content).
+		Msg("LLM IRSpec JSON response")
+
+	// Parse and convert IRSpec to TestSpecs
+	converter := NewIRSpecConverter()
+	testSpecs, err := converter.ParseAndConvert(resp.Content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse IRSpec: %w\n\nLLM Output:\n%s", err, resp.Content)
+	}
+
+	log.Info().
+		Str("function", fn.Name).
+		Int("test_specs", len(testSpecs)).
+		Msg("generated tests via IRSpec")
+
+	// Convert TestSpecs to DSL for backward compatibility
+	testDSL := convertTestSpecsToDSL(testSpecs, fn.Name, file.Path, opts.TestType)
+
+	return &GeneratedTest{
+		DSL:       testDSL,
+		TestSpecs: testSpecs,
+		RawYAML:   resp.Content, // Store JSON in RawYAML field for now
+		Function:  fn,
+		FileName:  file.Path,
+	}, nil
+}
+
+// convertTestSpecsToDSL converts TestSpecs back to DSL for backward compatibility
+func convertTestSpecsToDSL(specs []model.TestSpec, functionName, filePath string, testType dsl.TestType) *dsl.TestDSL {
+	testDSL := &dsl.TestDSL{
+		Version: "1.0",
+		Type:    testType,
+		Target: dsl.TestTarget{
+			File:     filePath,
+			Function: functionName,
+		},
+		Steps: make([]dsl.TestStep, 0, len(specs)),
+	}
+
+	for _, spec := range specs {
+		// Convert inputs to args slice
+		args := make([]interface{}, 0)
+		for _, v := range spec.Inputs {
+			args = append(args, v)
+		}
+
+		step := dsl.TestStep{
+			Description: spec.Description,
+			Input:       spec.Inputs,
+			Action: dsl.StepAction{
+				Type:   dsl.ActionCall,
+				Target: functionName,
+				Args:   args,
+			},
+		}
+
+		// Convert assertions to expected
+		if len(spec.Assertions) > 0 {
+			a := spec.Assertions[0]
+			step.Expected = &dsl.Expected{
+				Value: a.Expected,
+			}
+		}
+
+		testDSL.Steps = append(testDSL.Steps, step)
+	}
+
+	return testDSL
 }

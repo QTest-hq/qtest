@@ -280,6 +280,7 @@ func generateFileCmd() *cobra.Command {
 		maxTests    int
 		write       bool
 		runMutation bool
+		useIRSpec   bool // Use new IRSpec JSON mode
 	)
 
 	cmd := &cobra.Command{
@@ -329,9 +330,10 @@ func generateFileCmd() *cobra.Command {
 
 			// Generate tests
 			tests, err := gen.GenerateForFile(ctx, filePath, generator.GenerateOptions{
-				Tier:     llmTier,
-				TestType: dsl.TestTypeUnit,
-				MaxTests: maxTests,
+				Tier:      llmTier,
+				TestType:  dsl.TestTypeUnit,
+				MaxTests:  maxTests,
+				UseIRSpec: useIRSpec,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to generate tests: %w", err)
@@ -370,6 +372,7 @@ func generateFileCmd() *cobra.Command {
 	cmd.Flags().IntVarP(&maxTests, "max", "m", 5, "Maximum number of tests to generate")
 	cmd.Flags().BoolVarP(&write, "write", "w", false, "Write test files to disk")
 	cmd.Flags().BoolVar(&runMutation, "mutation", false, "Run mutation testing after generating tests (requires --write)")
+	cmd.Flags().BoolVar(&useIRSpec, "irspec", false, "Use IRSpec JSON mode (structured output)")
 	cmd.MarkFlagRequired("file")
 
 	return cmd
@@ -796,22 +799,22 @@ func writeTestFiles(sourceFile string, tests []generator.GeneratedTest, outputDi
 
 	var code string
 
-	// Try TestSpec-based generation first for Go (better assertions)
-	if lang == parser.LanguageGo {
-		var allSpecs []model.TestSpec
-		for _, test := range tests {
-			if len(test.TestSpecs) > 0 {
-				allSpecs = append(allSpecs, test.TestSpecs...)
-			}
+	// Try TestSpec-based generation first for all supported languages (better assertions)
+	var allSpecs []model.TestSpec
+	for _, test := range tests {
+		if len(test.TestSpecs) > 0 {
+			allSpecs = append(allSpecs, test.TestSpecs...)
 		}
-		if len(allSpecs) > 0 {
-			specAdapter := adapters.NewGoSpecAdapter()
+	}
+	if len(allSpecs) > 0 {
+		specAdapter, specErr := registry.GetSpecForLanguage(lang)
+		if specErr == nil {
 			code, err = specAdapter.GenerateFromSpecs(allSpecs, sourceFile)
 			if err != nil {
-				log.Warn().Err(err).Msg("TestSpec generation failed, falling back to DSL")
+				log.Warn().Err(err).Str("language", string(lang)).Msg("TestSpec generation failed, falling back to DSL")
 				code = ""
 			} else {
-				log.Info().Int("specs", len(allSpecs)).Msg("generated test from TestSpecs with proper assertions")
+				log.Info().Int("specs", len(allSpecs)).Str("language", string(lang)).Msg("generated test from TestSpecs")
 			}
 		}
 	}

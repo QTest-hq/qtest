@@ -135,3 +135,131 @@ func TestRegistry_RegisterOverwrite(t *testing.T) {
 		t.Error("adapter should not be nil after overwrite")
 	}
 }
+
+// Tests for SpecAdapter registry methods
+
+func TestNewRegistry_SpecAdapters(t *testing.T) {
+	r := NewRegistry()
+	if r == nil {
+		t.Fatal("NewRegistry returned nil")
+	}
+	if r.specAdapters == nil {
+		t.Error("specAdapters map should be initialized")
+	}
+
+	// Should have all spec adapters registered
+	specAdapters := []Framework{FrameworkGoTest, FrameworkJest, FrameworkPytest}
+	for _, fw := range specAdapters {
+		adapter, err := r.GetSpec(fw)
+		if err != nil {
+			t.Errorf("spec adapter for %s should be registered: %v", fw, err)
+		}
+		if adapter == nil {
+			t.Errorf("spec adapter for %s should not be nil", fw)
+		}
+	}
+}
+
+func TestRegistry_RegisterSpec(t *testing.T) {
+	r := &Registry{
+		adapters:     make(map[Framework]Adapter),
+		specAdapters: make(map[Framework]SpecAdapter),
+	}
+
+	adapter := NewGoSpecAdapter()
+	r.RegisterSpec(adapter)
+
+	if _, ok := r.specAdapters[FrameworkGoTest]; !ok {
+		t.Error("spec adapter should be registered")
+	}
+}
+
+func TestRegistry_GetSpec(t *testing.T) {
+	r := NewRegistry()
+
+	t.Run("existing framework", func(t *testing.T) {
+		adapter, err := r.GetSpec(FrameworkGoTest)
+		if err != nil {
+			t.Errorf("GetSpec() error: %v", err)
+		}
+		if adapter == nil {
+			t.Error("adapter should not be nil")
+		}
+		if adapter.Framework() != FrameworkGoTest {
+			t.Errorf("Framework() = %s, want go", adapter.Framework())
+		}
+	})
+
+	t.Run("jest framework", func(t *testing.T) {
+		adapter, err := r.GetSpec(FrameworkJest)
+		if err != nil {
+			t.Errorf("GetSpec() error: %v", err)
+		}
+		if adapter == nil {
+			t.Error("adapter should not be nil")
+		}
+		if adapter.Framework() != FrameworkJest {
+			t.Errorf("Framework() = %s, want jest", adapter.Framework())
+		}
+	})
+
+	t.Run("pytest framework", func(t *testing.T) {
+		adapter, err := r.GetSpec(FrameworkPytest)
+		if err != nil {
+			t.Errorf("GetSpec() error: %v", err)
+		}
+		if adapter == nil {
+			t.Error("adapter should not be nil")
+		}
+		if adapter.Framework() != FrameworkPytest {
+			t.Errorf("Framework() = %s, want pytest", adapter.Framework())
+		}
+	})
+
+	t.Run("non-existing framework", func(t *testing.T) {
+		_, err := r.GetSpec("unknown")
+		if err == nil {
+			t.Error("GetSpec() should return error for unknown framework")
+		}
+	})
+}
+
+func TestRegistry_GetSpecForLanguage(t *testing.T) {
+	r := NewRegistry()
+
+	tests := []struct {
+		name      string
+		lang      parser.Language
+		expected  Framework
+		shouldErr bool
+	}{
+		{"go", parser.LanguageGo, FrameworkGoTest, false},
+		{"javascript", parser.LanguageJavaScript, FrameworkJest, false},
+		{"typescript", parser.LanguageTypeScript, FrameworkJest, false},
+		{"python", parser.LanguagePython, FrameworkPytest, false},
+		{"java", parser.LanguageJava, "", true},    // Not implemented for spec
+		{"unknown", parser.LanguageUnknown, "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			adapter, err := r.GetSpecForLanguage(tt.lang)
+
+			if tt.shouldErr {
+				if err == nil {
+					t.Error("GetSpecForLanguage() should return error")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("GetSpecForLanguage() error: %v", err)
+				return
+			}
+
+			if adapter.Framework() != tt.expected {
+				t.Errorf("Framework() = %s, want %s", adapter.Framework(), tt.expected)
+			}
+		})
+	}
+}

@@ -18,7 +18,9 @@ type TestSpec struct {
 
 	// For function tests
 	FunctionName string                 `json:"function_name,omitempty" yaml:"function_name,omitempty"`
-	Inputs       map[string]interface{} `json:"inputs,omitempty" yaml:"inputs,omitempty"` // function args
+	Inputs       map[string]interface{} `json:"inputs,omitempty" yaml:"inputs,omitempty"`       // function args (name -> value)
+	InputTypes   map[string]string      `json:"input_types,omitempty" yaml:"input_types,omitempty"` // type hints (name -> type)
+	ArgOrder     []string               `json:"arg_order,omitempty" yaml:"arg_order,omitempty"`     // ordered argument names
 
 	// For API tests
 	Method      string                 `json:"method,omitempty" yaml:"method,omitempty"`           // GET, POST, etc.
