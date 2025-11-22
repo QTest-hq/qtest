@@ -423,11 +423,11 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P4-020 | Set up Next.js project | 🔴 | P0 | - | |
-| P4-021 | Implement authentication (NextAuth) | 🔴 | P0 | P4-020 | GitHub OAuth |
-| P4-022 | Build repository list page | 🔴 | P0 | P4-020 | |
+| P4-020 | Set up Next.js project | 🟢 | P0 | - | Next.js 16, TypeScript, Tailwind |
+| P4-021 | Implement authentication (NextAuth) | 🟡 | P0 | P4-020 | API client ready, needs NextAuth |
+| P4-022 | Build repository list page | 🟢 | P0 | P4-020 | repos/page.tsx with CRUD |
 | P4-023 | Build repository detail page | 🔴 | P0 | P4-020 | |
-| P4-024 | Build run history page | 🔴 | P0 | P4-020 | |
+| P4-024 | Build run history page | 🟢 | P0 | P4-020 | jobs/page.tsx with filters |
 | P4-025 | Build run detail page | 🔴 | P0 | P4-020 | Real-time progress |
 | P4-026 | Build coverage dashboard | 🔴 | P1 | P4-020 | Charts, trends |
 | P4-027 | Build settings page | 🔴 | P1 | P4-020 | |
@@ -475,8 +475,8 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | Phase 1 | 86 | 2 | 20 | **80%** |
 | Phase 2 | 2 | 2 | 32 | **6%** |
 | Phase 3 | 21 | 0 | 24 | **47%** |
-| Phase 4 | 0 | 0 | 35 | 0% |
-| **Total** | **109** | **4** | **111** | **49%** |
+| Phase 4 | 3 | 1 | 31 | **9%** |
+| **Total** | **112** | **5** | **107** | **51%** |
 
 ### Critical Path (Must Complete for MVP)
 
@@ -500,6 +500,7 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-22 | **Session 3 update**: Added GitHub OAuth (auth/github.go, session.go, handlers.go with 27 tests), LLM usage tracking (usage.go with budget limits, rate limiting, cost estimation), worker system wiring (cmd/worker/main.go), worker integration tests. Phase 1 now 73% complete. Overall 46% complete. |
 | 2025-11-22 | **Worker audit**: Discovered ALL 6 workers (Ingestion, Modeling, Planning, Generation, Mutation, Integration) are fully implemented in workers.go. Updated tracker - Phase 1 now 77% complete. Overall 48% complete. |
 | 2025-11-22 | **API tests + Auth wiring**: Added 93 API tests (mutation, mock, auth, server), wired OAuth to API server (/auth/login, /auth/callback, /api/v1/auth/me). Phase 1 now 80% complete. Overall 49% complete. |
+| 2025-11-22 | **Frontend init**: Set up Next.js 16 with TypeScript and Tailwind. Created dashboard, repos list, jobs list pages with API client. Phase 4 started at 9%. Overall 51% complete. |
 
 ---
 
