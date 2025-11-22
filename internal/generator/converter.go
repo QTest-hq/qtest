@@ -14,8 +14,10 @@ type SimpleTest struct {
 	Setup      map[string]interface{} `yaml:"setup,omitempty"`
 	Action     interface{}            `yaml:"action"`     // Can be string or map
 	Assertions interface{}            `yaml:"assertions"` // Can be map or list
+	Assertion  interface{}            `yaml:"assertion"`  // Singular form
 	Assert     interface{}            `yaml:"assert"`     // Alternative name for assertions
 	Expected   interface{}            `yaml:"expected"`   // Another alternative
+	Expect     interface{}            `yaml:"expect"`     // Another alternative
 }
 
 // GetAssertions returns assertions from whichever field is populated
@@ -23,11 +25,17 @@ func (t *SimpleTest) GetAssertions() interface{} {
 	if t.Assertions != nil {
 		return t.Assertions
 	}
+	if t.Assertion != nil {
+		return t.Assertion
+	}
 	if t.Assert != nil {
 		return t.Assert
 	}
 	if t.Expected != nil {
 		return t.Expected
+	}
+	if t.Expect != nil {
+		return t.Expect
 	}
 	return nil
 }

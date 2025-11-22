@@ -8,6 +8,7 @@ import (
 	"github.com/QTest-hq/qtest/internal/llm"
 	"github.com/QTest-hq/qtest/internal/parser"
 	"github.com/QTest-hq/qtest/pkg/dsl"
+	"github.com/QTest-hq/qtest/pkg/model"
 	"github.com/rs/zerolog/log"
 )
 
@@ -36,10 +37,11 @@ type GenerateOptions struct {
 
 // GeneratedTest represents a generated test with metadata
 type GeneratedTest struct {
-	DSL      *dsl.TestDSL
-	RawYAML  string
-	Function *parser.Function
-	FileName string
+	DSL       *dsl.TestDSL
+	TestSpecs []model.TestSpec // New: rich test specs with proper assertions
+	RawYAML   string
+	Function  *parser.Function
+	FileName  string
 }
 
 // GenerateForFile generates tests for all functions in a file
@@ -183,11 +185,32 @@ func (g *Generator) generateTestForFunction(ctx context.Context, fn *parser.Func
 		Function: fn.Name,
 	}
 
+	// Also convert to TestSpec with proper Assertions
+	var testSpecs []model.TestSpec
+	specs, specErr := ConvertToTestSpec(yamlContent, fn.Name, file.Path, string(file.Language))
+	if specErr != nil {
+		log.Debug().Err(specErr).Str("function", fn.Name).Msg("failed to convert to TestSpec, using DSL only")
+	} else {
+		testSpecs = specs
+		log.Debug().
+			Str("function", fn.Name).
+			Int("specs", len(testSpecs)).
+			Msg("converted to TestSpecs")
+		for i, spec := range testSpecs {
+			log.Debug().
+				Int("spec", i).
+				Str("desc", spec.Description).
+				Int("assertions", len(spec.Assertions)).
+				Msg("TestSpec")
+		}
+	}
+
 	return &GeneratedTest{
-		DSL:      testDSL,
-		RawYAML:  yamlContent,
-		Function: fn,
-		FileName: file.Path,
+		DSL:       testDSL,
+		TestSpecs: testSpecs,
+		RawYAML:   yamlContent,
+		Function:  fn,
+		FileName:  file.Path,
 	}, nil
 }
 

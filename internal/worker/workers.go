@@ -21,6 +21,7 @@ import (
 	"github.com/QTest-hq/qtest/internal/mutation"
 	"github.com/QTest-hq/qtest/internal/parser"
 	"github.com/QTest-hq/qtest/pkg/dsl"
+	"github.com/QTest-hq/qtest/pkg/model"
 )
 
 // IngestionWorker handles repository cloning and initial processing
@@ -234,14 +235,88 @@ func (w *ModelingWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 		Str("repo_id", payload.RepositoryID.String()).
 		Msg("modeling repository")
 
-	// Parse all source files and build model
+	// Parse all source files and build rich SystemModel
+	p := parser.NewParser()
+
+	// Get repository info
+	repoName := filepath.Base(payload.WorkspacePath)
+	commitSHA := getCommitSHA(ctx, payload.WorkspacePath)
+
+	// Build rich SystemModel using pkg/model
+	sysModel, err := model.BuildSystemModelFromParser(ctx, p, payload.WorkspacePath, repoName, "main", commitSHA)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to build system model, falling back to basic parsing")
+		// Fall back to basic parsing if model building fails
+		return w.handleJobLegacy(ctx, job, payload)
+	}
+
+	stats := sysModel.Stats()
+	log.Info().
+		Int("modules", stats["modules"]).
+		Int("functions", stats["functions"]).
+		Int("types", stats["types"]).
+		Int("endpoints", stats["endpoints"]).
+		Int("test_targets", stats["test_targets"]).
+		Strs("languages", sysModel.Languages).
+		Msg("built system model")
+
+	// Serialize the rich model to JSON
+	modelJSON, err := json.Marshal(sysModel)
+	if err != nil {
+		return fmt.Errorf("failed to serialize model: %w", err)
+	}
+
+	// Create system model in database
+	modelID := uuid.New()
+	if w.store != nil {
+		if err := w.store.CreateSystemModel(ctx, &db.SystemModel{
+			ID:           modelID,
+			RepositoryID: payload.RepositoryID,
+			CommitSHA:    commitSHA,
+			ModelData:    modelJSON,
+		}); err != nil {
+			log.Warn().Err(err).Msg("failed to persist system model")
+			// Continue without DB persistence
+		}
+	}
+
+	result := jobs.ModelingResult{
+		ModelID:       modelID,
+		FileCount:     stats["modules"],
+		FunctionCount: stats["functions"],
+		EndpointCount: stats["endpoints"],
+	}
+
+	if err := w.Repository().Complete(ctx, job.ID, result); err != nil {
+		return fmt.Errorf("failed to complete job: %w", err)
+	}
+
+	// Chain to planning job with pipeline options
+	if w.Pipeline() != nil {
+		opts := jobs.PipelineJobOptions{
+			MaxTests:    payload.MaxTests,
+			LLMTier:     payload.LLMTier,
+			RunMutation: payload.RunMutation,
+			CreatePR:    payload.CreatePR,
+		}
+		_, err := w.Pipeline().CreatePlanningJob(ctx, job.ID, payload.RepositoryID, result.ModelID, opts)
+		if err != nil {
+			log.Warn().Err(err).Msg("failed to create planning job")
+		}
+	}
+
+	return nil
+}
+
+// handleJobLegacy is the fallback handler for basic parsing
+func (w *ModelingWorker) handleJobLegacy(ctx context.Context, job *jobs.Job, payload jobs.ModelingPayload) error {
 	p := parser.NewParser()
 	var functionCount, fileCount int
 	var functions []modelFunction
 	var endpoints []modelEndpoint
 
-	err := filepath.Walk(payload.WorkspacePath, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+	err := filepath.Walk(payload.WorkspacePath, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info.IsDir() {
 			return nil
 		}
 
@@ -320,7 +395,6 @@ func (w *ModelingWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 			ModelData:    modelJSON,
 		}); err != nil {
 			log.Warn().Err(err).Msg("failed to persist system model")
-			// Continue without DB persistence
 		}
 	}
 
@@ -414,35 +488,67 @@ func (w *PlanningWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 		Int("max_tests", payload.MaxTests).
 		Msg("creating test plan")
 
-	// Load model from DB to get function count
-	var functionCount int
+	// Try to load rich SystemModel and use proper planner
+	var testPlan *model.TestPlan
+	var sysModel *model.SystemModel
+
 	if w.store != nil {
-		model, err := w.store.GetSystemModel(ctx, payload.ModelID)
+		dbModel, err := w.store.GetSystemModel(ctx, payload.ModelID)
 		if err != nil {
 			log.Warn().Err(err).Msg("failed to load system model")
-		} else if model != nil {
-			var modelData systemModelData
-			if err := json.Unmarshal(model.ModelData, &modelData); err == nil {
-				functionCount = modelData.Stats.FunctionCount
+		} else if dbModel != nil {
+			// Try to unmarshal as rich SystemModel first
+			if err := json.Unmarshal(dbModel.ModelData, &sysModel); err == nil && sysModel != nil && len(sysModel.Functions) > 0 {
+				// Use the real planner!
+				plannerConfig := model.DefaultPlannerConfig()
+				if payload.MaxTests > 0 {
+					plannerConfig.MaxIntents = payload.MaxTests
+				}
+				planner := model.NewPlanner(plannerConfig)
+
+				testPlan, err = planner.Plan(sysModel)
+				if err != nil {
+					log.Warn().Err(err).Msg("failed to create test plan with planner")
+					testPlan = nil
+				} else {
+					stats := testPlan.Stats()
+					log.Info().
+						Int("total", stats["total"]).
+						Int("unit", stats["unit"]).
+						Int("api", stats["api"]).
+						Int("e2e", stats["e2e"]).
+						Int("high_priority", stats["high"]).
+						Int("medium_priority", stats["medium"]).
+						Int("low_priority", stats["low"]).
+						Msg("created test plan with planner")
+				}
 			}
 		}
 	}
 
-	// Calculate test distribution based on model
-	maxTests := payload.MaxTests
-	if maxTests == 0 {
-		maxTests = functionCount // Default to one test per function
-		if maxTests == 0 {
-			maxTests = 10 // Fallback default
+	// Fall back to simple calculation if planner didn't work
+	var result jobs.PlanningResult
+	if testPlan != nil {
+		result = jobs.PlanningResult{
+			PlanID:     uuid.New(),
+			TotalTests: testPlan.TotalTests,
+			UnitTests:  testPlan.UnitTests,
+			APITests:   testPlan.APITests,
+			E2ETests:   testPlan.E2ETests,
 		}
-	}
-
-	result := jobs.PlanningResult{
-		PlanID:     uuid.New(),
-		TotalTests: maxTests,
-		UnitTests:  int(float64(maxTests) * 0.6),
-		APITests:   int(float64(maxTests) * 0.3),
-		E2ETests:   int(float64(maxTests) * 0.1),
+	} else {
+		// Fallback: simple percentage split
+		maxTests := payload.MaxTests
+		if maxTests == 0 {
+			maxTests = 10
+		}
+		result = jobs.PlanningResult{
+			PlanID:     uuid.New(),
+			TotalTests: maxTests,
+			UnitTests:  int(float64(maxTests) * 0.6),
+			APITests:   int(float64(maxTests) * 0.3),
+			E2ETests:   int(float64(maxTests) * 0.1),
+		}
 	}
 
 	if err := w.Repository().Complete(ctx, job.ID, result); err != nil {
@@ -723,8 +829,22 @@ func (w *GenerationWorker) writeTestFile(sourcePath string, test generator.Gener
 	var err error
 	switch ext {
 	case ".go":
-		adapter := adapters.NewGoAdapter()
-		testCode, err = adapter.Generate(test.DSL)
+		// Prefer TestSpec-based generation for better assertions
+		if len(test.TestSpecs) > 0 {
+			specAdapter := adapters.NewGoSpecAdapter()
+			testCode, err = specAdapter.GenerateFromSpecs(test.TestSpecs, sourcePath)
+			if err != nil {
+				log.Warn().Err(err).Msg("TestSpec generation failed, falling back to DSL")
+				// Fall back to DSL-based generation
+				adapter := adapters.NewGoAdapter()
+				testCode, err = adapter.Generate(test.DSL)
+			} else {
+				log.Info().Int("specs", len(test.TestSpecs)).Msg("generated test from TestSpecs with proper assertions")
+			}
+		} else {
+			adapter := adapters.NewGoAdapter()
+			testCode, err = adapter.Generate(test.DSL)
+		}
 	case ".py":
 		adapter := adapters.NewPytestAdapter()
 		testCode, err = adapter.Generate(test.DSL)

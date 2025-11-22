@@ -487,3 +487,55 @@ func DetectLanguage(path string) Language {
 		return LanguageUnknown
 	}
 }
+
+// ParseDirectory parses all source files in a directory
+func (p *Parser) ParseDirectory(ctx context.Context, dir string) ([]*ParsedFile, error) {
+	var files []*ParsedFile
+
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Skip errors
+		}
+
+		// Skip directories
+		if info.IsDir() {
+			name := info.Name()
+			// Skip hidden directories and common non-source directories
+			if strings.HasPrefix(name, ".") || name == "node_modules" ||
+				name == "vendor" || name == "__pycache__" || name == "testdata" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Skip test files
+		base := info.Name()
+		if strings.HasSuffix(base, "_test.go") || strings.HasPrefix(base, "test_") ||
+			strings.HasSuffix(base, ".test.ts") || strings.HasSuffix(base, ".test.js") ||
+			strings.HasSuffix(base, ".spec.ts") || strings.HasSuffix(base, ".spec.js") {
+			return nil
+		}
+
+		// Check if it's a supported source file
+		lang := DetectLanguage(path)
+		if lang == LanguageUnknown {
+			return nil
+		}
+
+		// Parse the file
+		parsed, parseErr := p.ParseFile(ctx, path)
+		if parseErr != nil {
+			// Log but continue
+			return nil
+		}
+
+		files = append(files, parsed)
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to walk directory: %w", err)
+	}
+
+	return files, nil
+}

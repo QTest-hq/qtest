@@ -794,33 +794,58 @@ func writeTestFiles(sourceFile string, tests []generator.GeneratedTest, outputDi
 	name := strings.TrimSuffix(base, ext)
 	testFile := filepath.Join(dir, name+adapter.TestFileSuffix()+adapter.FileExtension())
 
-	// Combine all DSLs into one with all steps
-	combinedDSL := &dsl.TestDSL{
-		Version: "1.0",
-		Name:    name + "_combined",
-		Type:    dsl.TestTypeUnit,
-		Target: dsl.TestTarget{
-			File: sourceFile,
-		},
-		Steps: make([]dsl.TestStep, 0),
-	}
+	var code string
 
-	for _, test := range tests {
-		if test.DSL == nil {
-			continue
+	// Try TestSpec-based generation first for Go (better assertions)
+	if lang == parser.LanguageGo {
+		var allSpecs []model.TestSpec
+		for _, test := range tests {
+			if len(test.TestSpecs) > 0 {
+				allSpecs = append(allSpecs, test.TestSpecs...)
+			}
 		}
-		// Add all steps from each test
-		combinedDSL.Steps = append(combinedDSL.Steps, test.DSL.Steps...)
+		if len(allSpecs) > 0 {
+			specAdapter := adapters.NewGoSpecAdapter()
+			code, err = specAdapter.GenerateFromSpecs(allSpecs, sourceFile)
+			if err != nil {
+				log.Warn().Err(err).Msg("TestSpec generation failed, falling back to DSL")
+				code = ""
+			} else {
+				log.Info().Int("specs", len(allSpecs)).Msg("generated test from TestSpecs with proper assertions")
+			}
+		}
 	}
 
-	if len(combinedDSL.Steps) == 0 {
-		return fmt.Errorf("no test steps could be generated")
-	}
+	// Fall back to DSL-based generation
+	if code == "" {
+		// Combine all DSLs into one with all steps
+		combinedDSL := &dsl.TestDSL{
+			Version: "1.0",
+			Name:    name + "_combined",
+			Type:    dsl.TestTypeUnit,
+			Target: dsl.TestTarget{
+				File: sourceFile,
+			},
+			Steps: make([]dsl.TestStep, 0),
+		}
 
-	// Generate combined test code
-	code, err := adapter.Generate(combinedDSL)
-	if err != nil {
-		return fmt.Errorf("failed to generate test code: %w", err)
+		for _, test := range tests {
+			if test.DSL == nil {
+				continue
+			}
+			// Add all steps from each test
+			combinedDSL.Steps = append(combinedDSL.Steps, test.DSL.Steps...)
+		}
+
+		if len(combinedDSL.Steps) == 0 {
+			return fmt.Errorf("no test steps could be generated")
+		}
+
+		// Generate combined test code
+		code, err = adapter.Generate(combinedDSL)
+		if err != nil {
+			return fmt.Errorf("failed to generate test code: %w", err)
+		}
 	}
 
 	// Write to file
@@ -829,7 +854,17 @@ func writeTestFiles(sourceFile string, tests []generator.GeneratedTest, outputDi
 	}
 
 	fmt.Printf("📝 Written: %s\n", testFile)
-	fmt.Printf("   Tests: %d steps\n", len(combinedDSL.Steps))
+
+	// Count steps for display
+	stepCount := 0
+	for _, test := range tests {
+		if len(test.TestSpecs) > 0 {
+			stepCount += len(test.TestSpecs)
+		} else if test.DSL != nil {
+			stepCount += len(test.DSL.Steps)
+		}
+	}
+	fmt.Printf("   Tests: %d steps\n", stepCount)
 
 	return nil
 }
