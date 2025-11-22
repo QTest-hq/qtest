@@ -21,6 +21,7 @@ const (
 	SubjectJobModeling    = "jobs.modeling"
 	SubjectJobPlanning    = "jobs.planning"
 	SubjectJobGeneration  = "jobs.generation"
+	SubjectJobValidation  = "jobs.validation"
 	SubjectJobMutation    = "jobs.mutation"
 	SubjectJobIntegration = "jobs.integration"
 )
@@ -31,6 +32,7 @@ const (
 	ConsumerModeling    = "modeling-worker"
 	ConsumerPlanning    = "planning-worker"
 	ConsumerGeneration  = "generation-worker"
+	ConsumerValidation  = "validation-worker"
 	ConsumerMutation    = "mutation-worker"
 	ConsumerIntegration = "integration-worker"
 )
@@ -65,6 +67,7 @@ func (c *Client) SetupStreams(ctx context.Context) error {
 		{ConsumerModeling, SubjectJobModeling},
 		{ConsumerPlanning, SubjectJobPlanning},
 		{ConsumerGeneration, SubjectJobGeneration},
+		{ConsumerValidation, SubjectJobValidation},
 		{ConsumerMutation, SubjectJobMutation},
 		{ConsumerIntegration, SubjectJobIntegration},
 	}
@@ -89,6 +92,8 @@ func SubjectForJobType(jobType string) string {
 		return SubjectJobPlanning
 	case "generation":
 		return SubjectJobGeneration
+	case "validation":
+		return SubjectJobValidation
 	case "mutation":
 		return SubjectJobMutation
 	case "integration":
@@ -109,6 +114,8 @@ func ConsumerForJobType(jobType string) string {
 		return ConsumerPlanning
 	case "generation":
 		return ConsumerGeneration
+	case "validation":
+		return ConsumerValidation
 	case "mutation":
 		return ConsumerMutation
 	case "integration":
