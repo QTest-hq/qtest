@@ -87,8 +87,19 @@ func (db *TestDB) Cleanup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Truncate all tables
-	tables := []string{"generated_tests", "generation_runs", "system_models", "repositories"}
+	// Truncate all tables (order matters for foreign keys)
+	tables := []string{
+		"audit_logs",
+		"api_keys",
+		"sessions",
+		"generated_tests",
+		"generation_runs",
+		"system_models",
+		"repositories",
+		"organization_members",
+		"organizations",
+		"users",
+	}
 	for _, table := range tables {
 		_, err := db.Pool.Exec(ctx, fmt.Sprintf("TRUNCATE TABLE %s CASCADE", table))
 		if err != nil {
@@ -107,6 +118,83 @@ func (db *TestDB) Close() {
 // setupSchema creates the necessary tables for testing
 func setupSchema(ctx context.Context, pool *pgxpool.Pool) error {
 	schema := `
+	-- Multi-tenancy tables (must be created first for foreign keys)
+	CREATE TABLE IF NOT EXISTS users (
+		id UUID PRIMARY KEY,
+		github_id BIGINT UNIQUE NOT NULL,
+		github_login TEXT NOT NULL,
+		email TEXT,
+		name TEXT,
+		avatar_url TEXT,
+		is_active BOOLEAN NOT NULL DEFAULT true,
+		created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+	);
+
+	CREATE TABLE IF NOT EXISTS organizations (
+		id UUID PRIMARY KEY,
+		name TEXT NOT NULL,
+		slug TEXT UNIQUE NOT NULL,
+		description TEXT,
+		owner_id UUID NOT NULL REFERENCES users(id),
+		github_org_id BIGINT,
+		settings JSONB NOT NULL DEFAULT '{}',
+		is_personal BOOLEAN NOT NULL DEFAULT false,
+		created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+	);
+
+	CREATE TABLE IF NOT EXISTS organization_members (
+		id UUID PRIMARY KEY,
+		organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+		user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		role TEXT NOT NULL,
+		invited_by UUID REFERENCES users(id),
+		joined_at TIMESTAMP WITH TIME ZONE NOT NULL,
+		created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+		UNIQUE(organization_id, user_id)
+	);
+
+	CREATE TABLE IF NOT EXISTS api_keys (
+		id UUID PRIMARY KEY,
+		organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+		user_id UUID NOT NULL REFERENCES users(id),
+		name TEXT NOT NULL,
+		key_prefix TEXT NOT NULL,
+		key_hash TEXT NOT NULL UNIQUE,
+		scopes TEXT[] NOT NULL,
+		expires_at TIMESTAMP WITH TIME ZONE,
+		last_used_at TIMESTAMP WITH TIME ZONE,
+		revoked_at TIMESTAMP WITH TIME ZONE,
+		created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+	);
+
+	CREATE TABLE IF NOT EXISTS sessions (
+		id UUID PRIMARY KEY,
+		user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		access_token TEXT NOT NULL,
+		refresh_token TEXT,
+		expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+		last_access TIMESTAMP WITH TIME ZONE NOT NULL,
+		ip_address TEXT,
+		user_agent TEXT,
+		created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+	);
+
+	CREATE TABLE IF NOT EXISTS audit_logs (
+		id UUID PRIMARY KEY,
+		organization_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
+		user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+		action TEXT NOT NULL,
+		resource_type TEXT NOT NULL,
+		resource_id UUID,
+		details JSONB,
+		ip_address TEXT,
+		user_agent TEXT,
+		created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+	);
+
+	-- Original tables
 	CREATE TABLE IF NOT EXISTS repositories (
 		id UUID PRIMARY KEY,
 		url TEXT NOT NULL UNIQUE,
@@ -162,6 +250,12 @@ func setupSchema(ctx context.Context, pool *pgxpool.Pool) error {
 	CREATE INDEX IF NOT EXISTS idx_system_models_repository_id ON system_models(repository_id);
 	CREATE INDEX IF NOT EXISTS idx_generation_runs_repository_id ON generation_runs(repository_id);
 	CREATE INDEX IF NOT EXISTS idx_generated_tests_run_id ON generated_tests(run_id);
+	CREATE INDEX IF NOT EXISTS idx_organizations_owner_id ON organizations(owner_id);
+	CREATE INDEX IF NOT EXISTS idx_organization_members_user_id ON organization_members(user_id);
+	CREATE INDEX IF NOT EXISTS idx_api_keys_organization_id ON api_keys(organization_id);
+	CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
+	CREATE INDEX IF NOT EXISTS idx_audit_logs_organization_id ON audit_logs(organization_id);
+	CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
 	`
 
 	_, err := pool.Exec(ctx, schema)
