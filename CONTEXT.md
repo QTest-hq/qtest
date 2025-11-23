@@ -1,6 +1,6 @@
 # QTest Development Context Document
 
-**Date:** 2025-11-21
+**Date:** 2025-11-23
 **Purpose:** Resume development from current state
 
 ---
@@ -189,14 +189,24 @@ cd examples && go test -v
 
 ---
 
-## Recent Changes (2025-11-21)
+## Recent Changes (2025-11-23)
 
-1. **Coverage-Guided Generation** - Iterative test generation to reach coverage targets
-2. **Spring Boot Supplement** - Java REST endpoint detection
-3. **Django REST Supplement** - Python DRF endpoint detection
-4. **Contract Testing** - API contract generation and validation
-5. **Test Data Generator** - Field-aware and schema-based data generation
-6. **Test Validation** - Run tests with LLM-powered auto-fix
+1. **Enterprise Tests** - Unit tests for admin API (7 tests), rate limiter (11 tests), jobs hooks (9 tests), webhook events (10 tests)
+2. **Rate Limiting Complete** - Memory + Redis storage backends with middleware
+3. **Test Count ~130** - Comprehensive test coverage across server, mutation, mock, auth, jobs, integration, admin, ratelimit, hooks, webhook
+
+### Previous Changes (2025-11-22)
+- GitHub OAuth with session management (27 tests)
+- LLM usage tracking with budget limits
+- Worker system fully implemented (6 workers)
+- API tests (93 tests)
+- Frontend initialization (Next.js 16)
+
+### Earlier Changes (2025-11-21)
+- Coverage-Guided Generation
+- Spring Boot, Django REST Supplements
+- Contract Testing & Test Data Generator
+- Test Validation with LLM auto-fix
 
 ---
 
@@ -357,6 +367,12 @@ jobRepo.SetEventHook(handler.HandleEvent)
 
 ## Remaining Gaps (Priority)
 
-1. **GitHub PR Integration** - Auto-create PRs with generated tests
-2. **Java Test Emitter (JUnit)** - Spring Boot detection exists, no emitter
-3. **LLM Cache/Budget** - Cost control for LLM calls
+1. **GitHub App Auth** - Full OAuth flow works, GitHub App auth not yet implemented (P1-110)
+2. **Database Integration Tests** - testcontainers needed (P1-018)
+3. **OpenAPI Documentation** - API docs not yet implemented (P1-146)
+
+### Completed (Previously Gaps)
+- ✅ GitHub PR Integration - internal/github/pr.go
+- ✅ JUnit Emitter - emitter/junit.go
+- ✅ LLM Cache/Budget - internal/llm/cache.go, usage.go
+- ✅ Rate Limiting - internal/api/ratelimit/

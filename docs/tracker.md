@@ -213,9 +213,9 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-142 | Implement repos endpoints | 🟢 | P0 | P1-140, P1-013 | CRUD + clone + jobs listing |
 | P1-143 | Implement runs endpoints | 🟢 | P0 | P1-140, P1-015 | Create, list, get, tests |
 | P1-144 | Implement auth middleware | 🟢 | P0 | P1-020 | internal/auth/session.go - RequireAuth/OptionalAuth - API wiring complete |
-| P1-145 | Implement rate limiting | 🔴 | P1 | P1-140 | Not implemented |
+| P1-145 | Implement rate limiting | 🟢 | P1 | P1-140 | internal/api/ratelimit/ - Memory + Redis storage, middleware, 11 tests |
 | P1-146 | Add OpenAPI documentation | 🔴 | P1 | P1-142-143 | Not implemented |
-| P1-147 | Write API tests | 🟢 | P1 | P1-142-145 | 93 tests: server, mutation, mock, auth, jobs, integration |
+| P1-147 | Write API tests | 🟢 | P1 | P1-142-145 | ~130 tests: server, mutation, mock, auth, jobs, integration, admin, ratelimit, hooks, webhook |
 
 ### 1.16 CLI Tool
 
@@ -468,7 +468,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | Phase 4: Scale | 35 | 20 | 14 | 1 |
 | **Total** | **203** | **137** | **65** | **1** |
 
-### Progress Tracking (Updated 2025-11-22)
+### Progress Tracking (Updated 2025-11-23)
 
 | Phase | 🟢 Completed | 🟡 In Progress | 🔴 Not Started | % Done |
 |-------|-------------|----------------|----------------|--------|
@@ -501,6 +501,7 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-22 | **Worker audit**: Discovered ALL 6 workers (Ingestion, Modeling, Planning, Generation, Mutation, Integration) are fully implemented in workers.go. Updated tracker - Phase 1 now 77% complete. Overall 48% complete. |
 | 2025-11-22 | **API tests + Auth wiring**: Added 93 API tests (mutation, mock, auth, server), wired OAuth to API server (/auth/login, /auth/callback, /api/v1/auth/me). Phase 1 now 80% complete. Overall 49% complete. |
 | 2025-11-22 | **Frontend init**: Set up Next.js 16 with TypeScript and Tailwind. Created dashboard, repos list, jobs list pages with API client. Phase 4 started at 9%. Overall 51% complete. |
+| 2025-11-23 | **Enterprise tests**: Added unit tests for admin API (7 tests), rate limiter (11 tests), jobs hooks (9 tests), webhook events (10 tests). Rate limiting (P1-145) complete with Memory + Redis storage. Test count now ~130. |
 
 ---
 
