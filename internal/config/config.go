@@ -30,6 +30,9 @@ type Config struct {
 	// GitHub OAuth
 	GitHubOAuth GitHubOAuthConfig
 
+	// GitHub App (for organization-wide access)
+	GitHubApp GitHubAppConfig
+
 	// Rate Limiting
 	RateLimit RateLimitConfig
 }
@@ -49,6 +52,20 @@ type GitHubOAuthConfig struct {
 	ClientID     string
 	ClientSecret string
 	RedirectURL  string
+}
+
+// GitHubAppConfig holds GitHub App configuration for organization-wide access
+type GitHubAppConfig struct {
+	// AppID is the GitHub App's ID
+	AppID int64
+	// PrivateKeyPath is the path to the App's private key PEM file
+	PrivateKeyPath string
+	// PrivateKey is the raw PEM content (alternative to path)
+	PrivateKey string
+	// WebhookSecret is the secret for validating webhook payloads
+	WebhookSecret string
+	// Enabled indicates if GitHub App auth is configured
+	Enabled bool
 }
 
 // LLMConfig holds LLM-related configuration
@@ -83,6 +100,14 @@ func Load() (*Config, error) {
 			ClientID:     getEnv("GITHUB_OAUTH_CLIENT_ID", ""),
 			ClientSecret: getEnv("GITHUB_OAUTH_CLIENT_SECRET", ""),
 			RedirectURL:  getEnv("GITHUB_OAUTH_REDIRECT_URL", "http://localhost:8080/auth/callback"),
+		},
+
+		GitHubApp: GitHubAppConfig{
+			AppID:          getEnvInt64("GITHUB_APP_ID", 0),
+			PrivateKeyPath: getEnv("GITHUB_APP_PRIVATE_KEY_PATH", ""),
+			PrivateKey:     getEnv("GITHUB_APP_PRIVATE_KEY", ""),
+			WebhookSecret:  getEnv("GITHUB_APP_WEBHOOK_SECRET", ""),
+			Enabled:        getEnvInt64("GITHUB_APP_ID", 0) > 0,
 		},
 
 		LLM: LLMConfig{
@@ -145,6 +170,15 @@ func getEnvBool(key string, defaultValue bool) bool {
 	if value := os.Getenv(key); value != "" {
 		if b, err := strconv.ParseBool(value); err == nil {
 			return b
+		}
+	}
+	return defaultValue
+}
+
+func getEnvInt64(key string, defaultValue int64) int64 {
+	if value := os.Getenv(key); value != "" {
+		if i, err := strconv.ParseInt(value, 10, 64); err == nil {
+			return i
 		}
 	}
 	return defaultValue
