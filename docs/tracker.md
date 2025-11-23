@@ -91,12 +91,12 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
 | P1-050 | Define SystemModel Go struct | 🟢 | P0 | - | internal/parser/types.go |
-| P1-051 | Implement model builder orchestrator | 🟡 | P0 | P1-038 | Basic in workspace/ |
+| P1-051 | Implement model builder orchestrator | ✅ | P0 | P1-038 | Full orchestrator with depgraph integration, parallel parsing, validation |
 | P1-052 | Build dependency graph | ✅ | P0 | P1-037 | depgraph/ with cycle detection, topological sort |
 | P1-053 | Calculate complexity metrics | 🔴 | P1 | P1-036 | Not implemented |
-| P1-054 | Calculate risk scores | 🔴 | P1 | P1-052, P1-053 | Not implemented |
+| P1-054 | Calculate risk scores | 🟢 | P1 | P1-052, P1-053 | Implemented in builder.go + orchestrator with depth risk |
 | P1-055 | Serialize model to JSON | 🟢 | P0 | P1-050 | JSON marshaling works |
-| P1-056 | Write model builder tests | 🔴 | P1 | P1-051-055 | No tests |
+| P1-056 | Write model builder tests | 🟢 | P1 | P1-051-055 | orchestrator_test.go + builder_test.go |
 
 ### 1.7 Test Planner
 
