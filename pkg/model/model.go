@@ -118,6 +118,25 @@ type Field struct {
 	Tags     string `json:"tags,omitempty"` // Go struct tags, Java annotations
 }
 
+// BodySchema represents a detailed request/response body schema
+type BodySchema struct {
+	TypeName    string        `json:"type_name,omitempty"`    // Original type name (e.g., "CreateUserRequest")
+	ContentType string        `json:"content_type,omitempty"` // e.g., "application/json"
+	Required    bool          `json:"required,omitempty"`     // Is body required?
+	Fields      []SchemaField `json:"fields,omitempty"`       // Flattened field list
+}
+
+// SchemaField represents a field in a request/response body
+type SchemaField struct {
+	Name        string `json:"name"`                   // Field name
+	Type        string `json:"type"`                   // Field type (string, int, bool, etc.)
+	Required    bool   `json:"required,omitempty"`     // Is field required?
+	Description string `json:"description,omitempty"`  // From comments/annotations
+	Example     string `json:"example,omitempty"`      // Example value
+	JSONName    string `json:"json_name,omitempty"`    // JSON tag name if different
+	Validation  string `json:"validation,omitempty"`   // Validation rules (e.g., "min=1,max=100")
+}
+
 // Endpoint represents an HTTP API endpoint
 type Endpoint struct {
 	ID      string `json:"id"`
@@ -131,9 +150,13 @@ type Endpoint struct {
 	PathParams  []string `json:"path_params,omitempty"` // e.g., :id, {userId}
 	QueryParams []string `json:"query_params,omitempty"`
 
-	// Request/Response
+	// Request/Response (simple type names for backwards compatibility)
 	RequestBody  string `json:"request_body,omitempty"`  // Type name
 	ResponseBody string `json:"response_body,omitempty"` // Type name
+
+	// Request/Response schemas (detailed)
+	RequestSchema  *BodySchema `json:"request_schema,omitempty"`
+	ResponseSchema *BodySchema `json:"response_schema,omitempty"`
 
 	// Framework
 	Framework  string   `json:"framework"` // express, fastapi, gin, etc.
