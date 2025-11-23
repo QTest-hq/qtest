@@ -42,17 +42,22 @@ type Server struct {
 	pipeline    *jobs.Pipeline
 
 	// Auth components
-	authHandlers  *auth.Handlers
+	authHandlers   *auth.Handlers
 	authMiddleware *auth.Middleware
+
+	// Organization handlers
+	orgHandlers *OrganizationHandlers
 }
 
 // NewServer creates a new API server
 func NewServer(cfg *config.Config, database *db.DB) (*Server, error) {
+	store := db.NewStore(database)
 	s := &Server{
 		cfg:         cfg,
 		router:      chi.NewRouter(),
-		store:       db.NewStore(database),
+		store:       store,
 		repoService: gh.NewRepoService("/tmp/qtest-repos", cfg.GitHubToken),
+		orgHandlers: NewOrganizationHandlers(store),
 	}
 
 	s.setupMiddleware()
@@ -172,6 +177,33 @@ func (s *Server) setupRoutes() {
 
 		// Repo-specific mutation runs
 		r.Get("/repos/{repoID}/mutation", s.listRepoMutationRuns)
+
+		// Organizations (requires auth)
+		r.Route("/organizations", func(r chi.Router) {
+			r.Use(s.requireAuth)
+			r.Get("/", s.listOrganizations)
+			r.Post("/", s.createOrganization)
+			r.Get("/{orgID}", s.getOrganization)
+			r.Patch("/{orgID}", s.updateOrganization)
+			r.Delete("/{orgID}", s.deleteOrganization)
+
+			// Organization members
+			r.Get("/{orgID}/members", s.listOrgMembers)
+			r.Post("/{orgID}/members", s.addOrgMember)
+			r.Patch("/{orgID}/members/{userID}", s.updateMemberRole)
+			r.Delete("/{orgID}/members/{userID}", s.removeOrgMember)
+		})
+	})
+}
+
+// requireAuth is middleware that requires authentication
+func (s *Server) requireAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.authMiddleware == nil {
+			respondError(w, http.StatusServiceUnavailable, "auth not configured")
+			return
+		}
+		s.authMiddleware.RequireAuth(next).ServeHTTP(w, r)
 	})
 }
 
@@ -682,4 +714,42 @@ func (s *Server) handleUserRepos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.authHandlers.HandleListRepos(w, r)
+}
+
+// Organization handlers - delegate to orgHandlers
+
+func (s *Server) listOrganizations(w http.ResponseWriter, r *http.Request) {
+	s.orgHandlers.ListOrganizations(w, r)
+}
+
+func (s *Server) getOrganization(w http.ResponseWriter, r *http.Request) {
+	s.orgHandlers.GetOrganization(w, r)
+}
+
+func (s *Server) createOrganization(w http.ResponseWriter, r *http.Request) {
+	s.orgHandlers.CreateOrganization(w, r)
+}
+
+func (s *Server) updateOrganization(w http.ResponseWriter, r *http.Request) {
+	s.orgHandlers.UpdateOrganization(w, r)
+}
+
+func (s *Server) deleteOrganization(w http.ResponseWriter, r *http.Request) {
+	s.orgHandlers.DeleteOrganization(w, r)
+}
+
+func (s *Server) listOrgMembers(w http.ResponseWriter, r *http.Request) {
+	s.orgHandlers.ListMembers(w, r)
+}
+
+func (s *Server) addOrgMember(w http.ResponseWriter, r *http.Request) {
+	s.orgHandlers.AddMember(w, r)
+}
+
+func (s *Server) updateMemberRole(w http.ResponseWriter, r *http.Request) {
+	s.orgHandlers.UpdateMemberRole(w, r)
+}
+
+func (s *Server) removeOrgMember(w http.ResponseWriter, r *http.Request) {
+	s.orgHandlers.RemoveMember(w, r)
 }

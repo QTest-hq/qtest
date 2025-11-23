@@ -7,12 +7,16 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
+
+	"github.com/QTest-hq/qtest/internal/db"
 )
 
 // Handlers provides HTTP handlers for authentication
 type Handlers struct {
 	github   *GitHubProvider
 	sessions *SessionStore
+	store    *db.Store
+	ttl      time.Duration
 }
 
 // NewHandlers creates new auth handlers
@@ -20,6 +24,17 @@ func NewHandlers(github *GitHubProvider, sessions *SessionStore) *Handlers {
 	return &Handlers{
 		github:   github,
 		sessions: sessions,
+		ttl:      24 * time.Hour,
+	}
+}
+
+// NewHandlersWithStore creates new auth handlers with database store
+func NewHandlersWithStore(github *GitHubProvider, sessions *SessionStore, store *db.Store) *Handlers {
+	return &Handlers{
+		github:   github,
+		sessions: sessions,
+		store:    store,
+		ttl:      24 * time.Hour,
 	}
 }
 
@@ -84,17 +99,41 @@ func (h *Handlers) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get user info
-	user, err := h.github.GetUser(r.Context(), token.AccessToken)
+	githubUser, err := h.github.GetUser(r.Context(), token.AccessToken)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to get user info")
 		http.Error(w, "failed to get user info", http.StatusInternalServerError)
 		return
 	}
 
+	// Persist or update user in database
+	var userID uuid.UUID
+	if h.store != nil {
+		dbUser, err := h.store.UpsertUserFromGitHub(
+			r.Context(),
+			githubUser.ID,
+			githubUser.Login,
+			githubUser.Email,
+			githubUser.Name,
+			githubUser.AvatarURL,
+		)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to persist user")
+			http.Error(w, "failed to save user", http.StatusInternalServerError)
+			return
+		}
+		userID = dbUser.ID
+		log.Debug().
+			Str("user", githubUser.Login).
+			Str("user_id", userID.String()).
+			Msg("user persisted to database")
+	} else {
+		// Fallback for backwards compatibility (no database)
+		userID = uuid.New()
+	}
+
 	// Create session
-	// In production, you'd look up or create the user in database here
-	userID := uuid.New() // Placeholder - should use database user ID
-	session, err := h.sessions.Create(userID, user, token.AccessToken, "")
+	session, err := h.sessions.Create(userID, githubUser, token.AccessToken, "")
 	if err != nil {
 		log.Error().Err(err).Msg("failed to create session")
 		http.Error(w, "failed to create session", http.StatusInternalServerError)
@@ -122,7 +161,7 @@ func (h *Handlers) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	})
 
 	log.Info().
-		Str("user", user.Login).
+		Str("user", githubUser.Login).
 		Str("session", session.ID[:8]+"...").
 		Msg("user logged in")
 
@@ -137,7 +176,7 @@ func (h *Handlers) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(LoginResponse{
 			SessionID: session.ID,
-			User:      user,
+			User:      githubUser,
 			ExpiresAt: session.ExpiresAt,
 		})
 		return
