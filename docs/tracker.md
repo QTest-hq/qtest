@@ -352,11 +352,11 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P3-040 | Implement flakiness tracker | 🔴 | P0 | - | Track pass/fail history |
-| P3-041 | Calculate flakiness score | 🔴 | P0 | P3-040 | Rolling average |
+| P3-040 | Implement flakiness tracker | ✅ | P0 | - | internal/flakiness/tracker.go |
+| P3-041 | Calculate flakiness score | ✅ | P0 | P3-040 | 40% failure + 40% transition + 20% recent |
 | P3-042 | Implement quarantine feature | 🔴 | P1 | P3-041 | Skip flaky tests |
 | P3-043 | Suggest flakiness fixes | 🔴 | P1 | P3-041 | LLM analysis |
-| P3-044 | Write flakiness tests | 🔴 | P1 | P3-040-043 | |
+| P3-044 | Write flakiness tests | ✅ | P1 | P3-040-043 | 20 tests in tracker_test.go |
 
 ### 3.6 Coverage & Reporting
 
@@ -474,9 +474,9 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 |-------|-------------|----------------|----------------|--------|
 | Phase 1 | 86 | 2 | 20 | **80%** |
 | Phase 2 | 2 | 2 | 32 | **6%** |
-| Phase 3 | 21 | 0 | 24 | **47%** |
+| Phase 3 | 24 | 0 | 21 | **53%** |
 | Phase 4 | 3 | 1 | 31 | **9%** |
-| **Total** | **112** | **5** | **107** | **51%** |
+| **Total** | **115** | **5** | **104** | **53%** |
 
 ### Critical Path (Must Complete for MVP)
 
@@ -506,6 +506,7 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-23 | **CLI Auth**: Added `qtest auth login/logout/status` commands for CLI authentication with API keys. Stores credentials in ~/.qtest/credentials.json. 10 tests. P1-151 complete. Test count ~155. |
 | 2025-11-23 | **CLI Status**: Added `qtest status` command showing CLI version, auth status, API server, Ollama, and workspace summary. Supports --verbose and --json flags. P1-153 complete. |
 | 2025-11-23 | **Java Support**: Added Java tree-sitter grammar, class/method extractor, and JUnit spec adapter. Spring Boot supplement already existed. 14 new tests (5 parser, 9 adapter). P4-006, P4-007, P4-008, P4-009 complete. |
+| 2025-11-23 | **Flakiness Tracker**: Added internal/flakiness/tracker.go with TestHistory, FlakinessScore, transition tracking, classification (stable/flaky/highly_flaky). 20 tests. P3-040, P3-041, P3-044 complete. Overall 53% complete. |
 
 ---
 
