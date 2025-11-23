@@ -361,9 +361,10 @@ func TestJob_SetResult_InvalidType(t *testing.T) {
 }
 
 func TestJob_GetResult_InvalidJSON(t *testing.T) {
+	invalidJSON := json.RawMessage(`{invalid}`)
 	job := &Job{
 		ID:     uuid.New(),
-		Result: json.RawMessage(`{invalid}`),
+		Result: &invalidJSON,
 	}
 	var result IngestionResult
 	err := job.GetResult(&result)
@@ -469,6 +470,8 @@ func TestJob_Fields(t *testing.T) {
 	workerID := "worker-1"
 	errMsg := "test error"
 	now := time.Now()
+	result := json.RawMessage(`{}`)
+	errDetails := json.RawMessage(`{"code": 500}`)
 
 	job := &Job{
 		ID:              uuid.New(),
@@ -479,9 +482,9 @@ func TestJob_Fields(t *testing.T) {
 		GenerationRunID: &runID,
 		ParentJobID:     &parentID,
 		Payload:         json.RawMessage(`{}`),
-		Result:          json.RawMessage(`{}`),
+		Result:          &result,
 		ErrorMessage:    &errMsg,
-		ErrorDetails:    json.RawMessage(`{"code": 500}`),
+		ErrorDetails:    &errDetails,
 		RetryCount:      2,
 		MaxRetries:      5,
 		CreatedAt:       now,

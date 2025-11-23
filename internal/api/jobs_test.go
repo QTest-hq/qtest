@@ -14,6 +14,7 @@ func TestJobToResponse(t *testing.T) {
 	startedAt := now.Add(-time.Minute)
 	completedAt := now
 
+	result := json.RawMessage(`{"tests": 10}`)
 	job := &jobs.Job{
 		ID:              uuid.New(),
 		Type:            jobs.JobTypeGeneration,
@@ -22,7 +23,7 @@ func TestJobToResponse(t *testing.T) {
 		RepositoryID:    ptr(uuid.New()),
 		GenerationRunID: ptr(uuid.New()),
 		Payload:         json.RawMessage(`{"key": "value"}`),
-		Result:          json.RawMessage(`{"tests": 10}`),
+		Result:          &result,
 		RetryCount:      1,
 		MaxRetries:      3,
 		CreatedAt:       now.Add(-5 * time.Minute),

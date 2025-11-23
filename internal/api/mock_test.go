@@ -100,6 +100,20 @@ func (m *MockJobRepository) ListByRepository(ctx context.Context, repoID uuid.UU
 	return result, nil
 }
 
+func (m *MockJobRepository) ListRecent(ctx context.Context, limit int) ([]*jobs.Job, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	var result []*jobs.Job
+	for _, j := range m.jobs {
+		result = append(result, j)
+		if len(result) >= limit {
+			break
+		}
+	}
+	return result, nil
+}
+
 func (m *MockJobRepository) Cancel(ctx context.Context, jobID uuid.UUID) error {
 	job, ok := m.jobs[jobID]
 	if !ok {
