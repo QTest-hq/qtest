@@ -50,6 +50,9 @@ type Server struct {
 
 	// API key handlers
 	apiKeyHandlers *APIKeyHandlers
+
+	// Audit log handlers
+	auditHandlers *AuditHandlers
 }
 
 // NewServer creates a new API server
@@ -62,6 +65,7 @@ func NewServer(cfg *config.Config, database *db.DB) (*Server, error) {
 		repoService:    gh.NewRepoService("/tmp/qtest-repos", cfg.GitHubToken),
 		orgHandlers:    NewOrganizationHandlers(store),
 		apiKeyHandlers: NewAPIKeyHandlers(store),
+		auditHandlers:  NewAuditHandlers(store),
 	}
 
 	s.setupMiddleware()
@@ -224,6 +228,15 @@ func (s *Server) setupRoutes() {
 			r.Post("/{orgID}/members", s.addOrgMember)
 			r.Patch("/{orgID}/members/{userID}", s.updateMemberRole)
 			r.Delete("/{orgID}/members/{userID}", s.removeOrgMember)
+
+			// Organization audit logs
+			r.Get("/{orgID}/audit-logs", s.listOrgAuditLogs)
+		})
+
+		// User endpoints (requires auth)
+		r.Route("/me", func(r chi.Router) {
+			r.Use(s.requireAuth)
+			r.Get("/audit-logs", s.listUserAuditLogs)
 		})
 
 		// API Keys (requires auth)
@@ -253,6 +266,16 @@ func (s *Server) getAPIKey(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) revokeAPIKey(w http.ResponseWriter, r *http.Request) {
 	s.apiKeyHandlers.RevokeAPIKey(w, r)
+}
+
+// Audit log handlers - delegate to auditHandlers
+
+func (s *Server) listOrgAuditLogs(w http.ResponseWriter, r *http.Request) {
+	s.auditHandlers.ListAuditLogs(w, r)
+}
+
+func (s *Server) listUserAuditLogs(w http.ResponseWriter, r *http.Request) {
+	s.auditHandlers.ListUserAuditLogs(w, r)
 }
 
 // requireAuth is middleware that requires authentication
