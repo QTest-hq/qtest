@@ -189,3 +189,250 @@ func TestExtractTestName(t *testing.T) {
 		})
 	}
 }
+
+func TestNewTestValidatorWithDocker_Disabled(t *testing.T) {
+	ws := &Workspace{
+		path: "/tmp/test-workspace",
+	}
+
+	// Docker disabled
+	validator := NewTestValidatorWithDocker(ws, &DockerConfig{Enabled: false})
+
+	if validator == nil {
+		t.Fatal("NewTestValidatorWithDocker() returned nil")
+	}
+	if validator.useDocker {
+		t.Error("useDocker should be false when DockerConfig.Enabled is false")
+	}
+}
+
+func TestNewTestValidatorWithDocker_NilConfig(t *testing.T) {
+	ws := &Workspace{
+		path: "/tmp/test-workspace",
+	}
+
+	// Nil config should not panic
+	validator := NewTestValidatorWithDocker(ws, nil)
+
+	if validator == nil {
+		t.Fatal("NewTestValidatorWithDocker() returned nil")
+	}
+	if validator.useDocker {
+		t.Error("useDocker should be false when config is nil")
+	}
+}
+
+func TestTestValidator_extToLanguage(t *testing.T) {
+	v := &TestValidator{}
+
+	tests := []struct {
+		ext  string
+		want string
+	}{
+		{".go", "go"},
+		{".py", "python"},
+		{".js", "javascript"},
+		{".ts", "typescript"},
+		{".java", "java"},
+		{".rb", ""},
+		{".rs", ""},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.ext, func(t *testing.T) {
+			got := v.extToLanguage(tt.ext)
+			if got != tt.want {
+				t.Errorf("extToLanguage(%s) = %s, want %s", tt.ext, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTestValidator_parseGoTestOutput(t *testing.T) {
+	v := &TestValidator{}
+
+	// Sample Go test -json output
+	output := `{"Action":"run","Package":"pkg/example","Test":"TestAdd"}
+{"Action":"output","Package":"pkg/example","Test":"TestAdd","Output":"=== RUN   TestAdd\n"}
+{"Action":"pass","Package":"pkg/example","Test":"TestAdd"}
+{"Action":"run","Package":"pkg/example","Test":"TestSubtract"}
+{"Action":"pass","Package":"pkg/example","Test":"TestSubtract"}
+{"Action":"run","Package":"pkg/example","Test":"TestMultiply"}
+{"Action":"fail","Package":"pkg/example","Test":"TestMultiply"}
+{"Action":"run","Package":"pkg/example","Test":"TestDivide"}
+{"Action":"skip","Package":"pkg/example","Test":"TestDivide"}
+`
+	result := &ValidationResult{}
+	v.parseGoTestOutput(output, result)
+
+	if result.TestCount != 4 {
+		t.Errorf("TestCount = %d, want 4", result.TestCount)
+	}
+	if result.PassCount != 2 {
+		t.Errorf("PassCount = %d, want 2", result.PassCount)
+	}
+	if result.FailCount != 1 {
+		t.Errorf("FailCount = %d, want 1", result.FailCount)
+	}
+	if result.SkipCount != 1 {
+		t.Errorf("SkipCount = %d, want 1", result.SkipCount)
+	}
+}
+
+func TestTestValidator_parseGoTestOutput_Empty(t *testing.T) {
+	v := &TestValidator{}
+	result := &ValidationResult{}
+
+	v.parseGoTestOutput("", result)
+
+	if result.TestCount != 0 {
+		t.Errorf("TestCount = %d, want 0", result.TestCount)
+	}
+}
+
+func TestTestValidator_parseGoTestOutput_InvalidJSON(t *testing.T) {
+	v := &TestValidator{}
+	result := &ValidationResult{}
+
+	// Invalid JSON should be skipped
+	v.parseGoTestOutput("not valid json\n{invalid}", result)
+
+	if result.TestCount != 0 {
+		t.Errorf("TestCount = %d, want 0", result.TestCount)
+	}
+}
+
+func TestTestValidator_parsePytestOutput(t *testing.T) {
+	v := &TestValidator{}
+
+	output := `============================= test session starts ==============================
+collected 10 items
+
+test_math.py::test_add PASSED
+test_math.py::test_subtract PASSED
+test_math.py::test_multiply FAILED
+test_math.py::test_divide SKIPPED
+
+============================= short test summary info =============================
+FAILED test_math.py::test_multiply - AssertionError
+====================== 5 passed, 2 failed, 3 skipped in 0.15s =====================
+`
+	result := &ValidationResult{}
+	v.parsePytestOutput(output, result)
+
+	if result.PassCount != 5 {
+		t.Errorf("PassCount = %d, want 5", result.PassCount)
+	}
+	if result.FailCount != 2 {
+		t.Errorf("FailCount = %d, want 2", result.FailCount)
+	}
+	if result.SkipCount != 3 {
+		t.Errorf("SkipCount = %d, want 3", result.SkipCount)
+	}
+	if result.TestCount != 10 {
+		t.Errorf("TestCount = %d, want 10", result.TestCount)
+	}
+}
+
+func TestTestValidator_parsePytestOutput_AllPassed(t *testing.T) {
+	v := &TestValidator{}
+
+	output := `============================= test session starts ==============================
+====================== 8 passed in 0.10s =====================
+`
+	result := &ValidationResult{}
+	v.parsePytestOutput(output, result)
+
+	if result.PassCount != 8 {
+		t.Errorf("PassCount = %d, want 8", result.PassCount)
+	}
+	if result.TestCount != 8 {
+		t.Errorf("TestCount = %d, want 8", result.TestCount)
+	}
+}
+
+func TestTestValidator_parseJestOutput(t *testing.T) {
+	v := &TestValidator{}
+
+	output := `PASS  src/__tests__/math.test.js
+  ✓ adds 1 + 2 to equal 3 (2ms)
+  ✓ subtracts 5 - 3 to equal 2 (1ms)
+  ✕ multiplies 2 * 3 to equal 6 (3ms)
+
+Tests: 2 passed, 1 failed, 1 skipped, 4 total
+Snapshots:   0 total
+Time:        1.234s
+`
+	result := &ValidationResult{}
+	v.parseJestOutput(output, result)
+
+	if result.PassCount != 2 {
+		t.Errorf("PassCount = %d, want 2", result.PassCount)
+	}
+	if result.FailCount != 1 {
+		t.Errorf("FailCount = %d, want 1", result.FailCount)
+	}
+	if result.SkipCount != 1 {
+		t.Errorf("SkipCount = %d, want 1", result.SkipCount)
+	}
+	if result.TestCount != 4 {
+		t.Errorf("TestCount = %d, want 4", result.TestCount)
+	}
+}
+
+func TestTestValidator_parseJestOutput_AllPassed(t *testing.T) {
+	v := &TestValidator{}
+
+	output := `PASS  src/__tests__/math.test.js
+Tests: 5 passed, 5 total
+`
+	result := &ValidationResult{}
+	v.parseJestOutput(output, result)
+
+	if result.PassCount != 5 {
+		t.Errorf("PassCount = %d, want 5", result.PassCount)
+	}
+	if result.TestCount != 5 {
+		t.Errorf("TestCount = %d, want 5", result.TestCount)
+	}
+}
+
+func TestTestValidator_parseTestOutput_ByExtension(t *testing.T) {
+	v := &TestValidator{}
+
+	tests := []struct {
+		ext    string
+		output string
+		want   int // expected pass count
+	}{
+		{".go", `{"Action":"pass","Test":"Test1"}`, 1},
+		{".py", "3 passed", 3},
+		{".js", "Tests: 5 passed", 5},
+		{".ts", "Tests: 7 passed", 7},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.ext, func(t *testing.T) {
+			result := &ValidationResult{}
+			v.parseTestOutput(tt.ext, tt.output, result)
+
+			if result.PassCount != tt.want {
+				t.Errorf("parseTestOutput(%s) PassCount = %d, want %d", tt.ext, result.PassCount, tt.want)
+			}
+		})
+	}
+}
+
+func TestTestValidator_parseTestOutput_UnknownExtension(t *testing.T) {
+	v := &TestValidator{}
+	result := &ValidationResult{}
+
+	// Unknown extension should not crash
+	v.parseTestOutput(".unknown", "some output", result)
+
+	// Should remain zero
+	if result.PassCount != 0 {
+		t.Errorf("PassCount = %d, want 0 for unknown extension", result.PassCount)
+	}
+}

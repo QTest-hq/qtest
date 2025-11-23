@@ -164,7 +164,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-103 | Implement test runner service | 🟢 | P0 | P1-102 | workspace/runner.go |
 | P1-104 | Handle test failures | ✅ | P0 | P1-103 | retry.go with exponential backoff, error classification |
 | P1-105 | Record gate results | 🟢 | P0 | P1-016 | db/store.go |
-| P1-106 | Write quality gate tests | 🔴 | P1 | P1-100-105 | No tests |
+| P1-106 | Write quality gate tests | ✅ | P1 | P1-100-105 | validator_test.go: 21 tests for parsing (Go/Python/Jest), Docker config, language mapping |
 
 ### 1.12 GitHub Integration
 
@@ -514,6 +514,7 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-23 | **Ingestion Tests**: Added git_test.go with 18 tests for GitManager (clone, branch creation, commit, push, status, commit count). Tests workspace and github packages now have 163 tests total. P1-028 complete. |
 | 2025-11-23 | **OpenAI Client**: Added internal/llm/openai.go implementing full OpenAI Chat API. Features: tiered model support (gpt-4o-mini, gpt-4o, gpt-4-turbo), JSON mode, Azure OpenAI compatible (custom base URL), error handling with API key sanitization. 15 new tests. P1-072 complete. |
 | 2025-11-23 | **LLM Integration Tests**: Added internal/llm/integration_test.go with 17 tests for NewRouter config, TrackedRouter usage tracking, CachedRouter caching, cache+tracker pipeline, fallback chain, tier routing. LLM package now has 175 tests. P1-078 complete. |
+| 2025-11-23 | **Quality Gate Tests**: Added 12 tests to validator_test.go for test output parsing (Go JSON, pytest, Jest), Docker config, language extension mapping. Now 21 tests for quality gates. P1-106 complete. |
 
 ---
 
