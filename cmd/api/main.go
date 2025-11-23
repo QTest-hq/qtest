@@ -20,6 +20,7 @@ import (
 	"github.com/QTest-hq/qtest/internal/db"
 	"github.com/QTest-hq/qtest/internal/jobs"
 	qtestnats "github.com/QTest-hq/qtest/internal/nats"
+	"github.com/QTest-hq/qtest/internal/webhook"
 )
 
 func main() {
@@ -115,6 +116,19 @@ func main() {
 			Msg("rate limiting enabled")
 	}
 
+	// Configure webhooks
+	webhookStore := db.NewStore(database)
+	webhookService := webhook.NewService(webhookStore)
+	srv.SetWebhookService(webhookService)
+
+	// Start webhook dispatcher for background delivery
+	webhookDispatcher := webhook.NewDispatcher(webhookService, 5*time.Second, 50)
+	if err := webhookDispatcher.Start(ctx); err != nil {
+		log.Warn().Err(err).Msg("failed to start webhook dispatcher")
+	} else {
+		log.Info().Msg("webhook dispatcher started")
+	}
+
 	// Start server
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
@@ -132,6 +146,9 @@ func main() {
 	go func() {
 		<-quit
 		log.Info().Msg("server is shutting down...")
+
+		// Stop webhook dispatcher
+		webhookDispatcher.Stop()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()

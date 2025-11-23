@@ -233,10 +233,77 @@ cd examples && go test -v
 
 ---
 
+## Webhooks
+
+QTest supports webhooks for CI/CD integration and event notifications.
+
+### API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/organizations/{orgID}/webhooks` | Create webhook |
+| GET | `/api/v1/organizations/{orgID}/webhooks` | List webhooks |
+| GET | `/api/v1/organizations/{orgID}/webhooks/{id}` | Get webhook |
+| PATCH | `/api/v1/organizations/{orgID}/webhooks/{id}` | Update webhook |
+| DELETE | `/api/v1/organizations/{orgID}/webhooks/{id}` | Delete webhook |
+| GET | `/api/v1/organizations/{orgID}/webhooks/{id}/deliveries` | List deliveries |
+| POST | `/api/v1/organizations/{orgID}/webhooks/{id}/test` | Send test webhook |
+
+### Event Types
+
+| Event | Description |
+|-------|-------------|
+| `job.completed` | Job finished successfully |
+| `job.failed` | Job failed |
+| `run.started` | Test generation run started |
+| `run.completed` | Test generation run completed |
+| `tests.generated` | Tests were generated |
+| `tests.validated` | Tests were validated |
+| `mutation.completed` | Mutation testing completed |
+
+### Features
+
+- **HMAC-SHA256 Signatures** - Verify webhook authenticity via `X-QTest-Signature` header
+- **Exponential Backoff** - Automatic retries: 2s → 4s → 8s → 16s → 32s (up to 5 retries)
+- **Background Dispatcher** - Reliable async delivery processing
+- **HTTPS-Only** - Webhooks require HTTPS endpoints
+- **Custom Headers** - Add custom headers to webhook requests
+
+### Webhook Payload Format
+
+```json
+{
+  "id": "evt_abc12345",
+  "type": "job.completed",
+  "created_at": "2025-11-23T12:00:00Z",
+  "organization_id": "uuid",
+  "data": {
+    "job_id": "uuid",
+    "job_type": "test_generation",
+    "repository_id": "uuid",
+    "status": "completed",
+    "duration_ms": 5000
+  }
+}
+```
+
+### Signature Verification
+
+```go
+// Verify webhook signature
+timestamp := r.Header.Get("X-QTest-Timestamp")
+signature := r.Header.Get("X-QTest-Signature")
+signatureData := timestamp + "." + string(payload)
+expected := "sha256=" + hex.EncodeToString(hmac.New(sha256.New, []byte(secret)).Sum([]byte(signatureData)))
+valid := hmac.Equal([]byte(signature), []byte(expected))
+```
+
+---
+
 ## Remaining Gaps (Priority)
 
 1. **GitHub PR Integration** - Auto-create PRs with generated tests
 2. **Java Test Emitter (JUnit)** - Spring Boot detection exists, no emitter
 3. **LLM Cache/Budget** - Cost control for LLM calls
-4. **Worker System** - Async job processing
-5. **Web Dashboard** - Visual interface
+4. **Redis Storage for Rate Limiting** - Production-ready distributed rate limiting
+5. **Usage Tracking/Analytics** - Track API usage and generate reports

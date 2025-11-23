@@ -16,6 +16,7 @@ import (
 	gh "github.com/QTest-hq/qtest/internal/github"
 	"github.com/QTest-hq/qtest/internal/jobs"
 	qtestnats "github.com/QTest-hq/qtest/internal/nats"
+	"github.com/QTest-hq/qtest/internal/webhook"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
@@ -59,6 +60,10 @@ type Server struct {
 
 	// Audit log handlers
 	auditHandlers *AuditHandlers
+
+	// Webhook handlers
+	webhookHandlers *WebhookHandlers
+	webhookService  *webhook.Service
 }
 
 // NewServer creates a new API server
@@ -105,6 +110,18 @@ func (s *Server) SetAuth(handlers *auth.Handlers, middleware *auth.Middleware) {
 func (s *Server) SetRateLimiter(rl *ratelimit.RateLimiter) {
 	s.rateLimiter = rl
 	log.Info().Msg("rate limiter configured")
+}
+
+// SetWebhookService configures the webhook system
+func (s *Server) SetWebhookService(svc *webhook.Service) {
+	s.webhookService = svc
+	s.webhookHandlers = NewWebhookHandlers(s.store, svc)
+	log.Info().Msg("webhook service configured")
+}
+
+// GetWebhookService returns the webhook service for external use
+func (s *Server) GetWebhookService() *webhook.Service {
+	return s.webhookService
 }
 
 // apiKeyValidatorWrapper wraps db.Store to implement auth.APIKeyValidator
@@ -261,6 +278,17 @@ func (s *Server) setupRoutes() {
 
 			// Organization audit logs
 			r.Get("/{orgID}/audit-logs", s.listOrgAuditLogs)
+
+			// Organization webhooks
+			r.Route("/{orgID}/webhooks", func(r chi.Router) {
+				r.Post("/", s.createWebhook)
+				r.Get("/", s.listWebhooks)
+				r.Get("/{webhookID}", s.getWebhook)
+				r.Patch("/{webhookID}", s.updateWebhook)
+				r.Delete("/{webhookID}", s.deleteWebhook)
+				r.Get("/{webhookID}/deliveries", s.listWebhookDeliveries)
+				r.Post("/{webhookID}/test", s.sendTestWebhook)
+			})
 		})
 
 		// User endpoints (requires auth)
@@ -1100,4 +1128,62 @@ func (s *Server) updateMemberRole(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) removeOrgMember(w http.ResponseWriter, r *http.Request) {
 	s.orgHandlers.RemoveMember(w, r)
+}
+
+// Webhook handlers - delegate to webhookHandlers
+
+func (s *Server) createWebhook(w http.ResponseWriter, r *http.Request) {
+	if s.webhookHandlers == nil {
+		respondError(w, http.StatusServiceUnavailable, "webhooks not configured")
+		return
+	}
+	s.webhookHandlers.CreateWebhook(w, r)
+}
+
+func (s *Server) listWebhooks(w http.ResponseWriter, r *http.Request) {
+	if s.webhookHandlers == nil {
+		respondError(w, http.StatusServiceUnavailable, "webhooks not configured")
+		return
+	}
+	s.webhookHandlers.ListWebhooks(w, r)
+}
+
+func (s *Server) getWebhook(w http.ResponseWriter, r *http.Request) {
+	if s.webhookHandlers == nil {
+		respondError(w, http.StatusServiceUnavailable, "webhooks not configured")
+		return
+	}
+	s.webhookHandlers.GetWebhook(w, r)
+}
+
+func (s *Server) updateWebhook(w http.ResponseWriter, r *http.Request) {
+	if s.webhookHandlers == nil {
+		respondError(w, http.StatusServiceUnavailable, "webhooks not configured")
+		return
+	}
+	s.webhookHandlers.UpdateWebhook(w, r)
+}
+
+func (s *Server) deleteWebhook(w http.ResponseWriter, r *http.Request) {
+	if s.webhookHandlers == nil {
+		respondError(w, http.StatusServiceUnavailable, "webhooks not configured")
+		return
+	}
+	s.webhookHandlers.DeleteWebhook(w, r)
+}
+
+func (s *Server) listWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
+	if s.webhookHandlers == nil {
+		respondError(w, http.StatusServiceUnavailable, "webhooks not configured")
+		return
+	}
+	s.webhookHandlers.ListDeliveries(w, r)
+}
+
+func (s *Server) sendTestWebhook(w http.ResponseWriter, r *http.Request) {
+	if s.webhookHandlers == nil {
+		respondError(w, http.StatusServiceUnavailable, "webhooks not configured")
+		return
+	}
+	s.webhookHandlers.SendTestWebhook(w, r)
 }
