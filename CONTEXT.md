@@ -375,8 +375,7 @@ jobRepo.SetEventHook(handler.HandleEvent)
 
 ## Remaining Gaps (Priority)
 
-1. **GitHub App Auth** - Full OAuth flow works, GitHub App auth not yet implemented (P1-110)
-2. **OpenAPI Documentation** - API docs not yet implemented (P1-146)
+All P1 tasks completed!
 
 ### Completed (Previously Gaps)
 - ✅ GitHub PR Integration - internal/github/pr.go
@@ -384,3 +383,5 @@ jobRepo.SetEventHook(handler.HandleEvent)
 - ✅ LLM Cache/Budget - internal/llm/cache.go, usage.go
 - ✅ Rate Limiting - internal/api/ratelimit/
 - ✅ Database Integration Tests - internal/db/*_integration_test.go (fixed import cycle, added testcontainers-go)
+- ✅ GitHub App Auth - internal/github/app.go (JWT generation, installation tokens, 15 tests)
+- ✅ OpenAPI Documentation - internal/api/docs.go (/docs endpoints for Swagger UI, ReDoc)
