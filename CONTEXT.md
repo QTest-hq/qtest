@@ -191,13 +191,17 @@ cd examples && go test -v
 
 ## Recent Changes (2025-11-23)
 
-1. **CI Workflow Generator** - `qtest ci` commands for GitHub Actions, GitLab CI, CircleCI
+1. **CLI Auth Commands** - `qtest auth login/logout/status` for API key authentication
+   - Credentials stored in `~/.qtest/credentials.json` with 0600 permissions
+   - Supports env var `QTEST_API_KEY` and `QTEST_API_URL`
+   - 10 tests in internal/cliauth/credentials_test.go
+2. **CI Workflow Generator** - `qtest ci` commands for GitHub Actions, GitLab CI, CircleCI
    - Auto-detects language (Go, Python, JS/TS, Java), framework, and services
    - Commands: `qtest ci generate`, `qtest ci detect`, `qtest ci preview`, `qtest ci list`
    - 15 tests in internal/ci/generator_test.go
-2. **Enterprise Tests** - Unit tests for admin API (7 tests), rate limiter (11 tests), jobs hooks (9 tests), webhook events (10 tests)
-3. **Rate Limiting Complete** - Memory + Redis storage backends with middleware
-4. **Test Count ~145** - Comprehensive test coverage across all components
+3. **Enterprise Tests** - Unit tests for admin API (7 tests), rate limiter (11 tests), jobs hooks (9 tests), webhook events (10 tests)
+4. **Rate Limiting Complete** - Memory + Redis storage backends with middleware
+5. **Test Count ~155** - Comprehensive test coverage across all components
 
 ### Previous Changes (2025-11-22)
 - GitHub OAuth with session management (27 tests)

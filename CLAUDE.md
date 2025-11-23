@@ -294,6 +294,51 @@ The generator auto-detects:
 - `cmd/cli/ci.go` - CLI commands
 - `internal/ci/generator_test.go` - 15 unit tests
 
+## CLI Authentication
+
+The CLI supports API key authentication for accessing QTest API services.
+
+### CLI Commands
+
+```bash
+# Login with API key (interactive prompt)
+./bin/qtest auth login
+
+# Login with API key directly
+./bin/qtest auth login --token qtest_xxxxxxxxxxxx
+
+# Login without server validation
+./bin/qtest auth login --token qtest_xxxxxxxxxxxx --validate=false
+
+# Show current auth status
+./bin/qtest auth status
+
+# Validate credentials with server
+./bin/qtest auth status --check
+
+# Remove stored credentials
+./bin/qtest auth logout
+```
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `QTEST_API_KEY` | API key for authentication (takes precedence over stored credentials) |
+| `QTEST_API_URL` | API server URL (default: `http://localhost:8080`) |
+
+### Credential Storage
+
+- Credentials stored in `~/.qtest/credentials.json`
+- File permissions: `0600` (owner read/write only)
+- Contains: API key, server URL, user info (if validated)
+
+### Key Files
+
+- `internal/cliauth/credentials.go` - Credential management
+- `cmd/cli/auth.go` - CLI commands (login, logout, status)
+- `internal/cliauth/credentials_test.go` - 10 unit tests
+
 ## Key Files When Debugging Test Generation
 
 1. `internal/llm/prompts.go` - What we ask the LLM

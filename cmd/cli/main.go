@@ -131,6 +131,7 @@ func main() {
 	rootCmd.AddCommand(jobCmd())
 	rootCmd.AddCommand(configCmd())
 	rootCmd.AddCommand(ciCmd())
+	rootCmd.AddCommand(authCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
