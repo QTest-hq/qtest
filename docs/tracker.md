@@ -107,7 +107,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-062 | Implement priority ranker | 🟢 | P0 | P1-054 | pkg/model/planner.go - priorityScore |
 | P1-063 | Implement pyramid distributor | 🟢 | P0 | P1-061 | pkg/model/planner.go - balance levels |
 | P1-064 | Generate test case suggestions | 🟢 | P1 | P1-061 | TestIntent with Reason |
-| P1-065 | Calculate token estimates | 🔴 | P1 | P1-064 | Not implemented |
+| P1-065 | Calculate token estimates | ✅ | P1 | P1-064 | token_estimator.go: input/output estimates, plan aggregation, cost estimation with 15 tests |
 | P1-066 | Write test planner tests | 🔴 | P1 | P1-061-065 | |
 
 ### 1.8 LLM Integration
@@ -515,6 +515,7 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-23 | **OpenAI Client**: Added internal/llm/openai.go implementing full OpenAI Chat API. Features: tiered model support (gpt-4o-mini, gpt-4o, gpt-4-turbo), JSON mode, Azure OpenAI compatible (custom base URL), error handling with API key sanitization. 15 new tests. P1-072 complete. |
 | 2025-11-23 | **LLM Integration Tests**: Added internal/llm/integration_test.go with 17 tests for NewRouter config, TrackedRouter usage tracking, CachedRouter caching, cache+tracker pipeline, fallback chain, tier routing. LLM package now has 175 tests. P1-078 complete. |
 | 2025-11-23 | **Quality Gate Tests**: Added 12 tests to validator_test.go for test output parsing (Go JSON, pytest, Jest), Docker config, language extension mapping. Now 21 tests for quality gates. P1-106 complete. |
+| 2025-11-23 | **Token Estimation**: Added pkg/model/token_estimator.go for LLM token usage prediction. Features: input/output token estimation based on code size and complexity, TestPlan/TestIntent token fields, cost estimation with pricing for Ollama/OpenAI/Claude. 15 tests. P1-065 complete. |
 
 ---
 

@@ -18,6 +18,10 @@ type TestIntent struct {
 	TargetID   string    `json:"target_id"`   // refers into SystemModel
 	Priority   string    `json:"priority"`    // "high" | "medium" | "low"
 	Reason     string    `json:"reason"`      // why this test is needed
+
+	// Token estimates for this intent (populated by EstimateTokensForIntent)
+	EstimatedInputTokens  int `json:"estimated_input_tokens,omitempty"`
+	EstimatedOutputTokens int `json:"estimated_output_tokens,omitempty"`
 }
 
 // TestPlan is a collection of test intents with metadata
@@ -29,6 +33,10 @@ type TestPlan struct {
 	APITests   int          `json:"api_tests"`
 	E2ETests   int          `json:"e2e_tests"`
 	Intents    []TestIntent `json:"intents"`
+
+	// Aggregated token estimates (populated by EstimatePlanTokens)
+	TotalEstimatedInputTokens  int `json:"total_estimated_input_tokens,omitempty"`
+	TotalEstimatedOutputTokens int `json:"total_estimated_output_tokens,omitempty"`
 }
 
 // Stats returns test plan statistics
@@ -52,4 +60,24 @@ func (p *TestPlan) countByPriority(priority string) int {
 		}
 	}
 	return count
+}
+
+// PopulateTokenEstimates calculates and fills in token estimates for all intents
+// and aggregates them into the plan totals
+func (p *TestPlan) PopulateTokenEstimates(model *SystemModel) {
+	p.TotalEstimatedInputTokens = 0
+	p.TotalEstimatedOutputTokens = 0
+
+	for i := range p.Intents {
+		estimate := EstimateTokensForIntent(&p.Intents[i], model)
+		p.Intents[i].EstimatedInputTokens = estimate.InputTokens
+		p.Intents[i].EstimatedOutputTokens = estimate.OutputTokens
+		p.TotalEstimatedInputTokens += estimate.InputTokens
+		p.TotalEstimatedOutputTokens += estimate.OutputTokens
+	}
+}
+
+// TotalEstimatedTokens returns the sum of input and output token estimates
+func (p *TestPlan) TotalEstimatedTokens() int {
+	return p.TotalEstimatedInputTokens + p.TotalEstimatedOutputTokens
 }
