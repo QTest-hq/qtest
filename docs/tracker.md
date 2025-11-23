@@ -162,7 +162,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-101 | Implement runtime validator | 🟢 | P0 | P1-091 | workspace/runner.go |
 | P1-102 | Design sandboxed execution | 🟡 | P0 | - | Basic, no Docker isolation |
 | P1-103 | Implement test runner service | 🟢 | P0 | P1-102 | workspace/runner.go |
-| P1-104 | Handle test failures | 🟡 | P0 | P1-103 | Basic retry, needs improvement |
+| P1-104 | Handle test failures | ✅ | P0 | P1-103 | retry.go with exponential backoff, error classification |
 | P1-105 | Record gate results | 🟢 | P0 | P1-016 | db/store.go |
 | P1-106 | Write quality gate tests | 🔴 | P1 | P1-100-105 | No tests |
 
