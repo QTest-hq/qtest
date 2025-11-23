@@ -1209,3 +1209,297 @@ func TestIsValidIdentifier(t *testing.T) {
 		}
 	}
 }
+
+// =============================================================================
+// Gin Schema Extraction Tests (P1-044, P1-045, P1-046)
+// =============================================================================
+
+func TestGinSupplement_ExtractMiddleware(t *testing.T) {
+	s := &GinSupplement{}
+
+	tests := []struct {
+		name string
+		line string
+		want []string
+	}{
+		{
+			name: "single middleware",
+			line: `r.POST("/users", AuthMiddleware, CreateUser)`,
+			want: []string{"AuthMiddleware"},
+		},
+		{
+			name: "multiple middleware",
+			line: `r.POST("/api/users", Auth, RateLimit, Logger, CreateUser)`,
+			want: []string{"Auth", "RateLimit", "Logger"},
+		},
+		{
+			name: "no middleware",
+			line: `r.GET("/ping", PingHandler)`,
+			want: nil,
+		},
+		{
+			name: "GET without middleware",
+			line: `r.GET("/users/:id", GetUser)`,
+			want: nil,
+		},
+		{
+			name: "middleware with package prefix",
+			line: `r.POST("/api", middleware.Auth, handlers.Create)`,
+			want: []string{"middleware.Auth"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := s.extractMiddleware(tt.line)
+			if len(got) != len(tt.want) {
+				t.Errorf("extractMiddleware() = %v, want %v", got, tt.want)
+				return
+			}
+			for i, m := range got {
+				if m != tt.want[i] {
+					t.Errorf("extractMiddleware()[%d] = %s, want %s", i, m, tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestGinSupplement_BuildTypeMap(t *testing.T) {
+	s := &GinSupplement{}
+
+	m := &model.SystemModel{
+		Types: []model.TypeDef{
+			{Name: "User", Module: "models"},
+			{Name: "CreateUserRequest", Module: "dto"},
+			{Name: "Config", Module: ""},
+		},
+	}
+
+	typeMap := s.buildTypeMap(m)
+
+	// Should find by name
+	if _, ok := typeMap["User"]; !ok {
+		t.Error("should find User by name")
+	}
+	if _, ok := typeMap["CreateUserRequest"]; !ok {
+		t.Error("should find CreateUserRequest by name")
+	}
+
+	// Should find by module.name
+	if _, ok := typeMap["models.User"]; !ok {
+		t.Error("should find models.User by qualified name")
+	}
+	if _, ok := typeMap["dto.CreateUserRequest"]; !ok {
+		t.Error("should find dto.CreateUserRequest by qualified name")
+	}
+}
+
+func TestGinSupplement_ExtractFieldsFromType(t *testing.T) {
+	s := &GinSupplement{}
+
+	typeDef := &model.TypeDef{
+		Name: "CreateUserRequest",
+		Fields: []model.Field{
+			{Name: "Name", Type: "string", Tags: `json:"name" binding:"required"`},
+			{Name: "Email", Type: "string", Tags: `json:"email" binding:"required,email"`},
+			{Name: "Age", Type: "int", Tags: `json:"age,omitempty"`},
+			{Name: "Internal", Type: "string", Tags: `json:"-"`},
+		},
+	}
+
+	fields := s.extractFieldsFromType(typeDef)
+
+	// Should have 3 fields (Internal with json:"-" is skipped)
+	if len(fields) != 3 {
+		t.Errorf("expected 3 fields, got %d", len(fields))
+	}
+
+	// Check Name field
+	if fields[0].Name != "Name" || fields[0].JSONName != "name" || !fields[0].Required {
+		t.Errorf("Name field incorrect: %+v", fields[0])
+	}
+
+	// Check Email field - should have validation
+	if fields[1].Validation != "required,email" {
+		t.Errorf("Email validation = %s, want required,email", fields[1].Validation)
+	}
+
+	// Check Age field - should NOT be required (has omitempty)
+	if fields[2].Required {
+		t.Error("Age should not be required (has omitempty)")
+	}
+}
+
+func TestGinSupplement_ExtractRequestSchema(t *testing.T) {
+	s := &GinSupplement{}
+
+	// Create model with function that has ShouldBindJSON
+	m := &model.SystemModel{
+		Functions: []model.Function{
+			{
+				ID:   "pkg:handlers.go:10:CreateUser",
+				Name: "CreateUser",
+				Body: `func CreateUser(c *gin.Context) {
+	var req CreateUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	// handle request
+}`,
+			},
+		},
+		Types: []model.TypeDef{
+			{
+				Name:   "CreateUserRequest",
+				Module: "handlers",
+				Fields: []model.Field{
+					{Name: "Name", Type: "string", Tags: `json:"name" binding:"required"`},
+					{Name: "Email", Type: "string", Tags: `json:"email"`},
+				},
+			},
+		},
+	}
+
+	typeMap := s.buildTypeMap(m)
+	schema := s.extractRequestSchema("CreateUser", m, typeMap)
+
+	if schema == nil {
+		t.Fatal("schema should not be nil")
+	}
+
+	if schema.TypeName != "CreateUserRequest" {
+		t.Errorf("TypeName = %s, want CreateUserRequest", schema.TypeName)
+	}
+
+	if schema.ContentType != "application/json" {
+		t.Errorf("ContentType = %s, want application/json", schema.ContentType)
+	}
+
+	if len(schema.Fields) != 2 {
+		t.Errorf("expected 2 fields, got %d", len(schema.Fields))
+	}
+}
+
+func TestGinSupplement_ExtractRequestSchema_NotFound(t *testing.T) {
+	s := &GinSupplement{}
+
+	m := &model.SystemModel{
+		Functions: []model.Function{
+			{
+				ID:   "pkg:handlers.go:10:GetUser",
+				Name: "GetUser",
+				Body: `func GetUser(c *gin.Context) {
+	id := c.Param("id")
+	c.JSON(200, user)
+}`,
+			},
+		},
+	}
+
+	typeMap := s.buildTypeMap(m)
+	schema := s.extractRequestSchema("GetUser", m, typeMap)
+
+	// GetUser doesn't have any binding, should return nil
+	if schema != nil {
+		t.Error("schema should be nil for handler without binding")
+	}
+}
+
+func TestGinSupplement_Analyze_WithMiddleware(t *testing.T) {
+	s := &GinSupplement{}
+	tmpDir := createTempDir(t)
+	defer os.RemoveAll(tmpDir)
+
+	routerCode := `
+package main
+
+import "github.com/gin-gonic/gin"
+
+func main() {
+	r := gin.Default()
+
+	r.POST("/users", AuthMiddleware, CreateUser)
+	r.GET("/users/:id", GetUser)
+	r.PUT("/users/:id", AuthMiddleware, RateLimit, UpdateUser)
+
+	r.Run(":8080")
+}
+`
+	routerFile := createFile(t, tmpDir, "main.go", routerCode)
+
+	m := &model.SystemModel{
+		Modules: []model.Module{
+			{Files: []string{routerFile}},
+		},
+	}
+
+	err := s.Analyze(m)
+	if err != nil {
+		t.Fatalf("Analyze() error: %v", err)
+	}
+
+	// Find POST /users endpoint and verify middleware
+	for _, ep := range m.Endpoints {
+		if ep.Method == "POST" && ep.Path == "/users" {
+			if len(ep.Middleware) != 1 || ep.Middleware[0] != "AuthMiddleware" {
+				t.Errorf("POST /users middleware = %v, want [AuthMiddleware]", ep.Middleware)
+			}
+		}
+		if ep.Method == "PUT" && ep.Path == "/users/:id" {
+			if len(ep.Middleware) != 2 {
+				t.Errorf("PUT /users/:id should have 2 middleware, got %d", len(ep.Middleware))
+			}
+		}
+		if ep.Method == "GET" && ep.Path == "/users/:id" {
+			if len(ep.Middleware) != 0 {
+				t.Errorf("GET /users/:id should have no middleware, got %v", ep.Middleware)
+			}
+		}
+	}
+}
+
+func TestBodySchema_Fields(t *testing.T) {
+	schema := model.BodySchema{
+		TypeName:    "CreateUserRequest",
+		ContentType: "application/json",
+		Required:    true,
+		Fields: []model.SchemaField{
+			{Name: "name", Type: "string", Required: true},
+			{Name: "email", Type: "string", Required: true, Validation: "email"},
+		},
+	}
+
+	if schema.TypeName != "CreateUserRequest" {
+		t.Errorf("TypeName = %s, want CreateUserRequest", schema.TypeName)
+	}
+	if !schema.Required {
+		t.Error("Required should be true")
+	}
+	if len(schema.Fields) != 2 {
+		t.Errorf("expected 2 fields, got %d", len(schema.Fields))
+	}
+}
+
+func TestSchemaField_Fields(t *testing.T) {
+	field := model.SchemaField{
+		Name:        "Email",
+		Type:        "string",
+		Required:    true,
+		Description: "User's email address",
+		Example:     "user@example.com",
+		JSONName:    "email",
+		Validation:  "required,email",
+	}
+
+	if field.Name != "Email" {
+		t.Errorf("Name = %s, want Email", field.Name)
+	}
+	if field.JSONName != "email" {
+		t.Errorf("JSONName = %s, want email", field.JSONName)
+	}
+	if field.Validation != "required,email" {
+		t.Errorf("Validation = %s, want required,email", field.Validation)
+	}
+}
