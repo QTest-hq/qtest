@@ -261,8 +261,9 @@ func (s *Server) readyCheck(w http.ResponseWriter, r *http.Request) {
 
 // Repo handlers
 type CreateRepoRequest struct {
-	URL    string `json:"url"`
-	Branch string `json:"branch,omitempty"`
+	URL            string     `json:"url"`
+	Branch         string     `json:"branch,omitempty"`
+	OrganizationID *uuid.UUID `json:"organization_id,omitempty"` // If not provided, uses personal org
 }
 
 func (s *Server) createRepo(w http.ResponseWriter, r *http.Request) {
@@ -288,11 +289,55 @@ func (s *Server) createRepo(w http.ResponseWriter, r *http.Request) {
 		repoInfo.Branch = req.Branch
 	}
 
-	// Check if repo already exists
-	existing, _ := s.store.GetRepositoryByURL(r.Context(), req.URL)
-	if existing != nil {
-		respondJSON(w, http.StatusOK, existing)
-		return
+	// Get user session (optional for backwards compatibility)
+	session, hasSession := auth.GetSessionFromContext(r.Context())
+
+	// Determine organization ID
+	var orgID uuid.UUID
+	var userID uuid.UUID
+
+	if hasSession {
+		userID = session.UserID
+
+		if req.OrganizationID != nil {
+			// Verify user has member access to the org
+			isMember, err := s.store.IsMember(r.Context(), *req.OrganizationID, userID)
+			if err != nil {
+				log.Error().Err(err).Msg("failed to check membership")
+				respondError(w, http.StatusInternalServerError, "internal error")
+				return
+			}
+			if !isMember {
+				respondError(w, http.StatusForbidden, "not a member of this organization")
+				return
+			}
+			orgID = *req.OrganizationID
+		} else {
+			// Use personal organization
+			personalOrg, err := s.store.GetPersonalOrganization(r.Context(), userID)
+			if err != nil || personalOrg == nil {
+				log.Error().Err(err).Msg("failed to get personal organization")
+				respondError(w, http.StatusInternalServerError, "failed to get personal organization")
+				return
+			}
+			orgID = personalOrg.ID
+		}
+	}
+
+	// Check if repo already exists for this org
+	if hasSession {
+		existing, _ := s.store.GetRepositoryByURLAndOrg(r.Context(), req.URL, orgID)
+		if existing != nil {
+			respondJSON(w, http.StatusOK, existing)
+			return
+		}
+	} else {
+		// Legacy: check global
+		existing, _ := s.store.GetRepositoryByURL(r.Context(), req.URL)
+		if existing != nil {
+			respondJSON(w, http.StatusOK, existing)
+			return
+		}
 	}
 
 	// Create repository record
@@ -303,10 +348,20 @@ func (s *Server) createRepo(w http.ResponseWriter, r *http.Request) {
 		DefaultBranch: repoInfo.Branch,
 	}
 
-	if err := s.store.CreateRepository(r.Context(), repo); err != nil {
-		log.Error().Err(err).Msg("failed to create repository")
-		respondError(w, http.StatusInternalServerError, "failed to create repository")
-		return
+	if hasSession {
+		// Use tenant-aware creation
+		if err := s.store.CreateRepositoryForOrg(r.Context(), repo, orgID, userID); err != nil {
+			log.Error().Err(err).Msg("failed to create repository")
+			respondError(w, http.StatusInternalServerError, "failed to create repository")
+			return
+		}
+	} else {
+		// Legacy: create without tenant context
+		if err := s.store.CreateRepository(r.Context(), repo); err != nil {
+			log.Error().Err(err).Msg("failed to create repository")
+			respondError(w, http.StatusInternalServerError, "failed to create repository")
+			return
+		}
 	}
 
 	// Clone the repository asynchronously
@@ -337,12 +392,49 @@ func (s *Server) cloneRepository(repoID uuid.UUID, info *gh.RepoInfo) {
 func (s *Server) listRepos(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	orgIDStr := r.URL.Query().Get("organization_id")
 
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
 
-	repos, err := s.store.ListRepositories(r.Context(), limit, offset)
+	// Check for authenticated user
+	session, hasSession := auth.GetSessionFromContext(r.Context())
+
+	var repos []db.Repository
+	var err error
+
+	if hasSession {
+		if orgIDStr != "" {
+			// Filter by specific organization
+			orgID, parseErr := uuid.Parse(orgIDStr)
+			if parseErr != nil {
+				respondError(w, http.StatusBadRequest, "invalid organization_id")
+				return
+			}
+
+			// Verify user has access to this org
+			isMember, memErr := s.store.IsMember(r.Context(), orgID, session.UserID)
+			if memErr != nil {
+				log.Error().Err(memErr).Msg("failed to check membership")
+				respondError(w, http.StatusInternalServerError, "internal error")
+				return
+			}
+			if !isMember {
+				respondError(w, http.StatusForbidden, "not a member of this organization")
+				return
+			}
+
+			repos, err = s.store.ListRepositoriesByOrg(r.Context(), orgID, limit, offset)
+		} else {
+			// List all repos across user's organizations
+			repos, err = s.store.ListRepositoriesForUser(r.Context(), session.UserID, limit, offset)
+		}
+	} else {
+		// Legacy: list all repos (for backwards compatibility)
+		repos, err = s.store.ListRepositories(r.Context(), limit, offset)
+	}
+
 	if err != nil {
 		log.Error().Err(err).Msg("failed to list repositories")
 		respondError(w, http.StatusInternalServerError, "failed to list repositories")
@@ -357,6 +449,23 @@ func (s *Server) getRepo(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "invalid repo ID")
 		return
+	}
+
+	// Check for authenticated user
+	session, hasSession := auth.GetSessionFromContext(r.Context())
+
+	if hasSession {
+		// Verify user can access this repository
+		canAccess, accessErr := s.store.CanAccessRepository(r.Context(), session.UserID, repoID)
+		if accessErr != nil {
+			log.Error().Err(accessErr).Msg("failed to check repository access")
+			respondError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if !canAccess {
+			respondError(w, http.StatusForbidden, "you don't have access to this repository")
+			return
+		}
 	}
 
 	repo, err := s.store.GetRepository(r.Context(), repoID)
@@ -394,6 +503,23 @@ func (s *Server) deleteRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check for authenticated user - require admin access for deletion
+	session, hasSession := auth.GetSessionFromContext(r.Context())
+
+	if hasSession && repo.OrganizationID != nil {
+		// Require admin/owner permission to delete
+		canManage, manageErr := s.store.CanManageOrg(r.Context(), *repo.OrganizationID, session.UserID)
+		if manageErr != nil {
+			log.Error().Err(manageErr).Msg("failed to check permissions")
+			respondError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if !canManage {
+			respondError(w, http.StatusForbidden, "you need admin permissions to delete this repository")
+			return
+		}
+	}
+
 	// Delete the repository (cascades to runs and tests)
 	if err := s.store.DeleteRepository(r.Context(), repoID); err != nil {
 		log.Error().Err(err).Msg("failed to delete repository")
@@ -416,6 +542,21 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "invalid repo ID")
 		return
+	}
+
+	// Check for authenticated user
+	session, hasSession := auth.GetSessionFromContext(r.Context())
+	if hasSession {
+		canAccess, accessErr := s.store.CanAccessRepository(r.Context(), session.UserID, repoID)
+		if accessErr != nil {
+			log.Error().Err(accessErr).Msg("failed to check repository access")
+			respondError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if !canAccess {
+			respondError(w, http.StatusForbidden, "you don't have access to this repository")
+			return
+		}
 	}
 
 	// Verify repo exists and is ready
@@ -458,6 +599,21 @@ func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check for authenticated user
+	session, hasSession := auth.GetSessionFromContext(r.Context())
+	if hasSession {
+		canAccess, accessErr := s.store.CanAccessRepository(r.Context(), session.UserID, repoID)
+		if accessErr != nil {
+			log.Error().Err(accessErr).Msg("failed to check repository access")
+			respondError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if !canAccess {
+			respondError(w, http.StatusForbidden, "you don't have access to this repository")
+			return
+		}
+	}
+
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 
@@ -494,6 +650,21 @@ func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check for authenticated user - verify access to the repository
+	session, hasSession := auth.GetSessionFromContext(r.Context())
+	if hasSession {
+		canAccess, accessErr := s.store.CanAccessRepository(r.Context(), session.UserID, run.RepositoryID)
+		if accessErr != nil {
+			log.Error().Err(accessErr).Msg("failed to check repository access")
+			respondError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if !canAccess {
+			respondError(w, http.StatusForbidden, "you don't have access to this run")
+			return
+		}
+	}
+
 	respondJSON(w, http.StatusOK, run)
 }
 
@@ -502,6 +673,34 @@ func (s *Server) getRunTests(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "invalid run ID")
 		return
+	}
+
+	// Get the run first to check access
+	run, err := s.store.GetGenerationRun(r.Context(), runID)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to get run")
+		respondError(w, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+
+	if run == nil {
+		respondError(w, http.StatusNotFound, "run not found")
+		return
+	}
+
+	// Check for authenticated user
+	session, hasSession := auth.GetSessionFromContext(r.Context())
+	if hasSession {
+		canAccess, accessErr := s.store.CanAccessRepository(r.Context(), session.UserID, run.RepositoryID)
+		if accessErr != nil {
+			log.Error().Err(accessErr).Msg("failed to check repository access")
+			respondError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if !canAccess {
+			respondError(w, http.StatusForbidden, "you don't have access to this run")
+			return
+		}
 	}
 
 	tests, err := s.store.ListTestsByRun(r.Context(), runID)

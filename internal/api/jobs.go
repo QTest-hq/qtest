@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
+	"github.com/QTest-hq/qtest/internal/auth"
 	"github.com/QTest-hq/qtest/internal/jobs"
 )
 
@@ -307,6 +308,21 @@ func (s *Server) listRepoJobs(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "invalid repo ID")
 		return
+	}
+
+	// Check for authenticated user
+	session, hasSession := auth.GetSessionFromContext(r.Context())
+	if hasSession {
+		canAccess, accessErr := s.store.CanAccessRepository(r.Context(), session.UserID, repoID)
+		if accessErr != nil {
+			log.Error().Err(accessErr).Msg("failed to check repository access")
+			respondError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if !canAccess {
+			respondError(w, http.StatusForbidden, "you don't have access to this repository")
+			return
+		}
 	}
 
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))

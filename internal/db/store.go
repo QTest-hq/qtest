@@ -796,6 +796,25 @@ func (s *Store) GetRepositoryByIDAndOrg(ctx context.Context, id, orgID uuid.UUID
 	return repo, nil
 }
 
+// GetRepositoryByURLAndOrg gets a repository by URL within an organization
+func (s *Store) GetRepositoryByURLAndOrg(ctx context.Context, url string, orgID uuid.UUID) (*Repository, error) {
+	repo := &Repository{}
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, url, name, owner, default_branch, language, last_commit_sha, status, organization_id, created_by, created_at, updated_at
+		FROM repositories WHERE url = $1 AND organization_id = $2
+	`, url, orgID).Scan(&repo.ID, &repo.URL, &repo.Name, &repo.Owner, &repo.DefaultBranch, &repo.Language,
+		&repo.LastCommitSHA, &repo.Status, &repo.OrganizationID, &repo.CreatedBy, &repo.CreatedAt, &repo.UpdatedAt)
+
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get repository: %w", err)
+	}
+
+	return repo, nil
+}
+
 // ListUserAccessibleOrgs returns all org IDs that a user can access
 func (s *Store) ListUserAccessibleOrgs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
 	rows, err := s.pool.Query(ctx, `
