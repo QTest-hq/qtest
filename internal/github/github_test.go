@@ -1066,3 +1066,308 @@ func TestParseRepoURL_TooManySegments(t *testing.T) {
 		t.Errorf("Owner = %s, want owner", info.Owner)
 	}
 }
+
+// =============================================================================
+// Additional Integration Tests
+// =============================================================================
+
+// Test CreatePR with existing PR (422 response)
+func TestPRService_CreatePR_ExistingPR(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" && strings.Contains(r.URL.Path, "/pulls") {
+			// Return 422 with "already exists" message
+			w.WriteHeader(422)
+			w.Write([]byte(`{"message": "A pull request already exists"}`))
+			return
+		}
+		if r.Method == "GET" && strings.Contains(r.URL.Path, "/pulls") {
+			// Return existing PR
+			w.WriteHeader(200)
+			json.NewEncoder(w).Encode([]PRResponse{
+				{Number: 99, HTMLURL: "https://github.com/owner/repo/pull/99"},
+			})
+			return
+		}
+	}))
+	defer server.Close()
+
+	svc := NewPRService("test-token")
+	svc.baseURL = server.URL
+
+	pr, err := svc.CreatePR(context.Background(), PRRequest{
+		Owner: "owner",
+		Repo:  "repo",
+		Title: "Test PR",
+		Head:  "feature",
+		Base:  "main",
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if pr == nil {
+		t.Fatal("expected PR, got nil")
+	}
+
+	if pr.Number != 99 {
+		t.Errorf("PR number = %d, want 99", pr.Number)
+	}
+}
+
+// Test FindPR with server error
+func TestPRService_FindPR_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer server.Close()
+
+	svc := NewPRService("test-token")
+	svc.baseURL = server.URL
+
+	_, err := svc.FindPR(context.Background(), "owner", "repo", "feature", "main")
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+// Test CommitFile with error
+func TestPRService_CommitFile_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			w.WriteHeader(404)
+			return
+		}
+		if r.Method == "PUT" {
+			w.WriteHeader(500)
+			w.Write([]byte("Internal Server Error"))
+			return
+		}
+	}))
+	defer server.Close()
+
+	svc := NewPRService("test-token")
+	svc.baseURL = server.URL
+
+	err := svc.CommitFile(context.Background(), "owner", "repo", "feature",
+		"test/file.go", "package test", "Add test file")
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+// Test getFileSHA with decode error
+func TestPRService_GetFileSHA_DecodeError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		w.Write([]byte("invalid json"))
+	}))
+	defer server.Close()
+
+	svc := NewPRService("test-token")
+	svc.baseURL = server.URL
+
+	sha, err := svc.getFileSHA(context.Background(), "owner", "repo", "main", "file.go")
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+	if sha != "" {
+		t.Errorf("sha = %s, want empty", sha)
+	}
+}
+
+// Test GetDefaultBranch with decode error
+func TestPRService_GetDefaultBranch_DecodeError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		w.Write([]byte("invalid json"))
+	}))
+	defer server.Close()
+
+	svc := NewPRService("test-token")
+	svc.baseURL = server.URL
+
+	branch, _ := svc.GetDefaultBranch(context.Background(), "owner", "repo")
+	// Should fallback to "main" on decode error
+	if branch != "main" {
+		t.Errorf("branch = %s, want main (fallback)", branch)
+	}
+}
+
+// Test GetLatestCommitSHA with decode error
+func TestPRService_GetLatestCommitSHA_DecodeError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		w.Write([]byte("invalid json"))
+	}))
+	defer server.Close()
+
+	svc := NewPRService("test-token")
+	svc.baseURL = server.URL
+
+	_, err := svc.GetLatestCommitSHA(context.Background(), "owner", "repo", "main")
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+// Test FindPR decode error
+func TestPRService_FindPR_DecodeError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		w.Write([]byte("invalid json"))
+	}))
+	defer server.Close()
+
+	svc := NewPRService("test-token")
+	svc.baseURL = server.URL
+
+	_, err := svc.FindPR(context.Background(), "owner", "repo", "feature", "main")
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+// Test CreatePR decode error
+func TestPRService_CreatePR_DecodeError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(201)
+		w.Write([]byte("invalid json"))
+	}))
+	defer server.Close()
+
+	svc := NewPRService("test-token")
+	svc.baseURL = server.URL
+
+	_, err := svc.CreatePR(context.Background(), PRRequest{
+		Owner: "owner",
+		Repo:  "repo",
+		Title: "Test PR",
+		Head:  "feature",
+		Base:  "main",
+	})
+
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+// Test GetFiles with empty patterns
+func TestGetFiles_EmptyPatterns(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "github-test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	createTestFile(t, tmpDir, "main.go", "package main")
+
+	files, err := GetFiles(tmpDir, []string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(files) != 0 {
+		t.Errorf("expected no files with empty patterns, got %d", len(files))
+	}
+}
+
+// Test GetFiles with vendor directory
+func TestGetFiles_SkipsVendor(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "github-test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	createTestFile(t, tmpDir, "main.go", "package main")
+	os.MkdirAll(filepath.Join(tmpDir, "vendor/pkg"), 0755)
+	createTestFile(t, tmpDir, "vendor/pkg/lib.go", "package pkg")
+
+	files, err := GetFiles(tmpDir, []string{"*.go"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, f := range files {
+		if strings.Contains(f, "vendor") {
+			t.Errorf("should skip vendor directory, found %s", f)
+		}
+	}
+}
+
+// Test GetFiles with __pycache__ directory
+func TestGetFiles_SkipsPycache(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "github-test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	createTestFile(t, tmpDir, "main.py", "print('hello')")
+	os.MkdirAll(filepath.Join(tmpDir, "__pycache__"), 0755)
+	createTestFile(t, tmpDir, "__pycache__/main.cpython-39.pyc", "cached")
+
+	files, err := GetFiles(tmpDir, []string{"*"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, f := range files {
+		if strings.Contains(f, "__pycache__") {
+			t.Errorf("should skip __pycache__ directory, found %s", f)
+		}
+	}
+}
+
+// Test DetectLanguages with test directories
+func TestDetectLanguages_SkipsTestDirs(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "github-test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	createTestFile(t, tmpDir, "main.go", "package main")
+	os.MkdirAll(filepath.Join(tmpDir, "test"), 0755)
+	createTestFile(t, tmpDir, "test/helper.go", "package test")
+	os.MkdirAll(filepath.Join(tmpDir, "tests"), 0755)
+	createTestFile(t, tmpDir, "tests/helper.go", "package tests")
+
+	languages, err := DetectLanguages(tmpDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should only count main.go, not files in test/ or tests/
+	if languages["go"] != 1 {
+		t.Errorf("go count = %d, want 1", languages["go"])
+	}
+}
+
+// Test DetectLanguages with additional languages
+func TestDetectLanguages_AllLanguages(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "github-test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	createTestFile(t, tmpDir, "main.rb", "puts 'hello'")
+	createTestFile(t, tmpDir, "lib.rs", "fn main() {}")
+	createTestFile(t, tmpDir, "program.c", "int main() {}")
+	createTestFile(t, tmpDir, "lib.cpp", "int main() {}")
+	createTestFile(t, tmpDir, "Program.cs", "class Program {}")
+
+	languages, err := DetectLanguages(tmpDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expectedLangs := []string{"ruby", "rust", "c", "cpp", "csharp"}
+	for _, lang := range expectedLangs {
+		if languages[lang] != 1 {
+			t.Errorf("%s count = %d, want 1", lang, languages[lang])
+		}
+	}
+}
