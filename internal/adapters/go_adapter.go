@@ -193,10 +193,98 @@ func generateGoAction(action dsl.Action) string {
 	case "db_setup":
 		return "// TODO: Setup database"
 	case "mock":
-		return "// TODO: Setup mocks"
+		return generateGoMock(action)
+	case "http_mock":
+		return generateGoHTTPMock(action)
 	default:
 		return fmt.Sprintf("// %s", action.Type)
 	}
+}
+
+// generateGoMock generates Go mock setup code
+func generateGoMock(action dsl.Action) string {
+	target, _ := action.Params["target"].(string)
+	mockType, _ := action.Params["type"].(string)
+	returnVal, hasReturn := action.Params["return"]
+
+	switch mockType {
+	case "interface":
+		// Generate interface mock
+		if target != "" {
+			var buf strings.Builder
+			buf.WriteString(fmt.Sprintf("mock%s := &Mock%s{}\n", target, target))
+			if hasReturn {
+				buf.WriteString(fmt.Sprintf("\tmock%s.ReturnValue = %v", target, formatGoArg(returnVal)))
+			}
+			return buf.String()
+		}
+		return "// mock := &MockInterface{}"
+
+	case "function":
+		// Generate function variable mock
+		if target != "" {
+			if hasReturn {
+				return fmt.Sprintf("orig%s := %s\n\t%s = func() interface{} { return %v }\n\tdefer func() { %s = orig%s }()",
+					target, target, target, formatGoArg(returnVal), target, target)
+			}
+			return fmt.Sprintf("orig%s := %s\n\t%s = func() {}\n\tdefer func() { %s = orig%s }()",
+				target, target, target, target, target)
+		}
+		return "// origFunc := targetFunc\n\t// targetFunc = mockFunc\n\t// defer func() { targetFunc = origFunc }()"
+
+	case "http_client":
+		// Generate HTTP client mock using httptest
+		return `server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("{}"))
+	}))
+	defer server.Close()
+	client := server.Client()`
+
+	case "time":
+		// Generate time mock
+		if hasReturn {
+			return fmt.Sprintf("now := time.Now()\n\t_ = now // Mock time: %v", returnVal)
+		}
+		return "now := time.Now()\n\t_ = now // Use 'now' for time-dependent tests"
+
+	default:
+		// Generic mock placeholder with target info
+		if target != "" {
+			return fmt.Sprintf("// Mock setup for %s\n\tmock%s := &Mock%s{}", target, target, target)
+		}
+		return "// Mock setup - implement interface or use function replacement"
+	}
+}
+
+// generateGoHTTPMock generates httptest server mock code
+func generateGoHTTPMock(action dsl.Action) string {
+	method, _ := action.Params["method"].(string)
+	if method == "" {
+		method = "GET"
+	}
+	path, _ := action.Params["path"].(string)
+	if path == "" {
+		path = "/"
+	}
+	statusCode, ok := action.Params["status"].(int)
+	if !ok {
+		statusCode = 200
+	}
+	responseBody, _ := action.Params["response"].(string)
+	if responseBody == "" {
+		responseBody = "{}"
+	}
+
+	return fmt.Sprintf(`mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "%s" && r.URL.Path == "%s" {
+			w.WriteHeader(%d)
+			w.Write([]byte(%q))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mockServer.Close()`, method, path, statusCode, responseBody)
 }
 
 func generateGoStepAction(step dsl.TestStep) string {

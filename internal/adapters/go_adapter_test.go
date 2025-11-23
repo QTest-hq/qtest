@@ -403,7 +403,7 @@ func TestGenerateGoAction(t *testing.T) {
 		contains string
 	}{
 		{"db_setup", dsl.Action{Type: "db_setup"}, "Setup database"},
-		{"mock", dsl.Action{Type: "mock"}, "Setup mocks"},
+		{"mock", dsl.Action{Type: "mock"}, "Mock setup"},
 		{"custom", dsl.Action{Type: "custom_action"}, "custom_action"},
 	}
 
@@ -515,4 +515,183 @@ func TestGoAdapter_Generate_OutputFormat(t *testing.T) {
 	assert.Contains(t, code, `"testing"`)
 	assert.Contains(t, code, "var result interface{}")
 	assert.Contains(t, code, "_ = result")
+}
+
+// Mock Generation Tests
+
+func TestGenerateGoMock_InterfaceMock(t *testing.T) {
+	action := dsl.Action{
+		Type: "mock",
+		Params: map[string]interface{}{
+			"type":   "interface",
+			"target": "UserService",
+		},
+	}
+	result := generateGoMock(action)
+	assert.Contains(t, result, "mockUserService")
+	assert.Contains(t, result, "MockUserService")
+}
+
+func TestGenerateGoMock_InterfaceWithReturn(t *testing.T) {
+	action := dsl.Action{
+		Type: "mock",
+		Params: map[string]interface{}{
+			"type":   "interface",
+			"target": "Cache",
+			"return": "cached_value",
+		},
+	}
+	result := generateGoMock(action)
+	assert.Contains(t, result, "mockCache")
+	assert.Contains(t, result, "ReturnValue")
+}
+
+func TestGenerateGoMock_FunctionMock(t *testing.T) {
+	action := dsl.Action{
+		Type: "mock",
+		Params: map[string]interface{}{
+			"type":   "function",
+			"target": "GetTime",
+		},
+	}
+	result := generateGoMock(action)
+	assert.Contains(t, result, "origGetTime")
+	assert.Contains(t, result, "defer func()")
+}
+
+func TestGenerateGoMock_FunctionWithReturn(t *testing.T) {
+	action := dsl.Action{
+		Type: "mock",
+		Params: map[string]interface{}{
+			"type":   "function",
+			"target": "FetchData",
+			"return": 42,
+		},
+	}
+	result := generateGoMock(action)
+	assert.Contains(t, result, "origFetchData")
+	assert.Contains(t, result, "return 42")
+}
+
+func TestGenerateGoMock_HTTPClient(t *testing.T) {
+	action := dsl.Action{
+		Type: "mock",
+		Params: map[string]interface{}{
+			"type": "http_client",
+		},
+	}
+	result := generateGoMock(action)
+	assert.Contains(t, result, "httptest.NewServer")
+	assert.Contains(t, result, "server.Close()")
+	assert.Contains(t, result, "server.Client()")
+}
+
+func TestGenerateGoMock_TimeMock(t *testing.T) {
+	action := dsl.Action{
+		Type: "mock",
+		Params: map[string]interface{}{
+			"type": "time",
+		},
+	}
+	result := generateGoMock(action)
+	assert.Contains(t, result, "time.Now()")
+}
+
+func TestGenerateGoMock_TimeMockWithReturn(t *testing.T) {
+	action := dsl.Action{
+		Type: "mock",
+		Params: map[string]interface{}{
+			"type":   "time",
+			"return": "2024-01-01",
+		},
+	}
+	result := generateGoMock(action)
+	assert.Contains(t, result, "Mock time")
+}
+
+func TestGenerateGoMock_DefaultWithTarget(t *testing.T) {
+	action := dsl.Action{
+		Type: "mock",
+		Params: map[string]interface{}{
+			"target": "MyService",
+		},
+	}
+	result := generateGoMock(action)
+	assert.Contains(t, result, "Mock setup for MyService")
+	assert.Contains(t, result, "MockMyService")
+}
+
+func TestGenerateGoMock_DefaultNoTarget(t *testing.T) {
+	action := dsl.Action{
+		Type:   "mock",
+		Params: map[string]interface{}{},
+	}
+	result := generateGoMock(action)
+	assert.Contains(t, result, "Mock setup")
+}
+
+func TestGenerateGoHTTPMock_Default(t *testing.T) {
+	action := dsl.Action{
+		Type:   "http_mock",
+		Params: map[string]interface{}{},
+	}
+	result := generateGoHTTPMock(action)
+	assert.Contains(t, result, "mockServer := httptest.NewServer")
+	assert.Contains(t, result, `r.Method == "GET"`)
+	assert.Contains(t, result, `r.URL.Path == "/"`)
+	assert.Contains(t, result, "w.WriteHeader(200)")
+}
+
+func TestGenerateGoHTTPMock_Custom(t *testing.T) {
+	action := dsl.Action{
+		Type: "http_mock",
+		Params: map[string]interface{}{
+			"method":   "POST",
+			"path":     "/api/users",
+			"status":   201,
+			"response": `{"id": 1}`,
+		},
+	}
+	result := generateGoHTTPMock(action)
+	assert.Contains(t, result, `r.Method == "POST"`)
+	assert.Contains(t, result, `r.URL.Path == "/api/users"`)
+	assert.Contains(t, result, "w.WriteHeader(201)")
+	assert.Contains(t, result, "id")
+}
+
+func TestGenerateGoAction_HTTPMock(t *testing.T) {
+	action := dsl.Action{
+		Type: "http_mock",
+		Params: map[string]interface{}{
+			"method": "DELETE",
+			"path":   "/api/item/1",
+			"status": 204,
+		},
+	}
+	result := generateGoAction(action)
+	assert.Contains(t, result, "httptest.NewServer")
+	assert.Contains(t, result, "DELETE")
+}
+
+func TestGenerateGoMock_InterfaceNoTarget(t *testing.T) {
+	action := dsl.Action{
+		Type: "mock",
+		Params: map[string]interface{}{
+			"type": "interface",
+		},
+	}
+	result := generateGoMock(action)
+	assert.Contains(t, result, "MockInterface")
+}
+
+func TestGenerateGoMock_FunctionNoTarget(t *testing.T) {
+	action := dsl.Action{
+		Type: "mock",
+		Params: map[string]interface{}{
+			"type": "function",
+		},
+	}
+	result := generateGoMock(action)
+	assert.Contains(t, result, "origFunc")
+	assert.Contains(t, result, "targetFunc")
 }
