@@ -47,17 +47,21 @@ type Server struct {
 
 	// Organization handlers
 	orgHandlers *OrganizationHandlers
+
+	// API key handlers
+	apiKeyHandlers *APIKeyHandlers
 }
 
 // NewServer creates a new API server
 func NewServer(cfg *config.Config, database *db.DB) (*Server, error) {
 	store := db.NewStore(database)
 	s := &Server{
-		cfg:         cfg,
-		router:      chi.NewRouter(),
-		store:       store,
-		repoService: gh.NewRepoService("/tmp/qtest-repos", cfg.GitHubToken),
-		orgHandlers: NewOrganizationHandlers(store),
+		cfg:            cfg,
+		router:         chi.NewRouter(),
+		store:          store,
+		repoService:    gh.NewRepoService("/tmp/qtest-repos", cfg.GitHubToken),
+		orgHandlers:    NewOrganizationHandlers(store),
+		apiKeyHandlers: NewAPIKeyHandlers(store),
 	}
 
 	s.setupMiddleware()
@@ -193,7 +197,34 @@ func (s *Server) setupRoutes() {
 			r.Patch("/{orgID}/members/{userID}", s.updateMemberRole)
 			r.Delete("/{orgID}/members/{userID}", s.removeOrgMember)
 		})
+
+		// API Keys (requires auth)
+		r.Route("/api-keys", func(r chi.Router) {
+			r.Use(s.requireAuth)
+			r.Get("/", s.listAPIKeys)
+			r.Post("/", s.createAPIKey)
+			r.Get("/{keyID}", s.getAPIKey)
+			r.Delete("/{keyID}", s.revokeAPIKey)
+		})
 	})
+}
+
+// API key handlers - delegate to apiKeyHandlers
+
+func (s *Server) listAPIKeys(w http.ResponseWriter, r *http.Request) {
+	s.apiKeyHandlers.ListAPIKeys(w, r)
+}
+
+func (s *Server) createAPIKey(w http.ResponseWriter, r *http.Request) {
+	s.apiKeyHandlers.CreateAPIKey(w, r)
+}
+
+func (s *Server) getAPIKey(w http.ResponseWriter, r *http.Request) {
+	s.apiKeyHandlers.GetAPIKey(w, r)
+}
+
+func (s *Server) revokeAPIKey(w http.ResponseWriter, r *http.Request) {
+	s.apiKeyHandlers.RevokeAPIKey(w, r)
 }
 
 // requireAuth is middleware that requires authentication
