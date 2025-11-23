@@ -321,11 +321,11 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P3-010 | Implement surviving mutant analyzer | 🔴 | P0 | P3-002 | Identify weak tests |
-| P3-011 | Design strengthening prompts | 🔴 | P0 | - | LLM prompts |
-| P3-012 | Implement strengthening loop | 🔴 | P0 | P3-010, P3-011 | Retry with feedback |
-| P3-013 | Add strengthening limits | 🔴 | P0 | P3-012 | Max 2 attempts |
-| P3-014 | Write strengthening tests | 🔴 | P1 | P3-010-013 | |
+| P3-010 | Implement surviving mutant analyzer | ✅ | P0 | P3-002 | internal/strengthening/strengthener.go |
+| P3-011 | Design strengthening prompts | ✅ | P0 | - | buildStrengtheningPrompt() |
+| P3-012 | Implement strengthening loop | ✅ | P0 | P3-010, P3-011 | StrengthenLoop() with feedback |
+| P3-013 | Add strengthening limits | ✅ | P0 | P3-012 | MaxAttempts, MinScoreImprovement |
+| P3-014 | Write strengthening tests | ✅ | P1 | P3-010-013 | 22 tests |
 
 ### 3.3 Drift Detection
 
