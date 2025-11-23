@@ -412,10 +412,10 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P4-003 | Implement FastAPI route detector | 🟢 | P0 | P4-002 | internal/supplements/fastapi.go |
 | P4-004 | Implement Pytest adapter | 🟢 | P0 | P1-090 | pytest_adapter.go + spec adapter - 10+ tests |
 | P4-005 | Add mutmut integration | 🔴 | P1 | P3-001 | Python mutation |
-| P4-006 | Add Java grammar (tree-sitter) | 🔴 | P0 | P1-030 | |
-| P4-007 | Implement Java class extractor | 🔴 | P0 | P4-006 | |
-| P4-008 | Implement Spring route detector | 🔴 | P0 | P4-007 | |
-| P4-009 | Implement JUnit adapter | 🔴 | P0 | P1-090 | |
+| P4-006 | Add Java grammar (tree-sitter) | 🟢 | P0 | P1-030 | internal/parser/parser.go - 5 tests |
+| P4-007 | Implement Java class extractor | 🟢 | P0 | P4-006 | parser.go - classes, methods, params |
+| P4-008 | Implement Spring route detector | 🟢 | P0 | P4-007 | internal/supplements/springboot.go |
+| P4-009 | Implement JUnit adapter | 🟢 | P0 | P1-090 | junit_spec_adapter.go - 9 tests |
 | P4-010 | Add PIT integration | 🔴 | P1 | P3-001 | Java mutation |
 | P4-011 | Write multi-language tests | 🔴 | P1 | P4-001-010 | |
 
@@ -505,6 +505,7 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-23 | **CI Workflow Generator**: Added `qtest ci` commands for generating GitHub Actions, GitLab CI, and CircleCI workflows. Auto-detects language, framework, and services. 15 tests. P1-121 and P1-123 complete. |
 | 2025-11-23 | **CLI Auth**: Added `qtest auth login/logout/status` commands for CLI authentication with API keys. Stores credentials in ~/.qtest/credentials.json. 10 tests. P1-151 complete. Test count ~155. |
 | 2025-11-23 | **CLI Status**: Added `qtest status` command showing CLI version, auth status, API server, Ollama, and workspace summary. Supports --verbose and --json flags. P1-153 complete. |
+| 2025-11-23 | **Java Support**: Added Java tree-sitter grammar, class/method extractor, and JUnit spec adapter. Spring Boot supplement already existed. 14 new tests (5 parser, 9 adapter). P4-006, P4-007, P4-008, P4-009 complete. |
 
 ---
 

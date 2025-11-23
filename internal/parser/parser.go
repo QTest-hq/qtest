@@ -9,15 +9,17 @@ import (
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/golang"
+	"github.com/smacker/go-tree-sitter/java"
 	"github.com/smacker/go-tree-sitter/javascript"
 	"github.com/smacker/go-tree-sitter/python"
 )
 
 // Parser parses source code files using tree-sitter
 type Parser struct {
-	goParser *sitter.Parser
-	pyParser *sitter.Parser
-	jsParser *sitter.Parser
+	goParser   *sitter.Parser
+	pyParser   *sitter.Parser
+	jsParser   *sitter.Parser
+	javaParser *sitter.Parser
 }
 
 // NewParser creates a new parser with all language support
@@ -31,10 +33,14 @@ func NewParser() *Parser {
 	jsParser := sitter.NewParser()
 	jsParser.SetLanguage(javascript.GetLanguage())
 
+	javaParser := sitter.NewParser()
+	javaParser.SetLanguage(java.GetLanguage())
+
 	return &Parser{
-		goParser: goParser,
-		pyParser: pyParser,
-		jsParser: jsParser,
+		goParser:   goParser,
+		pyParser:   pyParser,
+		jsParser:   jsParser,
+		javaParser: javaParser,
 	}
 }
 
@@ -63,6 +69,8 @@ func (p *Parser) ParseContent(ctx context.Context, filePath, content string, lan
 		parser = p.pyParser
 	case LanguageJavaScript, LanguageTypeScript:
 		parser = p.jsParser // Use JS parser for TS as well (basic support)
+	case LanguageJava:
+		parser = p.javaParser
 	default:
 		return nil, fmt.Errorf("unsupported language: %s", lang)
 	}
@@ -89,6 +97,8 @@ func (p *Parser) ParseContent(ctx context.Context, filePath, content string, lan
 		p.extractPythonFunctions(tree.RootNode(), []byte(content), parsed)
 	case LanguageJavaScript, LanguageTypeScript:
 		p.extractJSFunctions(tree.RootNode(), []byte(content), parsed)
+	case LanguageJava:
+		p.extractJavaFunctions(tree.RootNode(), []byte(content), parsed)
 	}
 
 	return parsed, nil
@@ -440,6 +450,178 @@ func (p *Parser) parseJSParameters(node *sitter.Node, source []byte) []Parameter
 			if typeNode != nil {
 				param.Type = typeNode.Content(source)
 			}
+			if param.Name != "" {
+				params = append(params, param)
+			}
+		}
+	}
+
+	return params
+}
+
+// extractJavaFunctions extracts classes and methods from Java source
+func (p *Parser) extractJavaFunctions(node *sitter.Node, source []byte, parsed *ParsedFile) {
+	cursor := sitter.NewTreeCursor(node)
+	defer cursor.Close()
+
+	p.walkTree(cursor, source, func(n *sitter.Node) {
+		if n.Type() == "class_declaration" {
+			cls := p.parseJavaClass(n, source, parsed.Path)
+			if cls != nil {
+				parsed.Classes = append(parsed.Classes, *cls)
+			}
+		}
+	})
+}
+
+func (p *Parser) parseJavaClass(node *sitter.Node, source []byte, filePath string) *Class {
+	cls := &Class{
+		StartLine: int(node.StartPoint().Row) + 1,
+		EndLine:   int(node.EndPoint().Row) + 1,
+		Methods:   make([]Function, 0),
+	}
+
+	// Get class name
+	nameNode := node.ChildByFieldName("name")
+	if nameNode != nil {
+		cls.Name = nameNode.Content(source)
+		cls.ID = fmt.Sprintf("%s:%d:%s", filePath, cls.StartLine, cls.Name)
+	}
+
+	// Check for public modifier
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == "modifiers" {
+			modText := child.Content(source)
+			cls.Exported = strings.Contains(modText, "public")
+			break
+		}
+	}
+
+	// Extract methods from class body
+	bodyNode := node.ChildByFieldName("body")
+	if bodyNode != nil {
+		for i := 0; i < int(bodyNode.ChildCount()); i++ {
+			child := bodyNode.Child(i)
+			if child.Type() == "method_declaration" {
+				fn := p.parseJavaMethod(child, source)
+				if fn != nil {
+					fn.Class = cls.Name
+					fn.ID = fmt.Sprintf("%s:%d:%s.%s", filePath, fn.StartLine, cls.Name, fn.Name)
+					cls.Methods = append(cls.Methods, *fn)
+				}
+			} else if child.Type() == "constructor_declaration" {
+				fn := p.parseJavaConstructor(child, source)
+				if fn != nil {
+					fn.Class = cls.Name
+					fn.Name = cls.Name // Constructor name is class name
+					fn.ID = fmt.Sprintf("%s:%d:%s.%s", filePath, fn.StartLine, cls.Name, fn.Name)
+					cls.Methods = append(cls.Methods, *fn)
+				}
+			}
+		}
+	}
+
+	return cls
+}
+
+func (p *Parser) parseJavaMethod(node *sitter.Node, source []byte) *Function {
+	fn := &Function{
+		StartLine:  int(node.StartPoint().Row) + 1,
+		EndLine:    int(node.EndPoint().Row) + 1,
+		Parameters: make([]Parameter, 0),
+	}
+
+	// Get method name
+	nameNode := node.ChildByFieldName("name")
+	if nameNode != nil {
+		fn.Name = nameNode.Content(source)
+	}
+
+	// Get return type
+	typeNode := node.ChildByFieldName("type")
+	if typeNode != nil {
+		fn.ReturnType = typeNode.Content(source)
+	}
+
+	// Check for modifiers (public, static, etc.)
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == "modifiers" {
+			modText := child.Content(source)
+			fn.Exported = strings.Contains(modText, "public")
+			fn.Static = strings.Contains(modText, "static")
+			break
+		}
+	}
+
+	// Get parameters
+	paramsNode := node.ChildByFieldName("parameters")
+	if paramsNode != nil {
+		fn.Parameters = p.parseJavaParameters(paramsNode, source)
+	}
+
+	// Get body
+	bodyNode := node.ChildByFieldName("body")
+	if bodyNode != nil {
+		fn.Body = bodyNode.Content(source)
+	}
+
+	return fn
+}
+
+func (p *Parser) parseJavaConstructor(node *sitter.Node, source []byte) *Function {
+	fn := &Function{
+		StartLine:  int(node.StartPoint().Row) + 1,
+		EndLine:    int(node.EndPoint().Row) + 1,
+		Parameters: make([]Parameter, 0),
+	}
+
+	// Check for modifiers
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == "modifiers" {
+			modText := child.Content(source)
+			fn.Exported = strings.Contains(modText, "public")
+			break
+		}
+	}
+
+	// Get parameters
+	paramsNode := node.ChildByFieldName("parameters")
+	if paramsNode != nil {
+		fn.Parameters = p.parseJavaParameters(paramsNode, source)
+	}
+
+	// Get body
+	bodyNode := node.ChildByFieldName("body")
+	if bodyNode != nil {
+		fn.Body = bodyNode.Content(source)
+	}
+
+	return fn
+}
+
+func (p *Parser) parseJavaParameters(node *sitter.Node, source []byte) []Parameter {
+	params := make([]Parameter, 0)
+
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == "formal_parameter" {
+			var param Parameter
+
+			// Get type
+			typeNode := child.ChildByFieldName("type")
+			if typeNode != nil {
+				param.Type = typeNode.Content(source)
+			}
+
+			// Get name
+			nameNode := child.ChildByFieldName("name")
+			if nameNode != nil {
+				param.Name = nameNode.Content(source)
+			}
+
 			if param.Name != "" {
 				params = append(params, param)
 			}

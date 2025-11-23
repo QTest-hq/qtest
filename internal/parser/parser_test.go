@@ -245,9 +245,113 @@ func TestParser_ParseContent_TypeScript_Function(t *testing.T) {
 
 func TestParser_ParseContent_UnsupportedLanguage(t *testing.T) {
 	p := NewParser()
-	_, err := p.ParseContent(context.Background(), "test.java", "class Test {}", LanguageJava)
+	_, err := p.ParseContent(context.Background(), "test.rs", "fn main() {}", LanguageUnknown)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported language")
+}
+
+func TestParser_ParseContent_Java_Class(t *testing.T) {
+	p := NewParser()
+	content := `public class Calculator {
+    private int value;
+
+    public Calculator() {
+        this.value = 0;
+    }
+
+    public int add(int a, int b) {
+        return a + b;
+    }
+
+    public static int multiply(int x, int y) {
+        return x * y;
+    }
+
+    private void helper() {
+    }
+}
+`
+	parsed, err := p.ParseContent(context.Background(), "Calculator.java", content, LanguageJava)
+	require.NoError(t, err)
+	assert.Equal(t, LanguageJava, parsed.Language)
+	assert.Len(t, parsed.Classes, 1)
+
+	cls := parsed.Classes[0]
+	assert.Equal(t, "Calculator", cls.Name)
+	assert.True(t, cls.Exported)
+	assert.Len(t, cls.Methods, 4) // constructor + 3 methods
+}
+
+func TestParser_ParseContent_Java_Methods(t *testing.T) {
+	p := NewParser()
+	content := `public class Service {
+    public void doSomething(String name, int count) {
+    }
+
+    public static String format(String template) {
+        return template;
+    }
+}
+`
+	parsed, err := p.ParseContent(context.Background(), "Service.java", content, LanguageJava)
+	require.NoError(t, err)
+	require.Len(t, parsed.Classes, 1)
+	require.Len(t, parsed.Classes[0].Methods, 2)
+
+	// First method
+	m1 := parsed.Classes[0].Methods[0]
+	assert.Equal(t, "doSomething", m1.Name)
+	assert.True(t, m1.Exported)
+	assert.False(t, m1.Static)
+	assert.Equal(t, "void", m1.ReturnType)
+	assert.Len(t, m1.Parameters, 2)
+	assert.Equal(t, "name", m1.Parameters[0].Name)
+	assert.Equal(t, "String", m1.Parameters[0].Type)
+	assert.Equal(t, "count", m1.Parameters[1].Name)
+	assert.Equal(t, "int", m1.Parameters[1].Type)
+
+	// Second method (static)
+	m2 := parsed.Classes[0].Methods[1]
+	assert.Equal(t, "format", m2.Name)
+	assert.True(t, m2.Exported)
+	assert.True(t, m2.Static)
+	assert.Equal(t, "String", m2.ReturnType)
+}
+
+func TestParser_ParseContent_Java_PrivateMethod(t *testing.T) {
+	p := NewParser()
+	content := `class Helper {
+    private int calculate(int x) {
+        return x * 2;
+    }
+}
+`
+	parsed, err := p.ParseContent(context.Background(), "Helper.java", content, LanguageJava)
+	require.NoError(t, err)
+	require.Len(t, parsed.Classes, 1)
+	require.Len(t, parsed.Classes[0].Methods, 1)
+
+	m := parsed.Classes[0].Methods[0]
+	assert.Equal(t, "calculate", m.Name)
+	assert.False(t, m.Exported) // private
+}
+
+func TestParser_ParseContent_Java_Constructor(t *testing.T) {
+	p := NewParser()
+	content := `public class Person {
+    public Person(String name, int age) {
+    }
+}
+`
+	parsed, err := p.ParseContent(context.Background(), "Person.java", content, LanguageJava)
+	require.NoError(t, err)
+	require.Len(t, parsed.Classes, 1)
+	require.Len(t, parsed.Classes[0].Methods, 1)
+
+	constructor := parsed.Classes[0].Methods[0]
+	assert.Equal(t, "Person", constructor.Name) // Constructor name is class name
+	assert.True(t, constructor.Exported)
+	assert.Len(t, constructor.Parameters, 2)
 }
 
 func TestParser_ParseContent_EmptyFile(t *testing.T) {

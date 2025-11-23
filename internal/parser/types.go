@@ -34,6 +34,7 @@ type Function struct {
 	Comments   string // Doc comments
 	Exported   bool   // Is publicly accessible
 	Async      bool   // Is async function
+	Static     bool   // Is static method (Java)
 	Class      string // Parent class (if method)
 }
 
