@@ -3,7 +3,6 @@ package workspace
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -29,13 +28,68 @@ func NewGitManager(ws *Workspace, token string) *GitManager {
 	}
 }
 
-// Clone clones the repository into the workspace
+// Clone clones the repository into the workspace (uses default config)
 func (g *GitManager) Clone(ctx context.Context) error {
+	return g.CloneWithConfig(ctx, DefaultCloneConfig())
+}
+
+// CloneWithConfig clones the repository with custom configuration
+// Includes timeout handling, size validation, and graceful cleanup
+func (g *GitManager) CloneWithConfig(ctx context.Context, cfg *CloneConfig) error {
+	if cfg == nil {
+		cfg = DefaultCloneConfig()
+	}
+
 	g.ws.SetPhase(PhaseCloning)
 
+	// Create timeout context
+	cloneCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
+	defer cancel()
+
+	// Parse GitHub URL for size validation
+	owner, repo, err := ParseGitHubURL(g.ws.RepoURL)
+	if err == nil {
+		// Validate repository size (GitHub only)
+		repoInfo, err := ValidateRepoSize(cloneCtx, owner, repo, cfg.MaxRepoSizeMB, g.token)
+		if err != nil {
+			g.ws.SetPhase(PhaseFailed)
+			return err
+		}
+		if repoInfo != nil {
+			log.Info().
+				Str("repo", repoInfo.FullName).
+				Int64("size_kb", repoInfo.Size).
+				Str("default_branch", repoInfo.DefaultBranch).
+				Msg("repository validated")
+		}
+	}
+
+	// Check disk space
+	if err := CheckDiskSpace(filepath.Dir(g.ws.RepoPath), cfg.MinDiskSpaceMB); err != nil {
+		g.ws.SetPhase(PhaseFailed)
+		return &CloneError{
+			Op:  "disk_check",
+			URL: g.ws.RepoURL,
+			Err: err,
+		}
+	}
+
+	// Build clone options
 	cloneOpts := &git.CloneOptions{
-		URL:      g.ws.RepoURL,
-		Progress: os.Stdout,
+		URL: g.ws.RepoURL,
+	}
+
+	if cfg.ProgressWriter != nil {
+		cloneOpts.Progress = cfg.ProgressWriter
+	}
+
+	if cfg.ShallowClone {
+		cloneOpts.Depth = 1
+	}
+
+	if cfg.SingleBranch && g.ws.Branch != "" {
+		cloneOpts.ReferenceName = plumbing.NewBranchReferenceName(g.ws.Branch)
+		cloneOpts.SingleBranch = true
 	}
 
 	if g.token != "" {
@@ -45,18 +99,64 @@ func (g *GitManager) Clone(ctx context.Context) error {
 		}
 	}
 
-	log.Info().Str("url", g.ws.RepoURL).Str("path", g.ws.RepoPath).Msg("cloning repository")
+	log.Info().
+		Str("url", g.ws.RepoURL).
+		Str("path", g.ws.RepoPath).
+		Dur("timeout", cfg.Timeout).
+		Bool("shallow", cfg.ShallowClone).
+		Msg("cloning repository")
 
-	repo, err := git.PlainCloneContext(ctx, g.ws.RepoPath, false, cloneOpts)
-	if err != nil {
-		g.ws.SetPhase(PhaseFailed)
-		return fmt.Errorf("failed to clone: %w", err)
+	// Clone with retry logic
+	var cloneErr error
+	for attempt := 0; attempt <= cfg.RetryCount; attempt++ {
+		if attempt > 0 {
+			log.Warn().
+				Int("attempt", attempt+1).
+				Int("max_attempts", cfg.RetryCount+1).
+				Msg("retrying clone")
+			time.Sleep(cfg.RetryDelay)
+		}
+
+		g.repo, cloneErr = git.PlainCloneContext(cloneCtx, g.ws.RepoPath, false, cloneOpts)
+		if cloneErr == nil {
+			break
+		}
+
+		// Check if context was cancelled (timeout or manual cancel)
+		if cloneCtx.Err() != nil {
+			// Cleanup partial clone
+			CleanupPartialClone(g.ws.RepoPath)
+			g.ws.SetPhase(PhaseFailed)
+			return &CloneError{
+				Op:      "clone",
+				URL:     g.ws.RepoURL,
+				Err:     cloneCtx.Err(),
+				Timeout: cloneCtx.Err() == context.DeadlineExceeded,
+			}
+		}
+
+		// Check if error is transient and worth retrying
+		if !IsTransientError(cloneErr) || attempt == cfg.RetryCount {
+			break
+		}
+
+		// Cleanup before retry
+		CleanupPartialClone(g.ws.RepoPath)
 	}
 
-	g.repo = repo
+	if cloneErr != nil {
+		// Cleanup on failure
+		CleanupPartialClone(g.ws.RepoPath)
+		g.ws.SetPhase(PhaseFailed)
+		return &CloneError{
+			Op:  "clone",
+			URL: g.ws.RepoURL,
+			Err: cloneErr,
+		}
+	}
 
 	// Get HEAD info
-	head, err := repo.Head()
+	head, err := g.repo.Head()
 	if err != nil {
 		return fmt.Errorf("failed to get HEAD: %w", err)
 	}
