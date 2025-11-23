@@ -1,0 +1,1344 @@
+openapi: 3.0.3
+info:
+  title: QTest API
+  description: |
+    AI-Powered Test Generation Platform API.
+
+    QTest generates comprehensive test suites using AI (Ollama LLMs).
+    It parses source code, sends functions to LLMs for test specification generation,
+    and converts the output to language-specific test code.
+
+    ## Authentication
+
+    The API supports two authentication methods:
+    - **Session-based**: OAuth2 login via GitHub
+    - **API Keys**: Bearer token authentication with scoped access
+
+    API keys can be created via the web interface and have configurable scopes:
+    - `repos:read` / `repos:write` - Repository access
+    - `runs:read` / `runs:write` - Generation run access
+    - `tests:read` / `tests:write` - Test access
+    - `jobs:read` / `jobs:write` - Job access
+    - `mutation:read` - Mutation testing access
+  version: 1.0.0
+  contact:
+    name: QTest Support
+    url: https://github.com/QTest-hq/qtest
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+  - url: https://api.qtest.dev
+    description: Production server
+
+tags:
+  - name: Health
+    description: Service health checks
+  - name: Auth
+    description: Authentication endpoints
+  - name: Repositories
+    description: Repository management
+  - name: Runs
+    description: Test generation runs
+  - name: Tests
+    description: Generated tests
+  - name: Jobs
+    description: Background job management
+  - name: Mutation
+    description: Mutation testing
+  - name: Organizations
+    description: Organization management
+  - name: API Keys
+    description: API key management
+  - name: Webhooks
+    description: Webhook configuration
+  - name: Usage
+    description: Usage analytics
+  - name: Admin
+    description: Admin endpoints (requires admin role)
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      description: Simple health check endpoint
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /ready:
+    get:
+      tags: [Health]
+      summary: Readiness check
+      description: Check if service is ready to handle requests
+      operationId: readyCheck
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+        '503':
+          description: Service not ready
+
+  /auth/login:
+    get:
+      tags: [Auth]
+      summary: Initiate OAuth login
+      description: Redirects to GitHub OAuth for authentication
+      operationId: login
+      responses:
+        '302':
+          description: Redirect to GitHub OAuth
+
+  /auth/callback:
+    get:
+      tags: [Auth]
+      summary: OAuth callback
+      description: Handles OAuth callback from GitHub
+      operationId: oauthCallback
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to application after successful login
+        '401':
+          description: Authentication failed
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout
+      description: Ends the user session
+      operationId: logout
+      responses:
+        '200':
+          description: Successfully logged out
+
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current user
+      description: Returns the currently authenticated user's information
+      operationId: getCurrentUser
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        '200':
+          description: User information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh session
+      description: Refresh the authentication session
+      operationId: refreshSession
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Session refreshed
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/auth/repos:
+    get:
+      tags: [Auth]
+      summary: List user's GitHub repos
+      description: Lists repositories the user has access to on GitHub
+      operationId: listUserGitHubRepos
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        '200':
+          description: List of GitHub repositories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GitHubRepo'
+
+  /api/v1/repos:
+    get:
+      tags: [Repositories]
+      summary: List repositories
+      description: Lists repositories accessible to the user
+      operationId: listRepositories
+      security:
+        - bearerAuth: [repos:read]
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+        - name: organization_id
+          in: query
+          description: Filter by organization
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of repositories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Repository'
+    post:
+      tags: [Repositories]
+      summary: Create repository
+      description: Add a repository for test generation
+      operationId: createRepository
+      security:
+        - bearerAuth: [repos:write]
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRepositoryRequest'
+      responses:
+        '201':
+          description: Repository created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Repository'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/repos/{repoID}:
+    get:
+      tags: [Repositories]
+      summary: Get repository
+      description: Get details of a specific repository
+      operationId: getRepository
+      security:
+        - bearerAuth: [repos:read]
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/RepoIDParam'
+      responses:
+        '200':
+          description: Repository details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Repository'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Repositories]
+      summary: Delete repository
+      description: Delete a repository and all associated data
+      operationId: deleteRepository
+      security:
+        - bearerAuth: [repos:write]
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/RepoIDParam'
+      responses:
+        '204':
+          description: Repository deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/repos/{repoID}/runs:
+    get:
+      tags: [Runs]
+      summary: List runs for repository
+      description: List all test generation runs for a repository
+      operationId: listRuns
+      security:
+        - bearerAuth: [runs:read]
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/RepoIDParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: List of runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GenerationRun'
+    post:
+      tags: [Runs]
+      summary: Create run
+      description: Start a new test generation run
+      operationId: createRun
+      security:
+        - bearerAuth: [runs:write]
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/RepoIDParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRunRequest'
+      responses:
+        '201':
+          description: Run created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerationRun'
+
+  /api/v1/repos/{repoID}/runs/{runID}:
+    get:
+      tags: [Runs]
+      summary: Get run
+      description: Get details of a specific run
+      operationId: getRun
+      security:
+        - bearerAuth: [runs:read]
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/RepoIDParam'
+        - $ref: '#/components/parameters/RunIDParam'
+      responses:
+        '200':
+          description: Run details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerationRun'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/repos/{repoID}/runs/{runID}/tests:
+    get:
+      tags: [Tests]
+      summary: Get run tests
+      description: Get all tests generated in a run
+      operationId: getRunTests
+      security:
+        - bearerAuth: [tests:read]
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/RepoIDParam'
+        - $ref: '#/components/parameters/RunIDParam'
+      responses:
+        '200':
+          description: List of tests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Test'
+
+  /api/v1/tests:
+    get:
+      tags: [Tests]
+      summary: List tests
+      description: List generated tests with optional filters
+      operationId: listTests
+      security:
+        - bearerAuth: [tests:read]
+        - cookieAuth: []
+      parameters:
+        - name: run_id
+          in: query
+          description: Filter by run ID
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          description: Filter by status
+          schema:
+            type: string
+            enum: [pending, accepted, rejected]
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: List of tests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Test'
+
+  /api/v1/tests/{testID}:
+    get:
+      tags: [Tests]
+      summary: Get test
+      description: Get details of a specific test
+      operationId: getTest
+      security:
+        - bearerAuth: [tests:read]
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TestIDParam'
+      responses:
+        '200':
+          description: Test details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Test'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/tests/{testID}/accept:
+    put:
+      tags: [Tests]
+      summary: Accept test
+      description: Mark a test as accepted
+      operationId: acceptTest
+      security:
+        - bearerAuth: [tests:write]
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TestIDParam'
+      responses:
+        '200':
+          description: Test accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Test'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/tests/{testID}/reject:
+    put:
+      tags: [Tests]
+      summary: Reject test
+      description: Mark a test as rejected
+      operationId: rejectTest
+      security:
+        - bearerAuth: [tests:write]
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TestIDParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: Reason for rejection
+      responses:
+        '200':
+          description: Test rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Test'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/jobs:
+    get:
+      tags: [Jobs]
+      summary: List jobs
+      description: List background jobs
+      operationId: listJobs
+      security:
+        - bearerAuth: [jobs:read]
+        - cookieAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, running, completed, failed, cancelled]
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Job'
+    post:
+      tags: [Jobs]
+      summary: Create job
+      description: Create a new background job
+      operationId: createJob
+      security:
+        - bearerAuth: [jobs:write]
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateJobRequest'
+      responses:
+        '201':
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+
+  /api/v1/jobs/{jobID}:
+    get:
+      tags: [Jobs]
+      summary: Get job
+      description: Get details of a specific job
+      operationId: getJob
+      security:
+        - bearerAuth: [jobs:read]
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/JobIDParam'
+      responses:
+        '200':
+          description: Job details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/jobs/{jobID}/cancel:
+    post:
+      tags: [Jobs]
+      summary: Cancel job
+      description: Cancel a running or pending job
+      operationId: cancelJob
+      security:
+        - bearerAuth: [jobs:write]
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/JobIDParam'
+      responses:
+        '200':
+          description: Job cancelled
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/jobs/{jobID}/retry:
+    post:
+      tags: [Jobs]
+      summary: Retry job
+      description: Retry a failed job
+      operationId: retryJob
+      security:
+        - bearerAuth: [jobs:write]
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/JobIDParam'
+      responses:
+        '200':
+          description: Job retried
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/jobs/pipeline:
+    post:
+      tags: [Jobs]
+      summary: Start pipeline
+      description: Start a full test generation pipeline
+      operationId: startPipeline
+      security:
+        - bearerAuth: [jobs:write]
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PipelineRequest'
+      responses:
+        '201':
+          description: Pipeline started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+
+  /api/v1/mutation:
+    get:
+      tags: [Mutation]
+      summary: List mutation runs
+      description: List all mutation testing runs
+      operationId: listMutationRuns
+      security:
+        - bearerAuth: [mutation:read]
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: List of mutation runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MutationRun'
+    post:
+      tags: [Mutation]
+      summary: Create mutation run
+      description: Start a new mutation testing run
+      operationId: createMutationRun
+      security:
+        - bearerAuth: [mutation:read]
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMutationRunRequest'
+      responses:
+        '201':
+          description: Mutation run created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MutationRun'
+
+  /api/v1/mutation/{mutationID}:
+    get:
+      tags: [Mutation]
+      summary: Get mutation run
+      description: Get details of a mutation testing run
+      operationId: getMutationRun
+      security:
+        - bearerAuth: [mutation:read]
+        - cookieAuth: []
+      parameters:
+        - name: mutationID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Mutation run details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MutationRun'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/organizations:
+    get:
+      tags: [Organizations]
+      summary: List organizations
+      description: List organizations the user belongs to
+      operationId: listOrganizations
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: List of organizations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Organization'
+    post:
+      tags: [Organizations]
+      summary: Create organization
+      description: Create a new organization
+      operationId: createOrganization
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrganizationRequest'
+      responses:
+        '201':
+          description: Organization created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+
+  /api/v1/organizations/{orgID}:
+    get:
+      tags: [Organizations]
+      summary: Get organization
+      operationId: getOrganization
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+      responses:
+        '200':
+          description: Organization details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+    patch:
+      tags: [Organizations]
+      summary: Update organization
+      operationId: updateOrganization
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrganizationRequest'
+      responses:
+        '200':
+          description: Organization updated
+    delete:
+      tags: [Organizations]
+      summary: Delete organization
+      operationId: deleteOrganization
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+      responses:
+        '204':
+          description: Organization deleted
+
+  /api/v1/organizations/{orgID}/members:
+    get:
+      tags: [Organizations]
+      summary: List organization members
+      operationId: listOrgMembers
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+      responses:
+        '200':
+          description: List of members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrgMember'
+    post:
+      tags: [Organizations]
+      summary: Add organization member
+      operationId: addOrgMember
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddMemberRequest'
+      responses:
+        '201':
+          description: Member added
+
+  /api/v1/api-keys:
+    get:
+      tags: [API Keys]
+      summary: List API keys
+      operationId: listAPIKeys
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: List of API keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/APIKey'
+    post:
+      tags: [API Keys]
+      summary: Create API key
+      operationId: createAPIKey
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAPIKeyRequest'
+      responses:
+        '201':
+          description: API key created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKeyWithSecret'
+
+  /api/v1/api-keys/{keyID}:
+    get:
+      tags: [API Keys]
+      summary: Get API key
+      operationId: getAPIKey
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: keyID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: API key details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKey'
+    delete:
+      tags: [API Keys]
+      summary: Revoke API key
+      operationId: revokeAPIKey
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: keyID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: API key revoked
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: API key authentication
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Session-based authentication
+
+  parameters:
+    RepoIDParam:
+      name: repoID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RunIDParam:
+      name: runID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TestIDParam:
+      name: testID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    JobIDParam:
+      name: jobID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    OrgIDParam:
+      name: orgID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    LimitParam:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        default: 20
+        maximum: 100
+    OffsetParam:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        default: 0
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Permission denied
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    ReadinessResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ready, not_ready]
+        database:
+          type: string
+          enum: [healthy, unhealthy]
+        nats:
+          type: string
+          enum: [healthy, unhealthy]
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        github_id:
+          type: integer
+        login:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        avatar_url:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    GitHubRepo:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        full_name:
+          type: string
+        html_url:
+          type: string
+        private:
+          type: boolean
+        default_branch:
+          type: string
+
+    Repository:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+        name:
+          type: string
+        owner:
+          type: string
+        default_branch:
+          type: string
+        status:
+          type: string
+          enum: [pending, cloning, ready, failed]
+        last_commit_sha:
+          type: string
+        organization_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateRepositoryRequest:
+      type: object
+      properties:
+        url:
+          type: string
+          description: GitHub repository URL
+        branch:
+          type: string
+          description: Branch to clone (default main)
+        organization_id:
+          type: string
+          format: uuid
+          description: Organization to add repo to
+      required:
+        - url
+
+    GenerationRun:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        repository_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        tests_generated:
+          type: integer
+        tests_accepted:
+          type: integer
+        config:
+          type: object
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    CreateRunRequest:
+      type: object
+      properties:
+        tier:
+          type: integer
+          minimum: 1
+          maximum: 3
+          description: LLM tier (1=fast, 2=balanced, 3=thorough)
+        max_tests:
+          type: integer
+          minimum: 1
+          description: Maximum tests to generate
+        config:
+          type: object
+          description: Additional configuration
+
+    Test:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        run_id:
+          type: string
+          format: uuid
+        function_name:
+          type: string
+        test_name:
+          type: string
+        test_code:
+          type: string
+        status:
+          type: string
+          enum: [pending, accepted, rejected]
+        rejection_reason:
+          type: string
+        file_path:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Job:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [generate, validate, commit]
+        status:
+          type: string
+          enum: [pending, running, completed, failed, cancelled]
+        repository_id:
+          type: string
+          format: uuid
+        payload:
+          type: object
+        result:
+          type: object
+        error:
+          type: string
+        retry_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+
+    CreateJobRequest:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [generate, validate, commit]
+        repository_id:
+          type: string
+          format: uuid
+        payload:
+          type: object
+      required:
+        - type
+        - repository_id
+
+    PipelineRequest:
+      type: object
+      properties:
+        repository_id:
+          type: string
+          format: uuid
+        tier:
+          type: integer
+        max_tests:
+          type: integer
+        create_pr:
+          type: boolean
+      required:
+        - repository_id
+
+    MutationRun:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        repository_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        total_mutants:
+          type: integer
+        killed_mutants:
+          type: integer
+        survived_mutants:
+          type: integer
+        mutation_score:
+          type: number
+        created_at:
+          type: string
+          format: date-time
+
+    CreateMutationRunRequest:
+      type: object
+      properties:
+        repository_id:
+          type: string
+          format: uuid
+        files:
+          type: array
+          items:
+            type: string
+      required:
+        - repository_id
+
+    Organization:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        is_personal:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    CreateOrganizationRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+      required:
+        - name
+        - slug
+
+    UpdateOrganizationRequest:
+      type: object
+      properties:
+        name:
+          type: string
+
+    OrgMember:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [owner, admin, member]
+        user:
+          $ref: '#/components/schemas/User'
+
+    AddMemberRequest:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [admin, member]
+      required:
+        - user_id
+        - role
+
+    APIKey:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        prefix:
+          type: string
+          description: First 8 characters of the key
+        scopes:
+          type: array
+          items:
+            type: string
+        organization_id:
+          type: string
+          format: uuid
+        expires_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    APIKeyWithSecret:
+      allOf:
+        - $ref: '#/components/schemas/APIKey'
+        - type: object
+          properties:
+            key:
+              type: string
+              description: Full API key (only shown once)
+
+    CreateAPIKeyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+            enum:
+              - repos:read
+              - repos:write
+              - runs:read
+              - runs:write
+              - tests:read
+              - tests:write
+              - jobs:read
+              - jobs:write
+              - mutation:read
+        organization_id:
+          type: string
+          format: uuid
+        expires_in_days:
+          type: integer
+      required:
+        - name
+        - scopes

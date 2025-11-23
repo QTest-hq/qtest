@@ -202,6 +202,15 @@ func (s *Server) setupRoutes() {
 	s.router.Get("/health", s.healthCheck)
 	s.router.Get("/ready", s.readyCheck)
 
+	// API Documentation
+	s.router.Route("/docs", func(r chi.Router) {
+		r.Get("/", s.serveSwaggerUI)
+		r.Get("/swagger", s.serveSwaggerUI)
+		r.Get("/redoc", s.serveRedoc)
+		r.Get("/openapi.yaml", s.serveOpenAPIYAML)
+		r.Get("/openapi.json", s.serveOpenAPIJSON)
+	})
+
 	// Auth routes (public)
 	s.router.Route("/auth", func(r chi.Router) {
 		r.Get("/login", s.handleLogin)
