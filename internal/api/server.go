@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QTest-hq/qtest/internal/auth"
@@ -169,50 +171,55 @@ func (s *Server) setupRoutes() {
 			r.Get("/repos", s.handleUserRepos)
 		})
 
-		// Repositories
+		// Repositories - require repos scope for API key access
 		r.Route("/repos", func(r chi.Router) {
-			r.Post("/", s.createRepo)
-			r.Get("/", s.listRepos)
-			r.Get("/{repoID}", s.getRepo)
-			r.Delete("/{repoID}", s.deleteRepo)
-			r.Get("/{repoID}/jobs", s.listRepoJobs)
+			r.Use(s.optionalAuth)
+			r.With(s.requireScope("repos:write")).Post("/", s.createRepo)
+			r.With(s.requireScope("repos:read")).Get("/", s.listRepos)
+			r.With(s.requireScope("repos:read")).Get("/{repoID}", s.getRepo)
+			r.With(s.requireScope("repos:write")).Delete("/{repoID}", s.deleteRepo)
+			r.With(s.requireScope("jobs:read")).Get("/{repoID}/jobs", s.listRepoJobs)
 		})
 
-		// Generation runs
+		// Generation runs - require runs scope for API key access
 		r.Route("/repos/{repoID}/runs", func(r chi.Router) {
-			r.Post("/", s.createRun)
-			r.Get("/", s.listRuns)
-			r.Get("/{runID}", s.getRun)
-			r.Get("/{runID}/tests", s.getRunTests)
+			r.Use(s.optionalAuth)
+			r.With(s.requireScope("runs:write")).Post("/", s.createRun)
+			r.With(s.requireScope("runs:read")).Get("/", s.listRuns)
+			r.With(s.requireScope("runs:read")).Get("/{runID}", s.getRun)
+			r.With(s.requireScope("tests:read")).Get("/{runID}/tests", s.getRunTests)
 		})
 
-		// Jobs
+		// Jobs - require jobs scope for API key access
 		r.Route("/jobs", func(r chi.Router) {
-			r.Post("/", s.createJob)
-			r.Post("/pipeline", s.startPipeline)
-			r.Get("/", s.listJobs)
-			r.Get("/{jobID}", s.getJob)
-			r.Post("/{jobID}/cancel", s.cancelJob)
-			r.Post("/{jobID}/retry", s.retryJob)
+			r.Use(s.optionalAuth)
+			r.With(s.requireScope("jobs:write")).Post("/", s.createJob)
+			r.With(s.requireScope("jobs:write")).Post("/pipeline", s.startPipeline)
+			r.With(s.requireScope("jobs:read")).Get("/", s.listJobs)
+			r.With(s.requireScope("jobs:read")).Get("/{jobID}", s.getJob)
+			r.With(s.requireScope("jobs:write")).Post("/{jobID}/cancel", s.cancelJob)
+			r.With(s.requireScope("jobs:write")).Post("/{jobID}/retry", s.retryJob)
 		})
 
-		// Tests
+		// Tests - require tests scope for API key access
 		r.Route("/tests", func(r chi.Router) {
-			r.Get("/", s.listTests)
-			r.Get("/{testID}", s.getTest)
-			r.Put("/{testID}/accept", s.acceptTest)
-			r.Put("/{testID}/reject", s.rejectTest)
+			r.Use(s.optionalAuth)
+			r.With(s.requireScope("tests:read")).Get("/", s.listTests)
+			r.With(s.requireScope("tests:read")).Get("/{testID}", s.getTest)
+			r.With(s.requireScope("tests:write")).Put("/{testID}/accept", s.acceptTest)
+			r.With(s.requireScope("tests:write")).Put("/{testID}/reject", s.rejectTest)
 		})
 
-		// Mutation testing
+		// Mutation testing - require mutation scope for API key access
 		r.Route("/mutation", func(r chi.Router) {
-			r.Post("/", s.createMutationRun)
-			r.Get("/", s.listMutationRuns)
-			r.Get("/{mutationID}", s.getMutationRun)
+			r.Use(s.optionalAuth)
+			r.With(s.requireScope("mutation:read")).Post("/", s.createMutationRun)
+			r.With(s.requireScope("mutation:read")).Get("/", s.listMutationRuns)
+			r.With(s.requireScope("mutation:read")).Get("/{mutationID}", s.getMutationRun)
 		})
 
 		// Repo-specific mutation runs
-		r.Get("/repos/{repoID}/mutation", s.listRepoMutationRuns)
+		r.With(s.optionalAuth, s.requireScope("mutation:read")).Get("/repos/{repoID}/mutation", s.listRepoMutationRuns)
 
 		// Organizations (requires auth)
 		r.Route("/organizations", func(r chi.Router) {
@@ -287,6 +294,43 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 		}
 		s.authMiddleware.RequireAuth(next).ServeHTTP(w, r)
 	})
+}
+
+// optionalAuth is middleware that adds auth info if present but doesn't require it
+func (s *Server) optionalAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.authMiddleware == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		s.authMiddleware.OptionalAuth(next).ServeHTTP(w, r)
+	})
+}
+
+// requireScope returns middleware that checks API key scopes
+// Session-based auth passes through (full access), API keys must have the required scope
+func (s *Server) requireScope(scopes ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Get API key info from context
+			apiKeyInfo, isAPIKey := auth.GetAPIKeyFromContext(r.Context())
+
+			// If not API key auth, allow through (session-based auth has full access)
+			if !isAPIKey {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Check if API key has any of the required scopes
+			if !apiKeyInfo.HasAnyScope(scopes...) {
+				respondError(w, http.StatusForbidden,
+					fmt.Sprintf("insufficient scope: requires one of [%s]", strings.Join(scopes, ", ")))
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // Response helpers

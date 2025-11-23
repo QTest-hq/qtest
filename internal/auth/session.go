@@ -229,6 +229,26 @@ type APIKeyInfo struct {
 	Scopes         []string
 }
 
+// HasScope checks if the API key has a specific scope (or admin scope)
+func (info *APIKeyInfo) HasScope(scope string) bool {
+	for _, s := range info.Scopes {
+		if s == scope || s == "admin" {
+			return true
+		}
+	}
+	return false
+}
+
+// HasAnyScope checks if the API key has any of the specified scopes
+func (info *APIKeyInfo) HasAnyScope(scopes ...string) bool {
+	for _, scope := range scopes {
+		if info.HasScope(scope) {
+			return true
+		}
+	}
+	return false
+}
+
 // APIKeyValidator is an interface for validating API keys
 // Returns nil, nil if key not found, nil, error on failure
 type APIKeyValidator interface {
