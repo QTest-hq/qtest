@@ -331,12 +331,12 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P3-020 | Implement system model differ | 🔴 | P0 | P1-050 | Compare versions |
-| P3-021 | Identify added entities | 🔴 | P0 | P3-020 | New functions/endpoints |
-| P3-022 | Identify removed entities | 🔴 | P0 | P3-020 | Deleted code |
-| P3-023 | Identify modified entities | 🔴 | P0 | P3-020 | Signature changes |
-| P3-024 | Map tests to changed code | 🔴 | P0 | P3-020 | Find affected tests |
-| P3-025 | Write drift detection tests | 🔴 | P1 | P3-020-024 | |
+| P3-020 | Implement system model differ | ✅ | P0 | P1-050 | internal/differ/differ.go |
+| P3-021 | Identify added entities | ✅ | P0 | P3-020 | AddedFunctions/Types/Endpoints |
+| P3-022 | Identify removed entities | ✅ | P0 | P3-020 | RemovedFunctions/Types/Endpoints |
+| P3-023 | Identify modified entities | ✅ | P0 | P3-020 | ModifiedFunctions with ChangeTypes |
+| P3-024 | Map tests to changed code | ✅ | P0 | P3-020 | GetImpactedTests() |
+| P3-025 | Write drift detection tests | ✅ | P1 | P3-020-024 | 16 tests in differ_test.go |
 
 ### 3.4 Continuous Maintenance
 
