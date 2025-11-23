@@ -334,3 +334,168 @@ func TestExtractLines_SingleLineFile(t *testing.T) {
 		t.Errorf("extractLines = %q, want %q", got, want)
 	}
 }
+
+// Batch Generation Tests
+
+func TestBatchOptions_Fields(t *testing.T) {
+	progressCalled := false
+	opts := BatchOptions{
+		GenerateOptions: GenerateOptions{
+			Tier:     llm.Tier1,
+			TestType: dsl.TestTypeUnit,
+			MaxTests: 10,
+		},
+		Concurrency: 4,
+		Files:       []string{"file1.go", "file2.go"},
+		OnProgress: func(completed, total int, current string) {
+			progressCalled = true
+		},
+	}
+
+	if opts.Concurrency != 4 {
+		t.Errorf("Concurrency = %d, want 4", opts.Concurrency)
+	}
+	if len(opts.Files) != 2 {
+		t.Errorf("Files count = %d, want 2", len(opts.Files))
+	}
+	if opts.MaxTests != 10 {
+		t.Errorf("MaxTests = %d, want 10", opts.MaxTests)
+	}
+	if opts.Tier != llm.Tier1 {
+		t.Errorf("Tier = %d, want 1", opts.Tier)
+	}
+
+	// Test progress callback
+	if opts.OnProgress != nil {
+		opts.OnProgress(1, 2, "test")
+		if !progressCalled {
+			t.Error("OnProgress callback should have been called")
+		}
+	}
+}
+
+func TestBatchResult_Fields(t *testing.T) {
+	result := BatchResult{
+		Tests:      make([]GeneratedTest, 2),
+		Errors:     make([]BatchError, 1),
+		TotalFiles: 3,
+		TotalFuncs: 10,
+		Generated:  2,
+		Failed:     1,
+	}
+
+	if result.TotalFiles != 3 {
+		t.Errorf("TotalFiles = %d, want 3", result.TotalFiles)
+	}
+	if result.TotalFuncs != 10 {
+		t.Errorf("TotalFuncs = %d, want 10", result.TotalFuncs)
+	}
+	if result.Generated != 2 {
+		t.Errorf("Generated = %d, want 2", result.Generated)
+	}
+	if result.Failed != 1 {
+		t.Errorf("Failed = %d, want 1", result.Failed)
+	}
+	if len(result.Tests) != 2 {
+		t.Errorf("len(Tests) = %d, want 2", len(result.Tests))
+	}
+	if len(result.Errors) != 1 {
+		t.Errorf("len(Errors) = %d, want 1", len(result.Errors))
+	}
+}
+
+func TestBatchError_Fields(t *testing.T) {
+	testErr := BatchError{
+		File:     "test.go",
+		Function: "TestFunc",
+		Error:    nil,
+	}
+
+	if testErr.File != "test.go" {
+		t.Errorf("File = %s, want test.go", testErr.File)
+	}
+	if testErr.Function != "TestFunc" {
+		t.Errorf("Function = %s, want TestFunc", testErr.Function)
+	}
+}
+
+func TestBatchOptions_DefaultConcurrency(t *testing.T) {
+	opts := BatchOptions{
+		GenerateOptions: GenerateOptions{},
+		Concurrency:     0, // Should default to 4
+		Files:           []string{"file.go"},
+	}
+
+	// The actual default is applied in GenerateBatch
+	if opts.Concurrency != 0 {
+		t.Errorf("initial Concurrency = %d, want 0", opts.Concurrency)
+	}
+}
+
+func TestBatchResult_Empty(t *testing.T) {
+	result := BatchResult{}
+
+	if result.TotalFiles != 0 {
+		t.Error("default TotalFiles should be 0")
+	}
+	if result.Generated != 0 {
+		t.Error("default Generated should be 0")
+	}
+	if result.Failed != 0 {
+		t.Error("default Failed should be 0")
+	}
+	if result.Tests != nil {
+		t.Error("default Tests should be nil")
+	}
+	if result.Errors != nil {
+		t.Error("default Errors should be nil")
+	}
+}
+
+func TestGenerateBatch_NoFiles(t *testing.T) {
+	gen := NewGenerator(nil)
+
+	opts := BatchOptions{
+		GenerateOptions: GenerateOptions{},
+		Files:           []string{}, // Empty files list
+	}
+
+	_, err := gen.GenerateBatch(nil, opts)
+	if err == nil {
+		t.Error("expected error for empty files list")
+	}
+}
+
+func TestBatchOptions_WithProgress(t *testing.T) {
+	var progressUpdates []struct {
+		completed int
+		total     int
+		current   string
+	}
+
+	opts := BatchOptions{
+		GenerateOptions: GenerateOptions{},
+		Files:           []string{"file.go"},
+		OnProgress: func(completed, total int, current string) {
+			progressUpdates = append(progressUpdates, struct {
+				completed int
+				total     int
+				current   string
+			}{completed, total, current})
+		},
+	}
+
+	// Simulate progress callback
+	opts.OnProgress(1, 5, "Func1")
+	opts.OnProgress(2, 5, "Func2")
+
+	if len(progressUpdates) != 2 {
+		t.Errorf("expected 2 progress updates, got %d", len(progressUpdates))
+	}
+	if progressUpdates[0].completed != 1 {
+		t.Errorf("first update completed = %d, want 1", progressUpdates[0].completed)
+	}
+	if progressUpdates[1].current != "Func2" {
+		t.Errorf("second update current = %s, want Func2", progressUpdates[1].current)
+	}
+}

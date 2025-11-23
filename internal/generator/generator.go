@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/QTest-hq/qtest/internal/llm"
 	"github.com/QTest-hq/qtest/internal/parser"
@@ -382,4 +383,238 @@ func convertTestSpecsToDSL(specs []model.TestSpec, functionName, filePath string
 	}
 
 	return testDSL
+}
+
+// BatchOptions configures batch test generation
+type BatchOptions struct {
+	GenerateOptions
+	Concurrency int      // Number of concurrent generations (default: 4)
+	Files       []string // Files to process
+	OnProgress  func(completed, total int, current string) // Progress callback
+}
+
+// BatchResult contains results from batch generation
+type BatchResult struct {
+	Tests      []GeneratedTest     // Successfully generated tests
+	Errors     []BatchError        // Errors encountered
+	TotalFiles int                 // Total files processed
+	TotalFuncs int                 // Total functions found
+	Generated  int                 // Successfully generated tests
+	Failed     int                 // Failed generations
+}
+
+// BatchError represents an error during batch generation
+type BatchError struct {
+	File     string
+	Function string
+	Error    error
+}
+
+// GenerateBatch generates tests for multiple files concurrently
+func (g *Generator) GenerateBatch(ctx context.Context, opts BatchOptions) (*BatchResult, error) {
+	if len(opts.Files) == 0 {
+		return nil, fmt.Errorf("no files specified for batch generation")
+	}
+
+	concurrency := opts.Concurrency
+	if concurrency <= 0 {
+		concurrency = 4
+	}
+
+	result := &BatchResult{
+		Tests:      make([]GeneratedTest, 0),
+		Errors:     make([]BatchError, 0),
+		TotalFiles: len(opts.Files),
+	}
+
+	// Parse all files first to get function count
+	type parsedFile struct {
+		file   *parser.ParsedFile
+		path   string
+		err    error
+	}
+	parsedFiles := make([]parsedFile, 0, len(opts.Files))
+	for _, filePath := range opts.Files {
+		parsed, err := g.parser.ParseFile(ctx, filePath)
+		if err != nil {
+			result.Errors = append(result.Errors, BatchError{
+				File:  filePath,
+				Error: fmt.Errorf("parse error: %w", err),
+			})
+			result.Failed++
+			continue
+		}
+		parsedFiles = append(parsedFiles, parsedFile{file: parsed, path: filePath})
+		result.TotalFuncs += len(parsed.Functions)
+	}
+
+	log.Info().
+		Int("files", len(parsedFiles)).
+		Int("functions", result.TotalFuncs).
+		Int("concurrency", concurrency).
+		Msg("starting batch generation")
+
+	// Create work items for all functions
+	type workItem struct {
+		file *parser.ParsedFile
+		fn   *parser.Function
+	}
+	work := make([]workItem, 0)
+	for _, pf := range parsedFiles {
+		for i := range pf.file.Functions {
+			fn := &pf.file.Functions[i]
+			// Skip private functions for unit tests
+			if !fn.Exported && opts.TestType == dsl.TestTypeUnit {
+				continue
+			}
+			work = append(work, workItem{file: pf.file, fn: fn})
+		}
+	}
+
+	// Apply MaxTests limit
+	if opts.MaxTests > 0 && len(work) > opts.MaxTests {
+		work = work[:opts.MaxTests]
+	}
+
+	// Create channels for work distribution
+	workCh := make(chan workItem, len(work))
+	resultCh := make(chan *GeneratedTest, len(work))
+	errorCh := make(chan BatchError, len(work))
+	doneCh := make(chan struct{})
+
+	// Track progress
+	var completedMu sync.Mutex
+	completed := 0
+
+	// Start workers
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for item := range workCh {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
+				log.Debug().
+					Int("worker", workerID).
+					Str("function", item.fn.Name).
+					Msg("generating test")
+
+				var test *GeneratedTest
+				var err error
+				if opts.UseIRSpec {
+					test, err = g.GenerateWithIRSpec(ctx, item.fn, item.file, opts.GenerateOptions)
+				} else {
+					test, err = g.generateTestForFunction(ctx, item.fn, item.file, opts.GenerateOptions)
+				}
+
+				if err != nil {
+					errorCh <- BatchError{
+						File:     item.file.Path,
+						Function: item.fn.Name,
+						Error:    err,
+					}
+				} else {
+					resultCh <- test
+				}
+
+				// Update progress
+				completedMu.Lock()
+				completed++
+				if opts.OnProgress != nil {
+					opts.OnProgress(completed, len(work), item.fn.Name)
+				}
+				completedMu.Unlock()
+			}
+		}(i)
+	}
+
+	// Send work to workers
+	go func() {
+		for _, item := range work {
+			workCh <- item
+		}
+		close(workCh)
+	}()
+
+	// Wait for workers to finish
+	go func() {
+		wg.Wait()
+		close(doneCh)
+	}()
+
+	// Collect results
+	collecting := true
+	for collecting {
+		select {
+		case test := <-resultCh:
+			result.Tests = append(result.Tests, *test)
+			result.Generated++
+		case batchErr := <-errorCh:
+			result.Errors = append(result.Errors, batchErr)
+			result.Failed++
+		case <-doneCh:
+			// Drain remaining results
+			for {
+				select {
+				case test := <-resultCh:
+					result.Tests = append(result.Tests, *test)
+					result.Generated++
+				case batchErr := <-errorCh:
+					result.Errors = append(result.Errors, batchErr)
+					result.Failed++
+				default:
+					collecting = false
+				}
+				if !collecting {
+					break
+				}
+			}
+		case <-ctx.Done():
+			collecting = false
+		}
+	}
+
+	log.Info().
+		Int("generated", result.Generated).
+		Int("failed", result.Failed).
+		Int("total_tests", len(result.Tests)).
+		Msg("batch generation complete")
+
+	return result, nil
+}
+
+// GenerateForFiles generates tests for multiple files sequentially
+// Use GenerateBatch for concurrent generation
+func (g *Generator) GenerateForFiles(ctx context.Context, files []string, opts GenerateOptions) (*BatchResult, error) {
+	result := &BatchResult{
+		Tests:      make([]GeneratedTest, 0),
+		Errors:     make([]BatchError, 0),
+		TotalFiles: len(files),
+	}
+
+	for _, filePath := range files {
+		if opts.MaxTests > 0 && result.Generated >= opts.MaxTests {
+			break
+		}
+
+		tests, err := g.GenerateForFile(ctx, filePath, opts)
+		if err != nil {
+			result.Errors = append(result.Errors, BatchError{
+				File:  filePath,
+				Error: err,
+			})
+			result.Failed++
+			continue
+		}
+
+		result.Tests = append(result.Tests, tests...)
+		result.Generated += len(tests)
+	}
+
+	return result, nil
 }
