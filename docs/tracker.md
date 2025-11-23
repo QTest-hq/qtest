@@ -122,7 +122,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-075 | Implement budget manager | 🟢 | P0 | P1-071 | internal/llm/usage.go - BudgetConfig with limits |
 | P1-076 | Implement usage tracker | 🟢 | P0 | P1-071 | internal/llm/usage.go - UsageTracker + TrackedRouter |
 | P1-077 | Implement fallback logic | 🟢 | P1 | P1-071, P1-072 | router.go with retry + backoff |
-| P1-078 | Write LLM integration tests | 🔴 | P1 | P1-071-077 | No tests |
+| P1-078 | Write LLM integration tests | ✅ | P1 | P1-071-077 | integration_test.go: 17 tests for NewRouter, TrackedRouter, CachedRouter, pipeline |
 
 ### 1.9 Test DSL Generator
 
@@ -513,6 +513,7 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-23 | **Coverage Snapshots**: Added codecov/store.go for coverage snapshot storage with delta calculation, trends, and summaries. Migration 008. 11 tests. P3-051 complete. Discovered P3-053 (mutation reporter) was already done. Overall 55% complete. |
 | 2025-11-23 | **Ingestion Tests**: Added git_test.go with 18 tests for GitManager (clone, branch creation, commit, push, status, commit count). Tests workspace and github packages now have 163 tests total. P1-028 complete. |
 | 2025-11-23 | **OpenAI Client**: Added internal/llm/openai.go implementing full OpenAI Chat API. Features: tiered model support (gpt-4o-mini, gpt-4o, gpt-4-turbo), JSON mode, Azure OpenAI compatible (custom base URL), error handling with API key sanitization. 15 new tests. P1-072 complete. |
+| 2025-11-23 | **LLM Integration Tests**: Added internal/llm/integration_test.go with 17 tests for NewRouter config, TrackedRouter usage tracking, CachedRouter caching, cache+tracker pipeline, fallback chain, tier routing. LLM package now has 175 tests. P1-078 complete. |
 
 ---
 
