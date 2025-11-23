@@ -365,9 +365,9 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P3-050 | Implement coverage collector | 🟢 | P0 | - | codecov/collector.go - Go, Python, JS |
 | P3-050a | Implement coverage analyzer | 🟢 | P0 | P3-050 | codecov/analyzer.go - gap detection |
 | P3-050b | Implement coverage-guided gen | 🟢 | P0 | P3-050a | workspace/coverage_runner.go |
-| P3-051 | Store coverage snapshots | 🔴 | P0 | P3-050 | In database |
+| P3-051 | Store coverage snapshots | ✅ | P0 | P3-050 | codecov/store.go + migration 008 |
 | P3-052 | Calculate coverage delta | 🟢 | P0 | P3-051 | Before/after in runner |
-| P3-053 | Implement mutation score reporter | 🔴 | P0 | P3-002 | |
+| P3-053 | Implement mutation score reporter | ✅ | P0 | P3-002 | mutation/report.go - HTML, JSON, text formats |
 | P3-054 | Generate markdown reports | 🔴 | P1 | P3-050-053 | For PR comments |
 | P3-055 | Write reporting tests | 🔴 | P1 | P3-050-054 | |
 
@@ -474,9 +474,9 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 |-------|-------------|----------------|----------------|--------|
 | Phase 1 | 86 | 2 | 20 | **80%** |
 | Phase 2 | 2 | 2 | 32 | **6%** |
-| Phase 3 | 24 | 0 | 21 | **53%** |
+| Phase 3 | 26 | 0 | 19 | **58%** |
 | Phase 4 | 3 | 1 | 31 | **9%** |
-| **Total** | **115** | **5** | **104** | **53%** |
+| **Total** | **117** | **5** | **102** | **55%** |
 
 ### Critical Path (Must Complete for MVP)
 
@@ -507,6 +507,7 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-23 | **CLI Status**: Added `qtest status` command showing CLI version, auth status, API server, Ollama, and workspace summary. Supports --verbose and --json flags. P1-153 complete. |
 | 2025-11-23 | **Java Support**: Added Java tree-sitter grammar, class/method extractor, and JUnit spec adapter. Spring Boot supplement already existed. 14 new tests (5 parser, 9 adapter). P4-006, P4-007, P4-008, P4-009 complete. |
 | 2025-11-23 | **Flakiness Tracker**: Added internal/flakiness/tracker.go with TestHistory, FlakinessScore, transition tracking, classification (stable/flaky/highly_flaky). 20 tests. P3-040, P3-041, P3-044 complete. Overall 53% complete. |
+| 2025-11-23 | **Coverage Snapshots**: Added codecov/store.go for coverage snapshot storage with delta calculation, trends, and summaries. Migration 008. 11 tests. P3-051 complete. Discovered P3-053 (mutation reporter) was already done. Overall 55% complete. |
 
 ---
 
