@@ -92,7 +92,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 |----|------|--------|----------|--------------|-------|
 | P1-050 | Define SystemModel Go struct | 🟢 | P0 | - | internal/parser/types.go |
 | P1-051 | Implement model builder orchestrator | 🟡 | P0 | P1-038 | Basic in workspace/ |
-| P1-052 | Build dependency graph | 🟡 | P0 | P1-037 | Imports tracked, graph incomplete |
+| P1-052 | Build dependency graph | ✅ | P0 | P1-037 | depgraph/ with cycle detection, topological sort |
 | P1-053 | Calculate complexity metrics | 🔴 | P1 | P1-036 | Not implemented |
 | P1-054 | Calculate risk scores | 🔴 | P1 | P1-052, P1-053 | Not implemented |
 | P1-055 | Serialize model to JSON | 🟢 | P0 | P1-050 | JSON marshaling works |
