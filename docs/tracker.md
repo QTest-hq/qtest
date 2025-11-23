@@ -40,7 +40,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-015 | Implement generation_runs table CRUD | 🟢 | P0 | P1-011, P1-012 | internal/db/store.go |
 | P1-016 | Implement test_results table CRUD | 🟢 | P0 | P1-011, P1-012 | internal/db/store.go |
 | P1-017 | Set up connection pooling (pgx) | 🟢 | P1 | P1-011 | min=5, max=25 in db.go |
-| P1-018 | Write database integration tests | 🔴 | P1 | P1-013-016 | testcontainers needed |
+| P1-018 | Write database integration tests | ✅ | P1 | P1-013-016 | 38 tests in db package (db_test.go, integration_test.go, apikey_test.go, multitenancy_integration_test.go) |
 
 ### 1.3 Repository Ingestion
 
@@ -108,7 +108,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-063 | Implement pyramid distributor | 🟢 | P0 | P1-061 | pkg/model/planner.go - balance levels |
 | P1-064 | Generate test case suggestions | 🟢 | P1 | P1-061 | TestIntent with Reason |
 | P1-065 | Calculate token estimates | ✅ | P1 | P1-064 | token_estimator.go: input/output estimates, plan aggregation, cost estimation with 15 tests |
-| P1-066 | Write test planner tests | 🔴 | P1 | P1-061-065 | |
+| P1-066 | Write test planner tests | ✅ | P1 | P1-061-065 | planner_test.go: 14 comprehensive tests |
 
 ### 1.8 LLM Integration
 
@@ -135,7 +135,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-084 | Implement API test DSL generator | 🟢 | P0 | P1-081, P1-082 | specgen/ + emitter/ |
 | P1-085 | Implement DSL validator | 🟢 | P0 | P1-080 | internal/validator/ |
 | P1-086 | Implement batch generation | 🟡 | P1 | P1-083 | workspace/runner_v2.go |
-| P1-087 | Write DSL generator tests | 🔴 | P1 | P1-083-086 | No tests |
+| P1-087 | Write DSL generator tests | ✅ | P1 | P1-083-086 | 119 tests in generator package |
 
 ### 1.10 Framework Adapters & Emitters
 
@@ -516,6 +516,7 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-23 | **LLM Integration Tests**: Added internal/llm/integration_test.go with 17 tests for NewRouter config, TrackedRouter usage tracking, CachedRouter caching, cache+tracker pipeline, fallback chain, tier routing. LLM package now has 175 tests. P1-078 complete. |
 | 2025-11-23 | **Quality Gate Tests**: Added 12 tests to validator_test.go for test output parsing (Go JSON, pytest, Jest), Docker config, language extension mapping. Now 21 tests for quality gates. P1-106 complete. |
 | 2025-11-23 | **Token Estimation**: Added pkg/model/token_estimator.go for LLM token usage prediction. Features: input/output token estimation based on code size and complexity, TestPlan/TestIntent token fields, cost estimation with pricing for Ollama/OpenAI/Claude. 15 tests. P1-065 complete. |
+| 2025-11-23 | **Tracker Audit**: Discovered P1-066, P1-087, P1-018 were already complete. Planner: 14 tests, Generator: 119 tests, Database: 38 tests. Phase 1 now 91% complete. |
 
 ---
 
