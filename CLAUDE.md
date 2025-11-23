@@ -228,6 +228,72 @@ curl http://localhost:8080/api/v1/repos/{repo_id}/mutation
 - **HTML:** Visual report with score visualization and mutant breakdown
 - **Text:** Terminal-friendly summary with surviving mutant highlights
 
+## CI Workflow Generation
+
+QTest can generate CI/CD workflow configurations for multiple platforms.
+
+### CLI Commands
+
+```bash
+# Auto-detect project and generate workflow
+./bin/qtest ci generate
+
+# Generate for specific platform
+./bin/qtest ci generate -p github-actions    # GitHub Actions (default)
+./bin/qtest ci generate -p gitlab-ci         # GitLab CI
+./bin/qtest ci generate -p circleci          # CircleCI
+
+# Specify language explicitly
+./bin/qtest ci generate -l python -p gitlab-ci
+
+# Include QTest in CI pipeline
+./bin/qtest ci generate --qtest --qtest-tier 2
+
+# Include service containers
+./bin/qtest ci generate --services postgres,redis
+
+# Preview without writing
+./bin/qtest ci preview -p github-actions
+
+# Detect project configuration
+./bin/qtest ci detect
+
+# List supported platforms and languages
+./bin/qtest ci list
+```
+
+### Supported Platforms
+
+| Platform | Output File |
+|----------|-------------|
+| `github-actions` | `.github/workflows/ci.yml` |
+| `gitlab-ci` | `.gitlab-ci.yml` |
+| `circleci` | `.circleci/config.yml` |
+
+### Supported Languages
+
+| Language | Build | Test | Lint |
+|----------|-------|------|------|
+| `go` | `go build ./...` | `go test -v -race -coverprofile=coverage.out ./...` | `golangci-lint run` |
+| `python` | `pip install -r requirements.txt` | `pytest --cov=. --cov-report=xml -v` | `ruff check .` |
+| `javascript` | `npm ci` | `npm test -- --coverage` | `npm run lint` |
+| `typescript` | `npm ci` | `npm test -- --coverage` | `npm run lint` |
+| `java` | `mvn compile` | `mvn test` | `mvn checkstyle:check` |
+
+### Auto-Detection
+
+The generator auto-detects:
+- **Language**: From `go.mod`, `package.json`, `requirements.txt`, `pom.xml`
+- **Framework**: Express, FastAPI, Flask, Gin, Spring Boot, etc.
+- **Services**: From `docker-compose.yml` (postgres, redis, mysql, mongo)
+- **Test framework**: Jest, pytest, Go test, JUnit
+
+### Key Files
+
+- `internal/ci/generator.go` - Workflow generation logic
+- `cmd/cli/ci.go` - CLI commands
+- `internal/ci/generator_test.go` - 15 unit tests
+
 ## Key Files When Debugging Test Generation
 
 1. `internal/llm/prompts.go` - What we ask the LLM
