@@ -54,7 +54,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-025 | Build file tree extraction | 🟢 | P0 | P1-021 | workspace/targets.go |
 | P1-026 | Implement clone timeout handling | ✅ | P1 | P1-021 | clone_config.go: configurable timeout, context cancellation, retry logic, graceful cleanup |
 | P1-027 | Add repo size validation | ✅ | P1 | P1-021 | clone_config.go: GitHub API size check, disk space validation, configurable limits |
-| P1-028 | Write ingestion unit tests | 🔴 | P1 | P1-021-027 | No tests |
+| P1-028 | Write ingestion unit tests | ✅ | P1 | P1-021-027 | git_test.go: 18 GitManager tests (clone, branch, commit, status) |
 
 ### 1.4 AST Parsing (Tree-sitter)
 
@@ -511,6 +511,7 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-23 | **Branch & Call Site Extraction**: Added branch_extractor.go and call_site_extractor.go for all languages (Go, JS/TS, Python, Java). Extracts if/switch/try/for/while branches and function call sites. CyclomaticComplexity computed. 9 new tests. P1-036, P1-037, P1-053 complete. |
 | 2025-11-23 | **Flakiness Tracker**: Added internal/flakiness/tracker.go with TestHistory, FlakinessScore, transition tracking, classification (stable/flaky/highly_flaky). 20 tests. P3-040, P3-041, P3-044 complete. Overall 53% complete. |
 | 2025-11-23 | **Coverage Snapshots**: Added codecov/store.go for coverage snapshot storage with delta calculation, trends, and summaries. Migration 008. 11 tests. P3-051 complete. Discovered P3-053 (mutation reporter) was already done. Overall 55% complete. |
+| 2025-11-23 | **Ingestion Tests**: Added git_test.go with 18 tests for GitManager (clone, branch creation, commit, push, status, commit count). Tests workspace and github packages now have 163 tests total. P1-028 complete. |
 
 ---
 
