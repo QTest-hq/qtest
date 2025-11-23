@@ -433,3 +433,191 @@ func TestStatusClass(t *testing.T) {
 		})
 	}
 }
+
+// Stryker tests
+
+func TestNewStrykerTool(t *testing.T) {
+	tool := NewStrykerTool()
+	if tool == nil {
+		t.Error("NewStrykerTool should not return nil")
+	}
+	if !tool.UseNpx {
+		t.Error("UseNpx should be true by default")
+	}
+}
+
+func TestStrykerTool_Name(t *testing.T) {
+	tool := NewStrykerTool()
+	if tool.Name() != "stryker" {
+		t.Errorf("Name() = %s, want stryker", tool.Name())
+	}
+}
+
+func TestStrykerTool_MapMutatorName(t *testing.T) {
+	tool := NewStrykerTool()
+
+	tests := []struct {
+		mutator string
+		want    string
+	}{
+		{"ArithmeticOperator", "arithmetic"},
+		{"UnaryOperator", "arithmetic"},
+		{"EqualityOperator", "comparison"},
+		{"RelationalOperator", "comparison"},
+		{"LogicalOperator", "boolean"},
+		{"BooleanLiteral", "boolean"},
+		{"BlockStatement", "branch"},
+		{"ConditionalExpression", "branch"},
+		{"StringLiteral", "literal"},
+		{"ArrayDeclaration", "literal"},
+		{"MethodExpression", "statement"},
+		{"ObjectLiteral", "statement"},
+		{"UnknownMutator", "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.mutator, func(t *testing.T) {
+			if got := tool.mapMutatorName(tt.mutator); got != tt.want {
+				t.Errorf("mapMutatorName(%s) = %s, want %s", tt.mutator, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStrykerTool_ParseStrykerOutput(t *testing.T) {
+	tool := NewStrykerTool()
+
+	tests := []struct {
+		name     string
+		output   string
+		wantKilled   int
+		wantSurvived int
+		wantTimeout  int
+	}{
+		{
+			name: "summary format",
+			output: `
+Killed:   15
+Survived: 5
+Timeout:  2
+`,
+			wantKilled:   15,
+			wantSurvived: 5,
+			wantTimeout:  2,
+		},
+		{
+			name:   "progress format",
+			output: "Mutation testing  [====================] 100% (elapsed: 10s) 20/20 tested (5 survived, 1 timed out)",
+			wantKilled:   14,
+			wantSurvived: 5,
+			wantTimeout:  1,
+		},
+		{
+			name:   "empty output",
+			output: "",
+			wantKilled:   0,
+			wantSurvived: 0,
+			wantTimeout:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := &Result{}
+			tool.parseStrykerOutput(tt.output, result)
+
+			if result.Killed != tt.wantKilled {
+				t.Errorf("Killed = %d, want %d", result.Killed, tt.wantKilled)
+			}
+			if result.Survived != tt.wantSurvived {
+				t.Errorf("Survived = %d, want %d", result.Survived, tt.wantSurvived)
+			}
+			if result.Timeout != tt.wantTimeout {
+				t.Errorf("Timeout = %d, want %d", result.Timeout, tt.wantTimeout)
+			}
+		})
+	}
+}
+
+func TestStrykerTool_CreateStrykerConfig(t *testing.T) {
+	tool := NewStrykerTool()
+
+	config := tool.createStrykerConfig("src/calculator.ts", "src/calculator.test.ts", DefaultConfig())
+
+	if len(config) == 0 {
+		t.Error("createStrykerConfig should return non-empty config")
+	}
+
+	// Verify it's valid JSON
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(config, &parsed); err != nil {
+		t.Errorf("createStrykerConfig should return valid JSON: %v", err)
+	}
+
+	// Check required fields
+	if _, ok := parsed["testRunner"]; !ok {
+		t.Error("config should contain testRunner")
+	}
+	if _, ok := parsed["mutate"]; !ok {
+		t.Error("config should contain mutate")
+	}
+}
+
+func TestStrykerReport_Types(t *testing.T) {
+	// Test that our types can be used
+	report := StrykerReport{
+		SchemaVersion: "1",
+		Files: map[string]StrykerFileResult{
+			"src/app.ts": {
+				Language: "typescript",
+				Mutants: []StrykerMutant{
+					{
+						ID:          "m1",
+						MutatorName: "ArithmeticOperator",
+						Status:      "Killed",
+					},
+				},
+			},
+		},
+	}
+
+	if len(report.Files) != 1 {
+		t.Errorf("Files count = %d, want 1", len(report.Files))
+	}
+
+	if len(report.Files["src/app.ts"].Mutants) != 1 {
+		t.Error("should have 1 mutant")
+	}
+}
+
+func TestFindProjectRoot(t *testing.T) {
+	// Test with a temp directory
+	dir := t.TempDir()
+
+	// Without package.json, should return original dir
+	result := findProjectRoot(dir)
+	if result != dir {
+		t.Errorf("without package.json, should return original dir")
+	}
+}
+
+func TestTruncateOutput(t *testing.T) {
+	tests := []struct {
+		input  string
+		maxLen int
+		want   string
+	}{
+		{"short", 10, "short"},
+		{"this is a long string", 10, "this is a ... (truncated)"},
+		{"exact", 5, "exact"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := truncateOutput(tt.input, tt.maxLen)
+			if got != tt.want {
+				t.Errorf("truncateOutput(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
+			}
+		})
+	}
+}

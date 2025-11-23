@@ -310,7 +310,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
 | P3-001 | Design mutation service interface | ✅ | P0 | - | mutation/types.go, tool.go |
-| P3-002 | Implement Stryker integration | 🔴 | P0 | P3-001 | For TS/JS (go-mutesting done) |
+| P3-002 | Implement Stryker integration | ✅ | P0 | P3-001 | stryker.go for TS/JS |
 | P3-003 | Implement mutant sampler | ✅ | P0 | P3-002 | MaxMutantsPerFunction config |
 | P3-004 | Implement time budgeting | ✅ | P0 | P3-002 | Timeout, TimeoutPerMutant |
 | P3-005 | Implement mutation cache | 🔴 | P1 | P3-002 | Cache results |
