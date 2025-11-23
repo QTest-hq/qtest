@@ -15,7 +15,8 @@ import (
 func setupTestStore(t *testing.T) *Store {
 	t.Helper()
 	testDB := testutil.RequireDB(t)
-	return NewStore(testDB.Pool)
+	db := &DB{pool: testDB.Pool}
+	return NewStore(db)
 }
 
 // User Tests
@@ -590,7 +591,13 @@ func TestIntegration_CreateAuditLog(t *testing.T) {
 	org := &Organization{Name: "Audit Org", Slug: "audit-org", OwnerID: user.ID}
 	store.CreateOrganization(ctx, org)
 
-	err := store.CreateAuditLog(ctx, &org.ID, &user.ID, "api_key.create", "api_key", nil, map[string]interface{}{"name": "Test Key"}, nil, nil)
+	auditLog := &AuditLog{
+		OrganizationID: &org.ID,
+		UserID:         &user.ID,
+		Action:         "api_key.create",
+		ResourceType:   "api_key",
+	}
+	err := store.CreateAuditLog(ctx, auditLog)
 	if err != nil {
 		t.Fatalf("CreateAuditLog() error = %v", err)
 	}
@@ -607,8 +614,8 @@ func TestIntegration_ListAuditLogs(t *testing.T) {
 	store.CreateOrganization(ctx, org)
 
 	// Create some audit logs
-	store.CreateAuditLog(ctx, &org.ID, &user.ID, "action1", "resource", nil, nil, nil, nil)
-	store.CreateAuditLog(ctx, &org.ID, &user.ID, "action2", "resource", nil, nil, nil, nil)
+	store.CreateAuditLog(ctx, &AuditLog{OrganizationID: &org.ID, UserID: &user.ID, Action: "action1", ResourceType: "resource"})
+	store.CreateAuditLog(ctx, &AuditLog{OrganizationID: &org.ID, UserID: &user.ID, Action: "action2", ResourceType: "resource"})
 
 	logs, err := store.ListAuditLogs(ctx, org.ID, 10, 0)
 	if err != nil {
@@ -630,7 +637,7 @@ func TestIntegration_ListAuditLogsByUser(t *testing.T) {
 	org := &Organization{Name: "User Audit Org", Slug: "user-audit-org", OwnerID: user.ID}
 	store.CreateOrganization(ctx, org)
 
-	store.CreateAuditLog(ctx, &org.ID, &user.ID, "user_action", "user", nil, nil, nil, nil)
+	store.CreateAuditLog(ctx, &AuditLog{OrganizationID: &org.ID, UserID: &user.ID, Action: "user_action", ResourceType: "user"})
 
 	logs, err := store.ListAuditLogsByUser(ctx, user.ID, 10, 0)
 	if err != nil {
