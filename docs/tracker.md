@@ -407,10 +407,10 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P4-001 | Add Python grammar (tree-sitter) | 🔴 | P0 | P1-030 | |
-| P4-002 | Implement Python function extractor | 🔴 | P0 | P4-001 | |
-| P4-003 | Implement FastAPI route detector | 🔴 | P0 | P4-002 | |
-| P4-004 | Implement Pytest adapter | 🔴 | P0 | P1-090 | |
+| P4-001 | Add Python grammar (tree-sitter) | 🟢 | P0 | P1-030 | internal/parser/parser.go - 7 tests |
+| P4-002 | Implement Python function extractor | 🟢 | P0 | P4-001 | parser.go - classes, functions, params |
+| P4-003 | Implement FastAPI route detector | 🟢 | P0 | P4-002 | internal/supplements/fastapi.go |
+| P4-004 | Implement Pytest adapter | 🟢 | P0 | P1-090 | pytest_adapter.go + spec adapter - 10+ tests |
 | P4-005 | Add mutmut integration | 🔴 | P1 | P3-001 | Python mutation |
 | P4-006 | Add Java grammar (tree-sitter) | 🔴 | P0 | P1-030 | |
 | P4-007 | Implement Java class extractor | 🔴 | P0 | P4-006 | |
