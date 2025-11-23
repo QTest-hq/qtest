@@ -28,16 +28,18 @@ func (s *Store) Ping(ctx context.Context) error {
 
 // Repository represents a repository record
 type Repository struct {
-	ID            uuid.UUID `json:"id"`
-	URL           string    `json:"url"`
-	Name          string    `json:"name"`
-	Owner         string    `json:"owner"`
-	DefaultBranch string    `json:"default_branch"`
-	Language      *string   `json:"language,omitempty"`
-	LastCommitSHA *string   `json:"last_commit_sha,omitempty"`
-	Status        string    `json:"status"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID             uuid.UUID  `json:"id"`
+	URL            string     `json:"url"`
+	Name           string     `json:"name"`
+	Owner          string     `json:"owner"`
+	DefaultBranch  string     `json:"default_branch"`
+	Language       *string    `json:"language,omitempty"`
+	LastCommitSHA  *string    `json:"last_commit_sha,omitempty"`
+	Status         string     `json:"status"`
+	OrganizationID *uuid.UUID `json:"organization_id,omitempty"`
+	CreatedBy      *uuid.UUID `json:"created_by,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 // SystemModel represents a system model record
@@ -720,4 +722,143 @@ func (s *Store) GetMutationRunSummaryByRepo(ctx context.Context, repoID uuid.UUI
 		"total_survived": totalSurvived,
 		"avg_score":      avgScore,
 	}, nil
+}
+
+// ============================================================================
+// TENANT-AWARE QUERIES
+// These functions filter by organization_id for multi-tenancy
+// ============================================================================
+
+// CreateRepositoryForOrg creates a repository within an organization
+func (s *Store) CreateRepositoryForOrg(ctx context.Context, repo *Repository, orgID, userID uuid.UUID) error {
+	repo.ID = uuid.New()
+	repo.Status = "pending"
+	repo.OrganizationID = &orgID
+	repo.CreatedBy = &userID
+	repo.CreatedAt = time.Now()
+	repo.UpdatedAt = time.Now()
+
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO repositories (id, url, name, owner, default_branch, language, status, organization_id, created_by, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`, repo.ID, repo.URL, repo.Name, repo.Owner, repo.DefaultBranch, repo.Language, repo.Status, repo.OrganizationID, repo.CreatedBy, repo.CreatedAt, repo.UpdatedAt)
+
+	if err != nil {
+		return fmt.Errorf("failed to create repository: %w", err)
+	}
+
+	return nil
+}
+
+// ListRepositoriesByOrg lists repositories for an organization
+func (s *Store) ListRepositoriesByOrg(ctx context.Context, orgID uuid.UUID, limit, offset int) ([]Repository, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, url, name, owner, default_branch, language, last_commit_sha, status, organization_id, created_by, created_at, updated_at
+		FROM repositories
+		WHERE organization_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`, orgID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list repositories: %w", err)
+	}
+	defer rows.Close()
+
+	repos := make([]Repository, 0)
+	for rows.Next() {
+		var repo Repository
+		if err := rows.Scan(&repo.ID, &repo.URL, &repo.Name, &repo.Owner, &repo.DefaultBranch,
+			&repo.Language, &repo.LastCommitSHA, &repo.Status, &repo.OrganizationID, &repo.CreatedBy, &repo.CreatedAt, &repo.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan repository: %w", err)
+		}
+		repos = append(repos, repo)
+	}
+
+	return repos, nil
+}
+
+// GetRepositoryByIDAndOrg gets a repository by ID if it belongs to the org
+func (s *Store) GetRepositoryByIDAndOrg(ctx context.Context, id, orgID uuid.UUID) (*Repository, error) {
+	repo := &Repository{}
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, url, name, owner, default_branch, language, last_commit_sha, status, organization_id, created_by, created_at, updated_at
+		FROM repositories WHERE id = $1 AND organization_id = $2
+	`, id, orgID).Scan(&repo.ID, &repo.URL, &repo.Name, &repo.Owner, &repo.DefaultBranch, &repo.Language,
+		&repo.LastCommitSHA, &repo.Status, &repo.OrganizationID, &repo.CreatedBy, &repo.CreatedAt, &repo.UpdatedAt)
+
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get repository: %w", err)
+	}
+
+	return repo, nil
+}
+
+// ListUserAccessibleOrgs returns all org IDs that a user can access
+func (s *Store) ListUserAccessibleOrgs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT organization_id FROM organization_members WHERE user_id = $1
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list accessible orgs: %w", err)
+	}
+	defer rows.Close()
+
+	orgIDs := make([]uuid.UUID, 0)
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan org id: %w", err)
+		}
+		orgIDs = append(orgIDs, id)
+	}
+
+	return orgIDs, nil
+}
+
+// ListRepositoriesForUser lists all repositories the user can access across their orgs
+func (s *Store) ListRepositoriesForUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]Repository, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT r.id, r.url, r.name, r.owner, r.default_branch, r.language, r.last_commit_sha, r.status,
+		       r.organization_id, r.created_by, r.created_at, r.updated_at
+		FROM repositories r
+		JOIN organization_members m ON r.organization_id = m.organization_id
+		WHERE m.user_id = $1
+		ORDER BY r.created_at DESC
+		LIMIT $2 OFFSET $3
+	`, userID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list repositories: %w", err)
+	}
+	defer rows.Close()
+
+	repos := make([]Repository, 0)
+	for rows.Next() {
+		var repo Repository
+		if err := rows.Scan(&repo.ID, &repo.URL, &repo.Name, &repo.Owner, &repo.DefaultBranch,
+			&repo.Language, &repo.LastCommitSHA, &repo.Status, &repo.OrganizationID, &repo.CreatedBy, &repo.CreatedAt, &repo.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan repository: %w", err)
+		}
+		repos = append(repos, repo)
+	}
+
+	return repos, nil
+}
+
+// CanAccessRepository checks if a user can access a specific repository
+func (s *Store) CanAccessRepository(ctx context.Context, userID, repoID uuid.UUID) (bool, error) {
+	var count int
+	err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM repositories r
+		JOIN organization_members m ON r.organization_id = m.organization_id
+		WHERE r.id = $1 AND m.user_id = $2
+	`, repoID, userID).Scan(&count)
+
+	if err != nil {
+		return false, fmt.Errorf("failed to check repository access: %w", err)
+	}
+
+	return count > 0, nil
 }
