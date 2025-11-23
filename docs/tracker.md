@@ -224,7 +224,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-150 | Set up cobra CLI framework | 🟢 | P0 | - | cmd/cli/main.go |
 | P1-151 | Implement `qtest auth login` | 🟢 | P0 | P1-150 | cmd/cli/auth.go - login, logout, status + 10 tests |
 | P1-152 | Implement `qtest generate` | 🟢 | P0 | P1-150 | generate-file works |
-| P1-153 | Implement `qtest status` | 🔴 | P1 | P1-150 | Not implemented |
+| P1-153 | Implement `qtest status` | 🟢 | P1 | P1-150 | cmd/cli/status.go - comprehensive status |
 | P1-154 | Add progress output | 🟡 | P1 | P1-152 | Basic, no real-time |
 | P1-155 | Write CLI tests | 🔴 | P1 | P1-151-154 | No tests |
 
@@ -504,6 +504,7 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-23 | **Enterprise tests**: Added unit tests for admin API (7 tests), rate limiter (11 tests), jobs hooks (9 tests), webhook events (10 tests). Rate limiting (P1-145) complete with Memory + Redis storage. Test count now ~130. |
 | 2025-11-23 | **CI Workflow Generator**: Added `qtest ci` commands for generating GitHub Actions, GitLab CI, and CircleCI workflows. Auto-detects language, framework, and services. 15 tests. P1-121 and P1-123 complete. |
 | 2025-11-23 | **CLI Auth**: Added `qtest auth login/logout/status` commands for CLI authentication with API keys. Stores credentials in ~/.qtest/credentials.json. 10 tests. P1-151 complete. Test count ~155. |
+| 2025-11-23 | **CLI Status**: Added `qtest status` command showing CLI version, auth status, API server, Ollama, and workspace summary. Supports --verbose and --json flags. P1-153 complete. |
 
 ---
 
