@@ -772,3 +772,304 @@ const util = () => {};
 	// Exports list should be empty
 	assert.Empty(t, parsed.Exports)
 }
+
+// Branch Extraction Tests (P1-036)
+
+func TestParser_BranchExtraction_Go(t *testing.T) {
+	p := NewParser()
+	content := `package main
+
+func process(x int) int {
+	if x > 0 {
+		return x * 2
+	}
+	for i := 0; i < x; i++ {
+		println(i)
+	}
+	switch x {
+	case 1:
+		return 1
+	case 2:
+		return 2
+	}
+	return 0
+}
+`
+	parsed, err := p.ParseContent(context.Background(), "test.go", content, LanguageGo)
+	require.NoError(t, err)
+	require.Len(t, parsed.Functions, 1)
+
+	fn := parsed.Functions[0]
+	assert.GreaterOrEqual(t, len(fn.Branches), 3, "should have at least 3 branches (if, for, switch)")
+
+	// Check cyclomatic complexity
+	assert.GreaterOrEqual(t, fn.CyclomaticComplexity, 4, "cyclomatic complexity should be >= 4")
+}
+
+func TestParser_BranchExtraction_JavaScript(t *testing.T) {
+	p := NewParser()
+	content := `function process(x) {
+    if (x > 0) {
+        return x * 2;
+    }
+    for (let i = 0; i < x; i++) {
+        console.log(i);
+    }
+    while (x > 0) {
+        x--;
+    }
+    try {
+        doSomething();
+    } catch (e) {
+        console.error(e);
+    }
+}
+`
+	parsed, err := p.ParseContent(context.Background(), "test.js", content, LanguageJavaScript)
+	require.NoError(t, err)
+	require.Len(t, parsed.Functions, 1)
+
+	fn := parsed.Functions[0]
+	assert.GreaterOrEqual(t, len(fn.Branches), 4, "should have at least 4 branches (if, for, while, try/catch)")
+
+	// Check for specific branch types
+	hasTry := false
+	hasCatch := false
+	for _, b := range fn.Branches {
+		if b.Type == BranchTry {
+			hasTry = true
+		}
+		if b.Type == BranchCatch {
+			hasCatch = true
+		}
+	}
+	assert.True(t, hasTry, "should have try branch")
+	assert.True(t, hasCatch, "should have catch branch")
+}
+
+func TestParser_BranchExtraction_Python(t *testing.T) {
+	p := NewParser()
+	content := `def process(x):
+    if x > 0:
+        return x * 2
+    for i in range(x):
+        print(i)
+    while x > 0:
+        x -= 1
+    try:
+        do_something()
+    except Exception as e:
+        print(e)
+`
+	parsed, err := p.ParseContent(context.Background(), "test.py", content, LanguagePython)
+	require.NoError(t, err)
+	require.Len(t, parsed.Functions, 1)
+
+	fn := parsed.Functions[0]
+	assert.GreaterOrEqual(t, len(fn.Branches), 4, "should have at least 4 branches")
+	assert.GreaterOrEqual(t, fn.CyclomaticComplexity, 5)
+}
+
+func TestParser_BranchExtraction_Java(t *testing.T) {
+	p := NewParser()
+	content := `public class Example {
+    public int process(int x) {
+        if (x > 0) {
+            return x * 2;
+        }
+        for (int i = 0; i < x; i++) {
+            System.out.println(i);
+        }
+        switch (x) {
+            case 1: return 1;
+            case 2: return 2;
+        }
+        return 0;
+    }
+}
+`
+	parsed, err := p.ParseContent(context.Background(), "Example.java", content, LanguageJava)
+	require.NoError(t, err)
+	require.Len(t, parsed.Classes, 1)
+	require.Len(t, parsed.Classes[0].Methods, 1)
+
+	method := parsed.Classes[0].Methods[0]
+	assert.GreaterOrEqual(t, len(method.Branches), 3, "should have at least 3 branches")
+	assert.GreaterOrEqual(t, method.CyclomaticComplexity, 4)
+}
+
+// Call Site Extraction Tests (P1-037)
+
+func TestParser_CallSiteExtraction_Go(t *testing.T) {
+	p := NewParser()
+	content := `package main
+
+import "fmt"
+
+func process(x int) {
+	result := calculate(x)
+	fmt.Println(result)
+	helper(x, result)
+}
+`
+	parsed, err := p.ParseContent(context.Background(), "test.go", content, LanguageGo)
+	require.NoError(t, err)
+	require.Len(t, parsed.Functions, 1)
+
+	fn := parsed.Functions[0]
+	assert.GreaterOrEqual(t, len(fn.CallSites), 3, "should have at least 3 call sites")
+
+	// Check for specific calls
+	foundCalculate := false
+	foundPrintln := false
+	for _, cs := range fn.CallSites {
+		if cs.FunctionName == "calculate" {
+			foundCalculate = true
+		}
+		if cs.FunctionName == "Println" {
+			foundPrintln = true
+			assert.True(t, cs.IsMethod || cs.Module == "fmt", "Println should be a method call or module call")
+		}
+	}
+	assert.True(t, foundCalculate, "should find calculate call")
+	assert.True(t, foundPrintln, "should find Println call")
+}
+
+func TestParser_CallSiteExtraction_JavaScript(t *testing.T) {
+	p := NewParser()
+	content := `function process(data) {
+    const result = transform(data);
+    console.log(result);
+    arr.map(x => x * 2);
+    await fetchData(url);
+}
+`
+	parsed, err := p.ParseContent(context.Background(), "test.js", content, LanguageJavaScript)
+	require.NoError(t, err)
+	require.Len(t, parsed.Functions, 1)
+
+	fn := parsed.Functions[0]
+	assert.GreaterOrEqual(t, len(fn.CallSites), 3, "should have at least 3 call sites")
+
+	// Check for console.log method call
+	foundConsoleLog := false
+	for _, cs := range fn.CallSites {
+		if cs.FunctionName == "log" && cs.Receiver == "console" {
+			foundConsoleLog = true
+			assert.True(t, cs.IsMethod)
+		}
+	}
+	assert.True(t, foundConsoleLog, "should find console.log call")
+}
+
+func TestParser_CallSiteExtraction_Python(t *testing.T) {
+	p := NewParser()
+	content := `def process(data):
+    result = transform(data)
+    print(result)
+    obj.method()
+    helper(data, result)
+`
+	parsed, err := p.ParseContent(context.Background(), "test.py", content, LanguagePython)
+	require.NoError(t, err)
+	require.Len(t, parsed.Functions, 1)
+
+	fn := parsed.Functions[0]
+	assert.GreaterOrEqual(t, len(fn.CallSites), 4, "should have at least 4 call sites")
+
+	foundPrint := false
+	foundMethod := false
+	for _, cs := range fn.CallSites {
+		if cs.FunctionName == "print" {
+			foundPrint = true
+		}
+		if cs.FunctionName == "method" && cs.Receiver == "obj" {
+			foundMethod = true
+			assert.True(t, cs.IsMethod)
+		}
+	}
+	assert.True(t, foundPrint, "should find print call")
+	assert.True(t, foundMethod, "should find method call")
+}
+
+func TestParser_CallSiteExtraction_Java(t *testing.T) {
+	p := NewParser()
+	content := `public class Example {
+    public void process(int x) {
+        int result = calculate(x);
+        System.out.println(result);
+        list.add(result);
+        new Helper().doWork();
+    }
+}
+`
+	parsed, err := p.ParseContent(context.Background(), "Example.java", content, LanguageJava)
+	require.NoError(t, err)
+	require.Len(t, parsed.Classes, 1)
+	require.Len(t, parsed.Classes[0].Methods, 1)
+
+	method := parsed.Classes[0].Methods[0]
+	assert.GreaterOrEqual(t, len(method.CallSites), 4, "should have at least 4 call sites")
+
+	foundPrintln := false
+	foundConstructor := false
+	for _, cs := range method.CallSites {
+		if cs.FunctionName == "println" {
+			foundPrintln = true
+		}
+		if cs.FunctionName == "new Helper" {
+			foundConstructor = true
+		}
+	}
+	assert.True(t, foundPrintln, "should find println call")
+	assert.True(t, foundConstructor, "should find constructor call")
+}
+
+func TestComputeCyclomaticComplexity(t *testing.T) {
+	tests := []struct {
+		name     string
+		branches []Branch
+		expected int
+	}{
+		{
+			name:     "empty",
+			branches: nil,
+			expected: 1,
+		},
+		{
+			name: "single if",
+			branches: []Branch{
+				{Type: BranchIf},
+			},
+			expected: 2,
+		},
+		{
+			name: "if + for",
+			branches: []Branch{
+				{Type: BranchIf},
+				{Type: BranchFor, IsLoop: true},
+			},
+			expected: 3,
+		},
+		{
+			name: "complex",
+			branches: []Branch{
+				{Type: BranchIf},
+				{Type: BranchElseIf},
+				{Type: BranchSwitch},
+				{Type: BranchFor, IsLoop: true},
+				{Type: BranchWhile, IsLoop: true},
+				{Type: BranchTry},
+				{Type: BranchCatch},
+			},
+			expected: 7, // 6 decision points + 1 (try doesn't count, but catch does)
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ComputeCyclomaticComplexity(tt.branches)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

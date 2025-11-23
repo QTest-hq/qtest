@@ -66,8 +66,8 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-033 | Implement function extractor (TS/JS) | 🟢 | P0 | P1-031, P1-032 | internal/parser/parser.go |
 | P1-034 | Implement class extractor (TS/JS) | 🟢 | P0 | P1-031, P1-032 | internal/parser/parser.go |
 | P1-035 | Implement export extractor (TS/JS) | ✅ | P0 | P1-031, P1-032 | Full export/class/function tracking, named exports, default exports |
-| P1-036 | Implement branch extractor | 🔴 | P1 | P1-033 | if/else, switch not extracted |
-| P1-037 | Implement call site extractor | 🔴 | P1 | P1-033 | Function calls not tracked |
+| P1-036 | Implement branch extractor | ✅ | P1 | P1-033 | if/switch/try/for/while for Go, JS/TS, Python, Java + 4 tests |
+| P1-037 | Implement call site extractor | ✅ | P1 | P1-033 | Function calls tracked with receiver, module, arguments + 4 tests |
 | P1-038 | Build unified AST adapter | 🟢 | P0 | P1-033-037 | ParsedFile, Function, Class types |
 | P1-039 | Write parser unit tests | 🟢 | P1 | P1-033-038 | Comprehensive tests for all languages + JS/TS exports |
 
@@ -93,7 +93,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-050 | Define SystemModel Go struct | 🟢 | P0 | - | internal/parser/types.go |
 | P1-051 | Implement model builder orchestrator | ✅ | P0 | P1-038 | Full orchestrator with depgraph integration, parallel parsing, validation |
 | P1-052 | Build dependency graph | ✅ | P0 | P1-037 | depgraph/ with cycle detection, topological sort |
-| P1-053 | Calculate complexity metrics | 🔴 | P1 | P1-036 | Not implemented |
+| P1-053 | Calculate complexity metrics | ✅ | P1 | P1-036 | CyclomaticComplexity computed from branches in parser |
 | P1-054 | Calculate risk scores | 🟢 | P1 | P1-052, P1-053 | Implemented in builder.go + orchestrator with depth risk |
 | P1-055 | Serialize model to JSON | 🟢 | P0 | P1-050 | JSON marshaling works |
 | P1-056 | Write model builder tests | 🟢 | P1 | P1-051-055 | orchestrator_test.go + builder_test.go |
@@ -506,6 +506,7 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-23 | **CLI Auth**: Added `qtest auth login/logout/status` commands for CLI authentication with API keys. Stores credentials in ~/.qtest/credentials.json. 10 tests. P1-151 complete. Test count ~155. |
 | 2025-11-23 | **CLI Status**: Added `qtest status` command showing CLI version, auth status, API server, Ollama, and workspace summary. Supports --verbose and --json flags. P1-153 complete. |
 | 2025-11-23 | **Java Support**: Added Java tree-sitter grammar, class/method extractor, and JUnit spec adapter. Spring Boot supplement already existed. 14 new tests (5 parser, 9 adapter). P4-006, P4-007, P4-008, P4-009 complete. |
+| 2025-11-23 | **Branch & Call Site Extraction**: Added branch_extractor.go and call_site_extractor.go for all languages (Go, JS/TS, Python, Java). Extracts if/switch/try/for/while branches and function call sites. CyclomaticComplexity computed. 9 new tests. P1-036, P1-037, P1-053 complete. |
 | 2025-11-23 | **Flakiness Tracker**: Added internal/flakiness/tracker.go with TestHistory, FlakinessScore, transition tracking, classification (stable/flaky/highly_flaky). 20 tests. P3-040, P3-041, P3-044 complete. Overall 53% complete. |
 | 2025-11-23 | **Coverage Snapshots**: Added codecov/store.go for coverage snapshot storage with delta calculation, trends, and summaries. Migration 008. 11 tests. P3-051 complete. Discovered P3-053 (mutation reporter) was already done. Overall 55% complete. |
 

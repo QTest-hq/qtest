@@ -36,6 +36,46 @@ type Function struct {
 	Async      bool   // Is async function
 	Static     bool   // Is static method (Java)
 	Class      string // Parent class (if method)
+
+	// Branch and call site analysis (P1-036, P1-037)
+	Branches             []Branch   // Control flow branches (if/switch/try/loops)
+	CallSites            []CallSite // Function calls within this function
+	CyclomaticComplexity int        // Computed: len(Branches) + 1
+}
+
+// BranchType represents the type of control flow branch
+type BranchType string
+
+const (
+	BranchIf      BranchType = "if"
+	BranchElseIf  BranchType = "else_if"
+	BranchSwitch  BranchType = "switch"
+	BranchCase    BranchType = "case"
+	BranchTry     BranchType = "try"
+	BranchCatch   BranchType = "catch"
+	BranchFor     BranchType = "for"
+	BranchWhile   BranchType = "while"
+	BranchDoWhile BranchType = "do_while"
+)
+
+// Branch represents a control flow branch point
+type Branch struct {
+	Type      BranchType // Type of branch (if, switch, try, for, while, etc.)
+	StartLine int        // Line where branch starts
+	EndLine   int        // Line where branch ends
+	Condition string     // The condition expression (if applicable)
+	IsLoop    bool       // Whether this is a loop construct
+}
+
+// CallSite represents a function call within a function
+type CallSite struct {
+	FunctionName string // Name of the called function
+	Module       string // Module/package where function is defined (if known)
+	Receiver     string // Receiver object for method calls (e.g., "obj" in obj.method())
+	Line         int    // Line where call occurs
+	Arguments    int    // Number of arguments
+	IsAsync      bool   // Whether this is an async call (await)
+	IsMethod     bool   // Whether this is a method call (has receiver)
 }
 
 // Class represents a parsed class

@@ -134,6 +134,8 @@ func (p *Parser) parseGoFunction(node *sitter.Node, source []byte) *Function {
 		Parameters: make([]Parameter, 0),
 	}
 
+	var bodyNode *sitter.Node
+
 	// Extract function name
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
@@ -144,7 +146,15 @@ func (p *Parser) parseGoFunction(node *sitter.Node, source []byte) *Function {
 			fn.Parameters = p.parseGoParameters(child, source)
 		} else if child.Type() == "block" {
 			fn.Body = child.Content(source)
+			bodyNode = child
 		}
+	}
+
+	// Extract branches and call sites from function body
+	if bodyNode != nil {
+		fn.Branches = ExtractBranches(bodyNode, LanguageGo, source)
+		fn.CallSites = ExtractCallSites(bodyNode, LanguageGo, source)
+		fn.CyclomaticComplexity = ComputeCyclomaticComplexity(fn.Branches)
 	}
 
 	return fn
@@ -188,10 +198,13 @@ func (p *Parser) parseGoMethod(node *sitter.Node, source []byte) *Function {
 		fn.Parameters = p.parseGoParameters(paramsNode, source)
 	}
 
-	// Extract body
+	// Extract body and analyze for branches/calls
 	bodyNode := node.ChildByFieldName("body")
 	if bodyNode != nil {
 		fn.Body = bodyNode.Content(source)
+		fn.Branches = ExtractBranches(bodyNode, LanguageGo, source)
+		fn.CallSites = ExtractCallSites(bodyNode, LanguageGo, source)
+		fn.CyclomaticComplexity = ComputeCyclomaticComplexity(fn.Branches)
 	}
 
 	return fn
@@ -270,6 +283,15 @@ func (p *Parser) parsePythonFunction(node *sitter.Node, source []byte) *Function
 			fn.Async = true
 			break
 		}
+	}
+
+	// Extract body and analyze for branches/calls
+	bodyNode := node.ChildByFieldName("body")
+	if bodyNode != nil {
+		fn.Body = bodyNode.Content(source)
+		fn.Branches = ExtractBranches(bodyNode, LanguagePython, source)
+		fn.CallSites = ExtractCallSites(bodyNode, LanguagePython, source)
+		fn.CyclomaticComplexity = ComputeCyclomaticComplexity(fn.Branches)
 	}
 
 	return fn
@@ -645,6 +667,15 @@ func (p *Parser) parseJSFunction(node *sitter.Node, source []byte) *Function {
 		fn.Parameters = p.parseJSParameters(paramsNode, source)
 	}
 
+	// Extract body and analyze for branches/calls
+	bodyNode := node.ChildByFieldName("body")
+	if bodyNode != nil {
+		fn.Body = bodyNode.Content(source)
+		fn.Branches = ExtractBranches(bodyNode, LanguageJavaScript, source)
+		fn.CallSites = ExtractCallSites(bodyNode, LanguageJavaScript, source)
+		fn.CyclomaticComplexity = ComputeCyclomaticComplexity(fn.Branches)
+	}
+
 	return fn
 }
 
@@ -667,6 +698,15 @@ func (p *Parser) parseJSArrowFunction(node, parent *sitter.Node, source []byte) 
 		fn.Parameters = p.parseJSParameters(paramsNode, source)
 	}
 
+	// Extract body and analyze for branches/calls
+	bodyNode := node.ChildByFieldName("body")
+	if bodyNode != nil {
+		fn.Body = bodyNode.Content(source)
+		fn.Branches = ExtractBranches(bodyNode, LanguageJavaScript, source)
+		fn.CallSites = ExtractCallSites(bodyNode, LanguageJavaScript, source)
+		fn.CyclomaticComplexity = ComputeCyclomaticComplexity(fn.Branches)
+	}
+
 	return fn
 }
 
@@ -685,6 +725,15 @@ func (p *Parser) parseJSMethod(node *sitter.Node, source []byte) *Function {
 	paramsNode := node.ChildByFieldName("parameters")
 	if paramsNode != nil {
 		fn.Parameters = p.parseJSParameters(paramsNode, source)
+	}
+
+	// Extract body and analyze for branches/calls
+	bodyNode := node.ChildByFieldName("body")
+	if bodyNode != nil {
+		fn.Body = bodyNode.Content(source)
+		fn.Branches = ExtractBranches(bodyNode, LanguageJavaScript, source)
+		fn.CallSites = ExtractCallSites(bodyNode, LanguageJavaScript, source)
+		fn.CyclomaticComplexity = ComputeCyclomaticComplexity(fn.Branches)
 	}
 
 	return fn
@@ -818,10 +867,13 @@ func (p *Parser) parseJavaMethod(node *sitter.Node, source []byte) *Function {
 		fn.Parameters = p.parseJavaParameters(paramsNode, source)
 	}
 
-	// Get body
+	// Get body and analyze for branches/calls
 	bodyNode := node.ChildByFieldName("body")
 	if bodyNode != nil {
 		fn.Body = bodyNode.Content(source)
+		fn.Branches = ExtractBranches(bodyNode, LanguageJava, source)
+		fn.CallSites = ExtractCallSites(bodyNode, LanguageJava, source)
+		fn.CyclomaticComplexity = ComputeCyclomaticComplexity(fn.Branches)
 	}
 
 	return fn
@@ -850,10 +902,13 @@ func (p *Parser) parseJavaConstructor(node *sitter.Node, source []byte) *Functio
 		fn.Parameters = p.parseJavaParameters(paramsNode, source)
 	}
 
-	// Get body
+	// Get body and analyze for branches/calls
 	bodyNode := node.ChildByFieldName("body")
 	if bodyNode != nil {
 		fn.Body = bodyNode.Content(source)
+		fn.Branches = ExtractBranches(bodyNode, LanguageJava, source)
+		fn.CallSites = ExtractCallSites(bodyNode, LanguageJava, source)
+		fn.CyclomaticComplexity = ComputeCyclomaticComplexity(fn.Branches)
 	}
 
 	return fn
