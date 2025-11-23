@@ -130,6 +130,7 @@ func main() {
 	rootCmd.AddCommand(prCmd())
 	rootCmd.AddCommand(jobCmd())
 	rootCmd.AddCommand(configCmd())
+	rootCmd.AddCommand(ciCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

@@ -185,9 +185,9 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
 | P1-120 | Design workflow template | 🟢 | P0 | - | .github/workflows/ci.yml exists |
-| P1-121 | Implement workflow generator | 🔴 | P0 | P1-120 | Manual only, no generation |
+| P1-121 | Implement workflow generator | 🟢 | P0 | P1-120 | internal/ci/generator.go - GitHub Actions, GitLab CI, CircleCI + 15 tests |
 | P1-122 | Add coverage collection | 🟢 | P1 | P1-121 | workspace/coverage.go |
-| P1-123 | Write CI generator tests | 🔴 | P1 | P1-121-122 | No tests |
+| P1-123 | Write CI generator tests | 🟢 | P1 | P1-121-122 | internal/ci/generator_test.go - 15 tests |
 
 ### 1.14 Worker System
 
@@ -502,6 +502,7 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-22 | **API tests + Auth wiring**: Added 93 API tests (mutation, mock, auth, server), wired OAuth to API server (/auth/login, /auth/callback, /api/v1/auth/me). Phase 1 now 80% complete. Overall 49% complete. |
 | 2025-11-22 | **Frontend init**: Set up Next.js 16 with TypeScript and Tailwind. Created dashboard, repos list, jobs list pages with API client. Phase 4 started at 9%. Overall 51% complete. |
 | 2025-11-23 | **Enterprise tests**: Added unit tests for admin API (7 tests), rate limiter (11 tests), jobs hooks (9 tests), webhook events (10 tests). Rate limiting (P1-145) complete with Memory + Redis storage. Test count now ~130. |
+| 2025-11-23 | **CI Workflow Generator**: Added `qtest ci` commands for generating GitHub Actions, GitLab CI, and CircleCI workflows. Auto-detects language, framework, and services. 15 tests. P1-121 and P1-123 complete. |
 
 ---
 
