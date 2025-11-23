@@ -309,13 +309,13 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P3-001 | Design mutation service interface | 🔴 | P0 | - | See mutation-strategy.md |
-| P3-002 | Implement Stryker integration | 🔴 | P0 | P3-001 | For TS/JS |
-| P3-003 | Implement mutant sampler | 🔴 | P0 | P3-002 | 3-5 mutants per function |
-| P3-004 | Implement time budgeting | 🔴 | P0 | P3-002 | Per-function timeout |
+| P3-001 | Design mutation service interface | ✅ | P0 | - | mutation/types.go, tool.go |
+| P3-002 | Implement Stryker integration | 🔴 | P0 | P3-001 | For TS/JS (go-mutesting done) |
+| P3-003 | Implement mutant sampler | ✅ | P0 | P3-002 | MaxMutantsPerFunction config |
+| P3-004 | Implement time budgeting | ✅ | P0 | P3-002 | Timeout, TimeoutPerMutant |
 | P3-005 | Implement mutation cache | 🔴 | P1 | P3-002 | Cache results |
-| P3-006 | Add mutation worker | 🔴 | P0 | P1-132, P3-002 | Process mutation jobs |
-| P3-007 | Write mutation integration tests | 🔴 | P1 | P3-002-006 | |
+| P3-006 | Add mutation worker | ✅ | P0 | P1-132, P3-002 | MutationWorker in workers.go |
+| P3-007 | Write mutation integration tests | 🟡 | P1 | P3-002-006 | mutation_test.go exists |
 
 ### 3.2 Test Strengthening
 
