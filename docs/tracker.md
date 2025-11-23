@@ -116,7 +116,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 |----|------|--------|----------|--------------|-------|
 | P1-070 | Define LLMClient interface | 🟢 | P0 | - | internal/llm/types.go |
 | P1-071 | Implement Anthropic Claude client | 🟢 | P0 | P1-070 | internal/llm/anthropic.go |
-| P1-072 | Implement OpenAI client | 🟡 | P1 | P1-070 | Stub exists, needs completion |
+| P1-072 | Implement OpenAI client | ✅ | P1 | P1-070 | openai.go: full OpenAI Chat API, JSON mode, Azure support, 15 tests |
 | P1-073 | Implement tiered model router | 🟢 | P0 | P1-071 | internal/llm/router.go - Tier1/2/3 |
 | P1-074 | Implement request cache | 🟢 | P0 | P1-071 | internal/llm/cache.go - MemoryCache + CachedRouter |
 | P1-075 | Implement budget manager | 🟢 | P0 | P1-071 | internal/llm/usage.go - BudgetConfig with limits |
@@ -512,6 +512,7 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-23 | **Flakiness Tracker**: Added internal/flakiness/tracker.go with TestHistory, FlakinessScore, transition tracking, classification (stable/flaky/highly_flaky). 20 tests. P3-040, P3-041, P3-044 complete. Overall 53% complete. |
 | 2025-11-23 | **Coverage Snapshots**: Added codecov/store.go for coverage snapshot storage with delta calculation, trends, and summaries. Migration 008. 11 tests. P3-051 complete. Discovered P3-053 (mutation reporter) was already done. Overall 55% complete. |
 | 2025-11-23 | **Ingestion Tests**: Added git_test.go with 18 tests for GitManager (clone, branch creation, commit, push, status, commit count). Tests workspace and github packages now have 163 tests total. P1-028 complete. |
+| 2025-11-23 | **OpenAI Client**: Added internal/llm/openai.go implementing full OpenAI Chat API. Features: tiered model support (gpt-4o-mini, gpt-4o, gpt-4-turbo), JSON mode, Azure OpenAI compatible (custom base URL), error handling with API key sanitization. 15 new tests. P1-072 complete. |
 
 ---
 
