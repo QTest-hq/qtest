@@ -98,6 +98,7 @@ func main() {
 			IPPerMinute:      cfg.RateLimit.IPPerMinute,
 			IPPerHour:        cfg.RateLimit.IPPerHour,
 			StorageBackend:   cfg.RateLimit.StorageBackend,
+			RedisURL:         cfg.RedisURL,
 		}
 
 		rateLimiter, err := ratelimit.New(rateLimitCfg)
@@ -108,7 +109,12 @@ func main() {
 
 		srv.SetRateLimiter(rateLimiter)
 		srv.ApplyRateLimiting()
+		storageBackend := cfg.RateLimit.StorageBackend
+		if storageBackend == "" {
+			storageBackend = "memory"
+		}
 		log.Info().
+			Str("storage", storageBackend).
 			Int("default_per_minute", cfg.RateLimit.DefaultPerMinute).
 			Int("default_per_hour", cfg.RateLimit.DefaultPerHour).
 			Int("ip_per_minute", cfg.RateLimit.IPPerMinute).

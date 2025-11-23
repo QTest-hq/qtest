@@ -14,7 +14,8 @@ import (
 
 // Repository handles job persistence
 type Repository struct {
-	db *sql.DB
+	db        *sql.DB
+	eventHook EventHook
 }
 
 // NewRepository creates a new job repository
@@ -137,6 +138,17 @@ func (r *Repository) Complete(ctx context.Context, jobID uuid.UUID, result inter
 	}
 	defer tx.Rollback()
 
+	// Get job info for event notification
+	var jobType JobType
+	var repoID *uuid.UUID
+	var startedAt *time.Time
+	err = tx.QueryRowContext(ctx,
+		"SELECT type, repository_id, started_at FROM jobs WHERE id = $1", jobID,
+	).Scan(&jobType, &repoID, &startedAt)
+	if err != nil {
+		return fmt.Errorf("failed to get job info: %w", err)
+	}
+
 	now := time.Now()
 	query := `
 		UPDATE jobs
@@ -160,7 +172,25 @@ func (r *Repository) Complete(ctx context.Context, jobID uuid.UUID, result inter
 		log.Warn().Err(err).Msg("failed to record job history")
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// Notify event hook (async, non-blocking)
+	var durationMs int64
+	if startedAt != nil {
+		durationMs = now.Sub(*startedAt).Milliseconds()
+	}
+	r.notifyEvent(ctx, &JobEvent{
+		Type:       EventTypeJobCompleted,
+		JobID:      jobID,
+		JobType:    jobType,
+		RepoID:     repoID,
+		Status:     string(StatusCompleted),
+		DurationMs: durationMs,
+	})
+
+	return nil
 }
 
 // Fail marks a job as failed with error details
@@ -180,12 +210,14 @@ func (r *Repository) Fail(ctx context.Context, jobID uuid.UUID, errMsg string, e
 	}
 	defer tx.Rollback()
 
-	// Check if can retry
+	// Get job info including retry info
 	var retryCount, maxRetries int
 	var workerID *string
+	var jobType JobType
+	var repoID *uuid.UUID
 	err = tx.QueryRowContext(ctx,
-		"SELECT retry_count, max_retries, worker_id FROM jobs WHERE id = $1", jobID,
-	).Scan(&retryCount, &maxRetries, &workerID)
+		"SELECT retry_count, max_retries, worker_id, type, repository_id FROM jobs WHERE id = $1", jobID,
+	).Scan(&retryCount, &maxRetries, &workerID, &jobType, &repoID)
 	if err != nil {
 		return fmt.Errorf("failed to get job retry info: %w", err)
 	}
@@ -216,7 +248,24 @@ func (r *Repository) Fail(ctx context.Context, jobID uuid.UUID, errMsg string, e
 		log.Warn().Err(err).Msg("failed to record job history")
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// Only notify on final failure (not retrying)
+	if newStatus == StatusFailed {
+		r.notifyEvent(ctx, &JobEvent{
+			Type:    EventTypeJobFailed,
+			JobID:   jobID,
+			JobType: jobType,
+			RepoID:  repoID,
+			Status:  string(StatusFailed),
+			Error:   errMsg,
+			Retries: retryCount + 1,
+		})
+	}
+
+	return nil
 }
 
 // Retry requeues a failed job for retry

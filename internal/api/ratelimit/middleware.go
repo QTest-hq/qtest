@@ -30,7 +30,14 @@ func New(cfg *Config) (*RateLimiter, error) {
 	case "memory", "":
 		storage = NewMemoryStorage()
 	case "redis":
-		return nil, fmt.Errorf("redis storage not yet implemented")
+		if cfg.RedisURL == "" {
+			return nil, fmt.Errorf("redis URL required for redis storage backend")
+		}
+		var err error
+		storage, err = NewRedisStorage(cfg.RedisURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create redis storage: %w", err)
+		}
 	default:
 		return nil, fmt.Errorf("unknown storage backend: %s", cfg.StorageBackend)
 	}

@@ -64,6 +64,12 @@ type Server struct {
 	// Webhook handlers
 	webhookHandlers *WebhookHandlers
 	webhookService  *webhook.Service
+
+	// Usage handlers
+	usageHandlers *UsageHandlers
+
+	// Admin handlers
+	adminHandlers *AdminHandlers
 }
 
 // NewServer creates a new API server
@@ -77,6 +83,8 @@ func NewServer(cfg *config.Config, database *db.DB) (*Server, error) {
 		orgHandlers:    NewOrganizationHandlers(store),
 		apiKeyHandlers: NewAPIKeyHandlers(store),
 		auditHandlers:  NewAuditHandlers(store),
+		usageHandlers:  NewUsageHandlers(store),
+		adminHandlers:  NewAdminHandlers(store),
 	}
 
 	s.setupMiddleware()
@@ -289,6 +297,15 @@ func (s *Server) setupRoutes() {
 				r.Get("/{webhookID}/deliveries", s.listWebhookDeliveries)
 				r.Post("/{webhookID}/test", s.sendTestWebhook)
 			})
+
+			// Organization usage analytics
+			r.Route("/{orgID}/usage", func(r chi.Router) {
+				r.Get("/summary", s.getUsageSummary)
+				r.Get("/daily", s.getDailyStats)
+				r.Get("/monthly", s.getMonthlyStats)
+				r.Get("/recent", s.getRecentUsage)
+				r.Get("/endpoints", s.getEndpointStats)
+			})
 		})
 
 		// User endpoints (requires auth)
@@ -304,6 +321,19 @@ func (s *Server) setupRoutes() {
 			r.Post("/", s.createAPIKey)
 			r.Get("/{keyID}", s.getAPIKey)
 			r.Delete("/{keyID}", s.revokeAPIKey)
+		})
+
+		// Admin endpoints (requires admin role)
+		r.Route("/admin", func(r chi.Router) {
+			r.Use(s.requireAuth)
+			r.Get("/stats", s.getSystemStats)
+			r.Get("/organizations", s.listAllOrganizations)
+			r.Get("/users", s.listAllUsers)
+			r.Get("/users/{userID}", s.getAdminUser)
+			r.Patch("/users/{userID}", s.updateAdminUser)
+			r.Get("/jobs", s.listAllJobs)
+			r.Post("/jobs/{jobID}/cancel", s.cancelAdminJob)
+			r.Get("/audit-logs", s.getAuditLogs)
 		})
 	})
 }
@@ -1186,4 +1216,60 @@ func (s *Server) sendTestWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.webhookHandlers.SendTestWebhook(w, r)
+}
+
+// Usage handlers - delegate to usageHandlers
+
+func (s *Server) getUsageSummary(w http.ResponseWriter, r *http.Request) {
+	s.usageHandlers.GetUsageSummary(w, r)
+}
+
+func (s *Server) getDailyStats(w http.ResponseWriter, r *http.Request) {
+	s.usageHandlers.GetDailyStats(w, r)
+}
+
+func (s *Server) getMonthlyStats(w http.ResponseWriter, r *http.Request) {
+	s.usageHandlers.GetMonthlyStats(w, r)
+}
+
+func (s *Server) getRecentUsage(w http.ResponseWriter, r *http.Request) {
+	s.usageHandlers.GetRecentUsage(w, r)
+}
+
+func (s *Server) getEndpointStats(w http.ResponseWriter, r *http.Request) {
+	s.usageHandlers.GetEndpointStats(w, r)
+}
+
+// Admin handlers - delegate to adminHandlers
+
+func (s *Server) getSystemStats(w http.ResponseWriter, r *http.Request) {
+	s.adminHandlers.GetSystemStats(w, r)
+}
+
+func (s *Server) listAllOrganizations(w http.ResponseWriter, r *http.Request) {
+	s.adminHandlers.ListAllOrganizations(w, r)
+}
+
+func (s *Server) listAllUsers(w http.ResponseWriter, r *http.Request) {
+	s.adminHandlers.ListAllUsers(w, r)
+}
+
+func (s *Server) getAdminUser(w http.ResponseWriter, r *http.Request) {
+	s.adminHandlers.GetUser(w, r)
+}
+
+func (s *Server) updateAdminUser(w http.ResponseWriter, r *http.Request) {
+	s.adminHandlers.UpdateUser(w, r)
+}
+
+func (s *Server) listAllJobs(w http.ResponseWriter, r *http.Request) {
+	s.adminHandlers.ListAllJobs(w, r)
+}
+
+func (s *Server) cancelAdminJob(w http.ResponseWriter, r *http.Request) {
+	s.adminHandlers.CancelJob(w, r)
+}
+
+func (s *Server) getAuditLogs(w http.ResponseWriter, r *http.Request) {
+	s.adminHandlers.GetAuditLogs(w, r)
 }

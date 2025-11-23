@@ -300,10 +300,63 @@ valid := hmac.Equal([]byte(signature), []byte(expected))
 
 ---
 
+## Redis Rate Limiting
+
+The rate limiter supports Redis for distributed rate limiting in production:
+
+```go
+// Configure with Redis backend
+cfg := &ratelimit.Config{
+    StorageBackend: "redis",
+    RedisURL:       "redis://localhost:6379",
+    RequestsPerMinute: 60,
+}
+```
+
+## Usage Tracking
+
+Track API usage with daily/monthly aggregated statistics:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/organizations/{orgID}/usage/summary` | Usage summary (today/week/month) |
+| `GET /api/v1/organizations/{orgID}/usage/daily` | Daily statistics |
+| `GET /api/v1/organizations/{orgID}/usage/monthly` | Monthly statistics |
+| `GET /api/v1/organizations/{orgID}/usage/recent` | Recent API calls |
+| `GET /api/v1/organizations/{orgID}/usage/endpoints` | Stats by endpoint |
+
+## Admin Endpoints
+
+System-wide admin endpoints (require API key with `admin` scope):
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/admin/stats` | System-wide statistics |
+| `GET /api/v1/admin/organizations` | List all organizations |
+| `GET /api/v1/admin/users` | List all users |
+| `GET /api/v1/admin/users/{id}` | Get user details |
+| `PATCH /api/v1/admin/users/{id}` | Update user (activate/deactivate) |
+| `GET /api/v1/admin/jobs` | List all jobs |
+| `POST /api/v1/admin/jobs/{id}/cancel` | Cancel a job |
+| `GET /api/v1/admin/audit-logs` | System audit logs |
+
+## Webhook Event Integration
+
+Webhooks are automatically triggered on job lifecycle events:
+
+- **job.completed** - Triggered when a job completes successfully
+- **job.failed** - Triggered when a job fails (after all retries exhausted)
+
+To enable webhook events on job completion, set the event hook on the job repository:
+```go
+handler := webhook.NewJobEventHandler(webhookService, store)
+jobRepo.SetEventHook(handler.HandleEvent)
+```
+
+---
+
 ## Remaining Gaps (Priority)
 
 1. **GitHub PR Integration** - Auto-create PRs with generated tests
 2. **Java Test Emitter (JUnit)** - Spring Boot detection exists, no emitter
 3. **LLM Cache/Budget** - Cost control for LLM calls
-4. **Redis Storage for Rate Limiting** - Production-ready distributed rate limiting
-5. **Usage Tracking/Analytics** - Track API usage and generate reports
