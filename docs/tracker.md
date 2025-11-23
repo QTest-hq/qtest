@@ -342,7 +342,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P3-030 | Implement maintenance scheduler | 🔴 | P0 | P3-020 | Trigger on push |
+| P3-030 | Implement maintenance scheduler | ✅ | P0 | P3-020 | internal/maintenance/scheduler.go |
 | P3-031 | Implement test regenerator | 🔴 | P0 | P3-023, P1-083 | Regen for changes |
 | P3-032 | Implement test remover | 🔴 | P0 | P3-022 | Remove obsolete |
 | P3-033 | Implement test updater PR | 🔴 | P0 | P1-114, P3-031 | Maintenance PRs |
