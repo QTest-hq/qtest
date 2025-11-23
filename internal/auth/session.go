@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -216,7 +217,29 @@ const (
 	SessionKey contextKey = "session"
 	// UserKey is the context key for the user
 	UserKey contextKey = "user"
+	// APIKeyKey is the context key for API key info
+	APIKeyKey contextKey = "api_key"
 )
+
+// APIKeyInfo contains information about an authenticated API key
+type APIKeyInfo struct {
+	ID             uuid.UUID
+	OrganizationID uuid.UUID
+	UserID         uuid.UUID
+	Scopes         []string
+}
+
+// APIKeyValidator is an interface for validating API keys
+// Returns nil, nil if key not found, nil, error on failure
+type APIKeyValidator interface {
+	ValidateAPIKeyForAuth(ctx context.Context, apiKey string) (*APIKeyInfo, error)
+}
+
+// GetAPIKeyFromContext retrieves the API key info from context
+func GetAPIKeyFromContext(ctx context.Context) (*APIKeyInfo, bool) {
+	info, ok := ctx.Value(APIKeyKey).(*APIKeyInfo)
+	return info, ok
+}
 
 // GetSessionFromContext retrieves the session from context
 func GetSessionFromContext(ctx context.Context) (*Session, bool) {
@@ -232,8 +255,9 @@ func GetUserFromContext(ctx context.Context) (*GitHubUser, bool) {
 
 // Middleware provides authentication middleware
 type Middleware struct {
-	sessions *SessionStore
-	github   *GitHubProvider
+	sessions     *SessionStore
+	github       *GitHubProvider
+	apiKeyValidator APIKeyValidator
 }
 
 // NewMiddleware creates a new auth middleware
@@ -244,9 +268,30 @@ func NewMiddleware(sessions *SessionStore, github *GitHubProvider) *Middleware {
 	}
 }
 
+// SetAPIKeyValidator sets the API key validator for the middleware
+func (m *Middleware) SetAPIKeyValidator(v APIKeyValidator) {
+	m.apiKeyValidator = v
+}
+
 // RequireAuth is middleware that requires authentication
 func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		// Try API key authentication first
+		if apiKeyInfo, ok := m.tryAPIKeyAuth(r); ok {
+			ctx = context.WithValue(ctx, APIKeyKey, apiKeyInfo)
+			// Create a synthetic session for API key auth to work with existing handlers
+			ctx = context.WithValue(ctx, SessionKey, &Session{
+				UserID:    apiKeyInfo.UserID,
+				CreatedAt: time.Now(),
+				ExpiresAt: time.Now().Add(time.Hour),
+			})
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+
+		// Try session-based authentication
 		session, err := m.extractSession(r)
 		if err != nil {
 			writeAuthError(w, http.StatusUnauthorized, "authentication required")
@@ -254,7 +299,7 @@ func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 		}
 
 		// Add session and user to context
-		ctx := context.WithValue(r.Context(), SessionKey, session)
+		ctx = context.WithValue(ctx, SessionKey, session)
 		if session.GitHubUser != nil {
 			ctx = context.WithValue(ctx, UserKey, session.GitHubUser)
 		}
@@ -266,9 +311,25 @@ func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 // OptionalAuth is middleware that adds auth info if present but doesn't require it
 func (m *Middleware) OptionalAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		// Try API key authentication first
+		if apiKeyInfo, ok := m.tryAPIKeyAuth(r); ok {
+			ctx = context.WithValue(ctx, APIKeyKey, apiKeyInfo)
+			// Create a synthetic session for API key auth
+			ctx = context.WithValue(ctx, SessionKey, &Session{
+				UserID:    apiKeyInfo.UserID,
+				CreatedAt: time.Now(),
+				ExpiresAt: time.Now().Add(time.Hour),
+			})
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+
+		// Try session-based authentication
 		session, err := m.extractSession(r)
 		if err == nil && session != nil {
-			ctx := context.WithValue(r.Context(), SessionKey, session)
+			ctx = context.WithValue(ctx, SessionKey, session)
 			if session.GitHubUser != nil {
 				ctx = context.WithValue(ctx, UserKey, session.GitHubUser)
 			}
@@ -279,13 +340,16 @@ func (m *Middleware) OptionalAuth(next http.Handler) http.Handler {
 }
 
 func (m *Middleware) extractSession(r *http.Request) (*Session, error) {
-	// Try Authorization header first (Bearer token)
+	// Try Authorization header first (Bearer token, but not API keys)
 	authHeader := r.Header.Get("Authorization")
 	if authHeader != "" {
 		const prefix = "Bearer "
 		if len(authHeader) > len(prefix) && authHeader[:len(prefix)] == prefix {
-			sessionID := authHeader[len(prefix):]
-			return m.sessions.Get(sessionID)
+			token := authHeader[len(prefix):]
+			// Skip if it looks like an API key
+			if !strings.HasPrefix(token, "qtest_") {
+				return m.sessions.Get(token)
+			}
 		}
 	}
 
@@ -296,6 +360,48 @@ func (m *Middleware) extractSession(r *http.Request) (*Session, error) {
 	}
 
 	return nil, ErrInvalidToken
+}
+
+// tryAPIKeyAuth attempts to authenticate using an API key
+func (m *Middleware) tryAPIKeyAuth(r *http.Request) (*APIKeyInfo, bool) {
+	if m.apiKeyValidator == nil {
+		return nil, false
+	}
+
+	// Try X-API-Key header first
+	apiKey := r.Header.Get("X-API-Key")
+
+	// Try Authorization: Bearer header
+	if apiKey == "" {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader != "" {
+			const prefix = "Bearer "
+			if len(authHeader) > len(prefix) && authHeader[:len(prefix)] == prefix {
+				token := authHeader[len(prefix):]
+				if strings.HasPrefix(token, "qtest_") {
+					apiKey = token
+				}
+			}
+		}
+	}
+
+	if apiKey == "" {
+		return nil, false
+	}
+
+	// Validate the API key
+	info, err := m.apiKeyValidator.ValidateAPIKeyForAuth(r.Context(), apiKey)
+	if err != nil || info == nil {
+		log.Debug().Err(err).Msg("API key validation failed")
+		return nil, false
+	}
+
+	log.Debug().
+		Str("key_id", info.ID.String()[:8]+"...").
+		Str("org_id", info.OrganizationID.String()[:8]+"...").
+		Msg("API key authenticated")
+
+	return info, true
 }
 
 func writeAuthError(w http.ResponseWriter, status int, message string) {

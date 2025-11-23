@@ -83,7 +83,35 @@ func (s *Server) SetJobSystem(jobRepo *jobs.Repository, natsClient *qtestnats.Cl
 func (s *Server) SetAuth(handlers *auth.Handlers, middleware *auth.Middleware) {
 	s.authHandlers = handlers
 	s.authMiddleware = middleware
-	log.Info().Msg("auth system configured")
+
+	// Set up API key validator
+	validator := &apiKeyValidatorWrapper{store: s.store}
+	middleware.SetAPIKeyValidator(validator)
+
+	log.Info().Msg("auth system configured with API key support")
+}
+
+// apiKeyValidatorWrapper wraps db.Store to implement auth.APIKeyValidator
+type apiKeyValidatorWrapper struct {
+	store *db.Store
+}
+
+// ValidateAPIKeyForAuth implements auth.APIKeyValidator
+func (w *apiKeyValidatorWrapper) ValidateAPIKeyForAuth(ctx context.Context, apiKey string) (*auth.APIKeyInfo, error) {
+	key, err := w.store.ValidateAPIKey(ctx, apiKey)
+	if err != nil {
+		return nil, err
+	}
+	if key == nil {
+		return nil, nil
+	}
+
+	return &auth.APIKeyInfo{
+		ID:             key.ID,
+		OrganizationID: key.OrganizationID,
+		UserID:         key.UserID,
+		Scopes:         key.Scopes,
+	}, nil
 }
 
 // Router returns the HTTP router

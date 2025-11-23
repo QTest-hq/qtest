@@ -277,3 +277,40 @@ func (k *APIKey) IsValid() bool {
 	}
 	return true
 }
+
+// APIKeyValidatorAdapter adapts the Store to implement auth.APIKeyValidator
+type APIKeyValidatorAdapter struct {
+	store *Store
+}
+
+// NewAPIKeyValidatorAdapter creates a new adapter
+func NewAPIKeyValidatorAdapter(store *Store) *APIKeyValidatorAdapter {
+	return &APIKeyValidatorAdapter{store: store}
+}
+
+// APIKeyAuthInfo matches auth.APIKeyInfo to avoid import cycles
+type APIKeyAuthInfo struct {
+	ID             uuid.UUID
+	OrganizationID uuid.UUID
+	UserID         uuid.UUID
+	Scopes         []string
+}
+
+// ValidateAPIKeyForAuth validates an API key and returns its info for the auth package
+// This must be wrapped by the server to return auth.APIKeyInfo
+func (a *APIKeyValidatorAdapter) ValidateAPIKeyForAuth(ctx context.Context, apiKey string) (*APIKeyAuthInfo, error) {
+	key, err := a.store.ValidateAPIKey(ctx, apiKey)
+	if err != nil {
+		return nil, err
+	}
+	if key == nil {
+		return nil, nil
+	}
+
+	return &APIKeyAuthInfo{
+		ID:             key.ID,
+		OrganizationID: key.OrganizationID,
+		UserID:         key.UserID,
+		Scopes:         key.Scopes,
+	}, nil
+}
