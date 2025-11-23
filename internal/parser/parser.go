@@ -342,11 +342,28 @@ func (p *Parser) extractJSFunctions(node *sitter.Node, source []byte, parsed *Pa
 	cursor := sitter.NewTreeCursor(node)
 	defer cursor.Close()
 
+	// Track exported names from export statements like: export { foo, bar }
+	exportedNames := make(map[string]bool)
+	// Track default export name if any
+	var defaultExportName string
+
+	// First pass: collect all export information
+	p.walkTree(cursor, source, func(n *sitter.Node) {
+		if n.Type() == "export_statement" {
+			p.collectJSExports(n, source, exportedNames, &defaultExportName, parsed)
+		}
+	})
+
+	// Reset cursor for second pass
+	cursor = sitter.NewTreeCursor(node)
+
 	p.walkTree(cursor, source, func(n *sitter.Node) {
 		switch n.Type() {
 		case "function_declaration":
 			fn := p.parseJSFunction(n, source)
 			if fn != nil {
+				// Check if this function is exported
+				fn.Exported = p.isJSNodeExported(n, source, exportedNames)
 				fn.ID = fmt.Sprintf("%s:%d:%s", parsed.Path, fn.StartLine, fn.Name)
 				parsed.Functions = append(parsed.Functions, *fn)
 			}
@@ -356,6 +373,8 @@ func (p *Parser) extractJSFunctions(node *sitter.Node, source []byte, parsed *Pa
 			if parent != nil && parent.Type() == "variable_declarator" {
 				fn := p.parseJSArrowFunction(n, parent, source)
 				if fn != nil {
+					// Check if this variable is exported
+					fn.Exported = p.isJSVariableExported(parent, source, exportedNames)
 					fn.ID = fmt.Sprintf("%s:%d:%s", parsed.Path, fn.StartLine, fn.Name)
 					parsed.Functions = append(parsed.Functions, *fn)
 				}
@@ -366,8 +385,246 @@ func (p *Parser) extractJSFunctions(node *sitter.Node, source []byte, parsed *Pa
 				fn.ID = fmt.Sprintf("%s:%d:%s", parsed.Path, fn.StartLine, fn.Name)
 				parsed.Functions = append(parsed.Functions, *fn)
 			}
+		case "class_declaration":
+			cls := p.parseJSClass(n, source, parsed.Path)
+			if cls != nil {
+				cls.Exported = p.isJSNodeExported(n, source, exportedNames)
+				parsed.Classes = append(parsed.Classes, *cls)
+			}
 		}
 	})
+}
+
+// collectJSExports processes export statements to build export list
+func (p *Parser) collectJSExports(node *sitter.Node, source []byte, exportedNames map[string]bool, defaultExport *string, parsed *ParsedFile) {
+	// Check for default export
+	isDefault := false
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == "default" {
+			isDefault = true
+			break
+		}
+	}
+
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		switch child.Type() {
+		case "function_declaration":
+			// export function foo() {}
+			nameNode := child.ChildByFieldName("name")
+			if nameNode != nil {
+				name := nameNode.Content(source)
+				exportedNames[name] = true
+				parsed.Exports = append(parsed.Exports, Export{
+					Name:    name,
+					Kind:    "function",
+					Default: isDefault,
+				})
+				if isDefault {
+					*defaultExport = name
+				}
+			}
+		case "class_declaration":
+			// export class Foo {}
+			nameNode := child.ChildByFieldName("name")
+			if nameNode != nil {
+				name := nameNode.Content(source)
+				exportedNames[name] = true
+				parsed.Exports = append(parsed.Exports, Export{
+					Name:    name,
+					Kind:    "class",
+					Default: isDefault,
+				})
+				if isDefault {
+					*defaultExport = name
+				}
+			}
+		case "lexical_declaration":
+			// export const foo = ...
+			p.extractJSLexicalExports(child, source, exportedNames, isDefault, parsed)
+		case "export_clause":
+			// export { foo, bar, baz as qux }
+			p.extractJSNamedExports(child, source, exportedNames, parsed)
+		case "identifier":
+			// export default foo (where foo is an identifier)
+			if isDefault {
+				name := child.Content(source)
+				*defaultExport = name
+				exportedNames[name] = true
+				parsed.Exports = append(parsed.Exports, Export{
+					Name:    name,
+					Kind:    "default",
+					Default: true,
+				})
+			}
+		}
+	}
+}
+
+// extractJSLexicalExports extracts exports from const/let/var declarations
+func (p *Parser) extractJSLexicalExports(node *sitter.Node, source []byte, exportedNames map[string]bool, isDefault bool, parsed *ParsedFile) {
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == "variable_declarator" {
+			nameNode := child.ChildByFieldName("name")
+			if nameNode != nil {
+				name := nameNode.Content(source)
+				exportedNames[name] = true
+
+				// Determine kind based on value
+				kind := "const"
+				valueNode := child.ChildByFieldName("value")
+				if valueNode != nil {
+					switch valueNode.Type() {
+					case "arrow_function", "function":
+						kind = "function"
+					case "class":
+						kind = "class"
+					case "object":
+						kind = "object"
+					case "array":
+						kind = "array"
+					}
+				}
+
+				parsed.Exports = append(parsed.Exports, Export{
+					Name:    name,
+					Kind:    kind,
+					Default: isDefault,
+				})
+			}
+		}
+	}
+}
+
+// extractJSNamedExports processes export { foo, bar, baz as qux } statements
+func (p *Parser) extractJSNamedExports(node *sitter.Node, source []byte, exportedNames map[string]bool, parsed *ParsedFile) {
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == "export_specifier" {
+			var localName, exportedName string
+
+			// Get the local name (what's being exported)
+			nameNode := child.ChildByFieldName("name")
+			if nameNode != nil {
+				localName = nameNode.Content(source)
+			}
+
+			// Get the alias (if any): export { foo as bar }
+			aliasNode := child.ChildByFieldName("alias")
+			if aliasNode != nil {
+				exportedName = aliasNode.Content(source)
+			} else {
+				exportedName = localName
+			}
+
+			if localName != "" {
+				exportedNames[localName] = true
+				parsed.Exports = append(parsed.Exports, Export{
+					Name:    exportedName,
+					Kind:    "named",
+					Default: false,
+				})
+			}
+		}
+	}
+}
+
+// isJSNodeExported checks if a function/class declaration is exported
+func (p *Parser) isJSNodeExported(node *sitter.Node, source []byte, exportedNames map[string]bool) bool {
+	// Check if parent is an export_statement
+	parent := node.Parent()
+	if parent != nil && parent.Type() == "export_statement" {
+		return true
+	}
+
+	// Check if name is in exportedNames (from export { foo } statements)
+	var name string
+	nameNode := node.ChildByFieldName("name")
+	if nameNode != nil {
+		name = nameNode.Content(source)
+		if name != "" && exportedNames[name] {
+			return true
+		}
+	}
+
+	return false
+}
+
+// isJSVariableExported checks if a variable declarator is exported
+func (p *Parser) isJSVariableExported(node *sitter.Node, source []byte, exportedNames map[string]bool) bool {
+	// Walk up to find if this is in an export statement
+	// variable_declarator -> lexical_declaration -> export_statement
+	parent := node.Parent()
+	if parent != nil {
+		grandparent := parent.Parent()
+		if grandparent != nil && grandparent.Type() == "export_statement" {
+			return true
+		}
+	}
+
+	// Check if name is in exportedNames
+	nameNode := node.ChildByFieldName("name")
+	if nameNode != nil {
+		name := nameNode.Content(source)
+		if name != "" && exportedNames[name] {
+			return true
+		}
+	}
+
+	return false
+}
+
+// parseJSClass parses a JavaScript/TypeScript class declaration
+func (p *Parser) parseJSClass(node *sitter.Node, source []byte, filePath string) *Class {
+	cls := &Class{
+		StartLine: int(node.StartPoint().Row) + 1,
+		EndLine:   int(node.EndPoint().Row) + 1,
+		Methods:   make([]Function, 0),
+	}
+
+	// Get class name
+	nameNode := node.ChildByFieldName("name")
+	if nameNode != nil {
+		cls.Name = nameNode.Content(source)
+		cls.ID = fmt.Sprintf("%s:%d:%s", filePath, cls.StartLine, cls.Name)
+	}
+
+	// Get superclass (extends)
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == "class_heritage" {
+			// Look for extends clause
+			for j := 0; j < int(child.ChildCount()); j++ {
+				subChild := child.Child(j)
+				if subChild.Type() == "extends_clause" {
+					valueNode := subChild.ChildByFieldName("value")
+					if valueNode != nil {
+						cls.Extends = valueNode.Content(source)
+					}
+				}
+			}
+		}
+	}
+
+	// Extract methods from class body
+	bodyNode := node.ChildByFieldName("body")
+	if bodyNode != nil {
+		for i := 0; i < int(bodyNode.ChildCount()); i++ {
+			child := bodyNode.Child(i)
+			if child.Type() == "method_definition" {
+				fn := p.parseJSMethod(child, source)
+				if fn != nil {
+					fn.Class = cls.Name
+					fn.ID = fmt.Sprintf("%s:%d:%s.%s", filePath, fn.StartLine, cls.Name, fn.Name)
+					cls.Methods = append(cls.Methods, *fn)
+				}
+			}
+		}
+	}
+
+	return cls
 }
 
 func (p *Parser) parseJSFunction(node *sitter.Node, source []byte) *Function {
@@ -375,7 +632,7 @@ func (p *Parser) parseJSFunction(node *sitter.Node, source []byte) *Function {
 		StartLine:  int(node.StartPoint().Row) + 1,
 		EndLine:    int(node.EndPoint().Row) + 1,
 		Parameters: make([]Parameter, 0),
-		Exported:   true, // Check export status separately
+		Exported:   false, // Export status is checked separately by isJSNodeExported
 	}
 
 	nameNode := node.ChildByFieldName("name")

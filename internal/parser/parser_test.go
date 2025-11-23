@@ -522,3 +522,253 @@ func TestParser_ParseContent_Python_MethodID(t *testing.T) {
 	// Method ID format: file:line:class.method
 	assert.Contains(t, method.ID, "MyClass.method")
 }
+
+// JS/TS Export Tests
+
+func TestParser_ParseContent_JS_ExportFunction(t *testing.T) {
+	p := NewParser()
+	content := `export function add(a, b) {
+    return a + b;
+}
+
+function privateFunc() {
+    return 1;
+}
+`
+	parsed, err := p.ParseContent(context.Background(), "test.js", content, LanguageJavaScript)
+	require.NoError(t, err)
+	assert.Len(t, parsed.Functions, 2)
+
+	// Find the exported function
+	var exportedFn, privateFn *Function
+	for i := range parsed.Functions {
+		if parsed.Functions[i].Name == "add" {
+			exportedFn = &parsed.Functions[i]
+		} else if parsed.Functions[i].Name == "privateFunc" {
+			privateFn = &parsed.Functions[i]
+		}
+	}
+
+	require.NotNil(t, exportedFn)
+	require.NotNil(t, privateFn)
+	assert.True(t, exportedFn.Exported, "add should be exported")
+	assert.False(t, privateFn.Exported, "privateFunc should not be exported")
+
+	// Check exports list
+	assert.Len(t, parsed.Exports, 1)
+	assert.Equal(t, "add", parsed.Exports[0].Name)
+	assert.Equal(t, "function", parsed.Exports[0].Kind)
+}
+
+func TestParser_ParseContent_JS_ExportConst(t *testing.T) {
+	p := NewParser()
+	content := `export const multiply = (a, b) => a * b;
+
+const privateHelper = (x) => x * 2;
+`
+	parsed, err := p.ParseContent(context.Background(), "test.js", content, LanguageJavaScript)
+	require.NoError(t, err)
+
+	// Find the exported arrow function
+	var exportedFn *Function
+	for i := range parsed.Functions {
+		if parsed.Functions[i].Name == "multiply" {
+			exportedFn = &parsed.Functions[i]
+			break
+		}
+	}
+
+	require.NotNil(t, exportedFn)
+	assert.True(t, exportedFn.Exported, "multiply should be exported")
+
+	// Check exports list
+	assert.GreaterOrEqual(t, len(parsed.Exports), 1)
+	found := false
+	for _, exp := range parsed.Exports {
+		if exp.Name == "multiply" {
+			found = true
+			assert.Equal(t, "function", exp.Kind)
+		}
+	}
+	assert.True(t, found, "multiply should be in exports list")
+}
+
+func TestParser_ParseContent_JS_ExportClass(t *testing.T) {
+	p := NewParser()
+	content := `export class Calculator {
+    add(a, b) {
+        return a + b;
+    }
+}
+
+class PrivateHelper {
+    help() {}
+}
+`
+	parsed, err := p.ParseContent(context.Background(), "test.js", content, LanguageJavaScript)
+	require.NoError(t, err)
+	assert.Len(t, parsed.Classes, 2)
+
+	// Find classes
+	var exportedCls, privateCls *Class
+	for i := range parsed.Classes {
+		if parsed.Classes[i].Name == "Calculator" {
+			exportedCls = &parsed.Classes[i]
+		} else if parsed.Classes[i].Name == "PrivateHelper" {
+			privateCls = &parsed.Classes[i]
+		}
+	}
+
+	require.NotNil(t, exportedCls)
+	require.NotNil(t, privateCls)
+	assert.True(t, exportedCls.Exported, "Calculator should be exported")
+	assert.False(t, privateCls.Exported, "PrivateHelper should not be exported")
+
+	// Check exports list
+	assert.GreaterOrEqual(t, len(parsed.Exports), 1)
+	found := false
+	for _, exp := range parsed.Exports {
+		if exp.Name == "Calculator" {
+			found = true
+			assert.Equal(t, "class", exp.Kind)
+		}
+	}
+	assert.True(t, found)
+}
+
+func TestParser_ParseContent_JS_NamedExports(t *testing.T) {
+	p := NewParser()
+	content := `function foo() {}
+function bar() {}
+function baz() {}
+
+export { foo, bar };
+`
+	parsed, err := p.ParseContent(context.Background(), "test.js", content, LanguageJavaScript)
+	require.NoError(t, err)
+
+	// Check that foo and bar are exported, baz is not
+	var fooFn, barFn, bazFn *Function
+	for i := range parsed.Functions {
+		switch parsed.Functions[i].Name {
+		case "foo":
+			fooFn = &parsed.Functions[i]
+		case "bar":
+			barFn = &parsed.Functions[i]
+		case "baz":
+			bazFn = &parsed.Functions[i]
+		}
+	}
+
+	require.NotNil(t, fooFn)
+	require.NotNil(t, barFn)
+	require.NotNil(t, bazFn)
+
+	assert.True(t, fooFn.Exported, "foo should be exported")
+	assert.True(t, barFn.Exported, "bar should be exported")
+	assert.False(t, bazFn.Exported, "baz should not be exported")
+
+	// Check exports list
+	assert.Len(t, parsed.Exports, 2)
+}
+
+func TestParser_ParseContent_JS_ExportDefault(t *testing.T) {
+	p := NewParser()
+	content := `export default function main() {
+    console.log("main");
+}
+`
+	parsed, err := p.ParseContent(context.Background(), "test.js", content, LanguageJavaScript)
+	require.NoError(t, err)
+	assert.Len(t, parsed.Functions, 1)
+
+	fn := parsed.Functions[0]
+	assert.Equal(t, "main", fn.Name)
+	assert.True(t, fn.Exported)
+
+	// Check default export
+	assert.Len(t, parsed.Exports, 1)
+	assert.Equal(t, "main", parsed.Exports[0].Name)
+	assert.True(t, parsed.Exports[0].Default)
+}
+
+func TestParser_ParseContent_TS_ExportFunction(t *testing.T) {
+	p := NewParser()
+	content := `export function greet(name) {
+    return "Hello, " + name;
+}
+
+function internal() {
+    return 42;
+}
+`
+	parsed, err := p.ParseContent(context.Background(), "test.ts", content, LanguageTypeScript)
+	require.NoError(t, err)
+
+	var exported, internal *Function
+	for i := range parsed.Functions {
+		if parsed.Functions[i].Name == "greet" {
+			exported = &parsed.Functions[i]
+		} else if parsed.Functions[i].Name == "internal" {
+			internal = &parsed.Functions[i]
+		}
+	}
+
+	require.NotNil(t, exported)
+	require.NotNil(t, internal)
+	assert.True(t, exported.Exported)
+	assert.False(t, internal.Exported)
+}
+
+func TestParser_ParseContent_JS_MixedExports(t *testing.T) {
+	p := NewParser()
+	content := `// Direct exports
+export function directFunc() {}
+export const directConst = () => {};
+
+// Named exports
+function namedFunc() {}
+const namedConst = () => {};
+export { namedFunc, namedConst };
+
+// Not exported
+function privateFunc() {}
+`
+	parsed, err := p.ParseContent(context.Background(), "test.js", content, LanguageJavaScript)
+	require.NoError(t, err)
+
+	// Count exported functions
+	exportedCount := 0
+	for _, fn := range parsed.Functions {
+		if fn.Exported {
+			exportedCount++
+		}
+	}
+
+	// directFunc, directConst, namedFunc, namedConst should be exported
+	assert.GreaterOrEqual(t, exportedCount, 4)
+
+	// privateFunc should not be exported
+	for _, fn := range parsed.Functions {
+		if fn.Name == "privateFunc" {
+			assert.False(t, fn.Exported)
+		}
+	}
+}
+
+func TestParser_ParseContent_JS_NoExports(t *testing.T) {
+	p := NewParser()
+	content := `function helper() {}
+const util = () => {};
+`
+	parsed, err := p.ParseContent(context.Background(), "test.js", content, LanguageJavaScript)
+	require.NoError(t, err)
+
+	// No functions should be exported
+	for _, fn := range parsed.Functions {
+		assert.False(t, fn.Exported, "%s should not be exported", fn.Name)
+	}
+
+	// Exports list should be empty
+	assert.Empty(t, parsed.Exports)
+}

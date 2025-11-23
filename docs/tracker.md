@@ -65,11 +65,11 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-032 | Add JavaScript grammar | 🟢 | P0 | P1-030 | tree-sitter-javascript |
 | P1-033 | Implement function extractor (TS/JS) | 🟢 | P0 | P1-031, P1-032 | internal/parser/parser.go |
 | P1-034 | Implement class extractor (TS/JS) | 🟢 | P0 | P1-031, P1-032 | internal/parser/parser.go |
-| P1-035 | Implement export extractor (TS/JS) | 🟡 | P0 | P1-031, P1-032 | Basic, needs improvement |
+| P1-035 | Implement export extractor (TS/JS) | ✅ | P0 | P1-031, P1-032 | Full export/class/function tracking, named exports, default exports |
 | P1-036 | Implement branch extractor | 🔴 | P1 | P1-033 | if/else, switch not extracted |
 | P1-037 | Implement call site extractor | 🔴 | P1 | P1-033 | Function calls not tracked |
 | P1-038 | Build unified AST adapter | 🟢 | P0 | P1-033-037 | ParsedFile, Function, Class types |
-| P1-039 | Write parser unit tests | 🔴 | P1 | P1-033-038 | No tests |
+| P1-039 | Write parser unit tests | 🟢 | P1 | P1-033-038 | Comprehensive tests for all languages + JS/TS exports |
 
 ### 1.5 Endpoint Detection (Framework Supplements)
 
