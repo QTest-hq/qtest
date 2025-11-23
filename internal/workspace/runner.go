@@ -54,6 +54,10 @@ type RunConfig struct {
 	PRTitle       string   // Custom PR title
 	GitHubOwner   string   // GitHub repo owner
 	GitHubRepo    string   // GitHub repo name
+
+	// Docker sandbox configuration
+	UseDocker    bool          // Run tests in Docker containers
+	DockerConfig *DockerConfig // Docker-specific settings
 }
 
 // DefaultRunConfig returns sensible defaults
@@ -280,7 +284,18 @@ func (r *Runner) Run(ctx context.Context) error {
 	// Validate tests if configured
 	if r.cfg.ValidateTests && !r.cfg.DryRun {
 		log.Info().Msg("validating generated tests")
-		validator := NewTestValidator(r.ws)
+		var validator *TestValidator
+		if r.cfg.UseDocker {
+			// Use Docker sandbox for test execution
+			dockerConfig := r.cfg.DockerConfig
+			if dockerConfig == nil {
+				dockerConfig = DefaultDockerConfig()
+			}
+			dockerConfig.Enabled = true
+			validator = NewTestValidatorWithDocker(r.ws, dockerConfig)
+		} else {
+			validator = NewTestValidator(r.ws)
+		}
 		if _, err := validator.ValidateAll(ctx); err != nil {
 			log.Warn().Err(err).Msg("test validation failed")
 		}

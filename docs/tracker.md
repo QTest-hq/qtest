@@ -160,7 +160,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 |----|------|--------|----------|--------------|-------|
 | P1-100 | Implement compilation checker | 🟢 | P0 | P1-091 | workspace/validator.go |
 | P1-101 | Implement runtime validator | 🟢 | P0 | P1-091 | workspace/runner.go |
-| P1-102 | Design sandboxed execution | 🟡 | P0 | - | Basic, no Docker isolation |
+| P1-102 | Design sandboxed execution | ✅ | P0 | - | docker_runner.go: Docker sandbox with security (no-new-privileges, cap-drop, network isolation), language images |
 | P1-103 | Implement test runner service | 🟢 | P0 | P1-102 | workspace/runner.go |
 | P1-104 | Handle test failures | ✅ | P0 | P1-103 | retry.go with exponential backoff, error classification |
 | P1-105 | Record gate results | 🟢 | P0 | P1-016 | db/store.go |
@@ -506,6 +506,7 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-23 | **CLI Auth**: Added `qtest auth login/logout/status` commands for CLI authentication with API keys. Stores credentials in ~/.qtest/credentials.json. 10 tests. P1-151 complete. Test count ~155. |
 | 2025-11-23 | **CLI Status**: Added `qtest status` command showing CLI version, auth status, API server, Ollama, and workspace summary. Supports --verbose and --json flags. P1-153 complete. |
 | 2025-11-23 | **Java Support**: Added Java tree-sitter grammar, class/method extractor, and JUnit spec adapter. Spring Boot supplement already existed. 14 new tests (5 parser, 9 adapter). P4-006, P4-007, P4-008, P4-009 complete. |
+| 2025-11-23 | **Docker Sandbox**: Added Docker-based sandboxed test execution (docker_runner.go). Features: language-specific images (Go, Python, Node, Java), security hardening (no-new-privileges, cap-drop ALL, network isolation), memory/CPU limits. Integrated with validator.go. 11 new tests. P1-102 complete. |
 | 2025-11-23 | **Branch & Call Site Extraction**: Added branch_extractor.go and call_site_extractor.go for all languages (Go, JS/TS, Python, Java). Extracts if/switch/try/for/while branches and function call sites. CyclomaticComplexity computed. 9 new tests. P1-036, P1-037, P1-053 complete. |
 | 2025-11-23 | **Flakiness Tracker**: Added internal/flakiness/tracker.go with TestHistory, FlakinessScore, transition tracking, classification (stable/flaky/highly_flaky). 20 tests. P3-040, P3-041, P3-044 complete. Overall 53% complete. |
 | 2025-11-23 | **Coverage Snapshots**: Added codecov/store.go for coverage snapshot storage with delta calculation, trends, and summaries. Migration 008. 11 tests. P3-051 complete. Discovered P3-053 (mutation reporter) was already done. Overall 55% complete. |

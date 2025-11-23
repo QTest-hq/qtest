@@ -17,8 +17,10 @@ import (
 
 // TestValidator runs and validates generated tests
 type TestValidator struct {
-	ws        *Workspace
-	artifacts *ArtifactManager
+	ws           *Workspace
+	artifacts    *ArtifactManager
+	dockerRunner *DockerRunner
+	useDocker    bool
 }
 
 // NewTestValidator creates a new test validator
@@ -27,6 +29,26 @@ func NewTestValidator(ws *Workspace) *TestValidator {
 		ws:        ws,
 		artifacts: NewArtifactManager(ws),
 	}
+}
+
+// NewTestValidatorWithDocker creates a test validator with Docker support
+func NewTestValidatorWithDocker(ws *Workspace, dockerConfig *DockerConfig) *TestValidator {
+	v := &TestValidator{
+		ws:        ws,
+		artifacts: NewArtifactManager(ws),
+	}
+
+	if dockerConfig != nil && dockerConfig.Enabled {
+		v.dockerRunner = NewDockerRunner(dockerConfig)
+		if v.dockerRunner.IsAvailable() {
+			v.useDocker = true
+			log.Info().Msg("Docker sandbox enabled for test execution")
+		} else {
+			log.Warn().Msg("Docker requested but not available, falling back to local execution")
+		}
+	}
+
+	return v
 }
 
 // ValidationResult holds the result of validating a single test
@@ -93,6 +115,11 @@ func (v *TestValidator) ValidateTest(ctx context.Context, target *TargetState) V
 		Target:   target.Name,
 	}
 
+	// Use Docker execution if enabled
+	if v.useDocker && v.dockerRunner != nil {
+		return v.validateTestInDocker(ctx, target)
+	}
+
 	startTime := time.Now()
 
 	// Determine how to run the test based on file extension
@@ -139,6 +166,66 @@ func (v *TestValidator) ValidateTest(ctx context.Context, target *TargetState) V
 	v.parseTestOutput(ext, result.Output, &result)
 
 	return result
+}
+
+// validateTestInDocker runs a test in a Docker container
+func (v *TestValidator) validateTestInDocker(ctx context.Context, target *TargetState) ValidationResult {
+	result := ValidationResult{
+		TestFile: target.TestFile,
+		Target:   target.Name,
+	}
+
+	// Map file extension to language
+	ext := filepath.Ext(target.TestFile)
+	language := v.extToLanguage(ext)
+	if language == "" {
+		result.Error = fmt.Sprintf("unsupported test file type for Docker: %s", ext)
+		return result
+	}
+
+	log.Debug().
+		Str("testFile", target.TestFile).
+		Str("language", language).
+		Msg("running test in Docker sandbox")
+
+	// Run test in Docker
+	dockerResult := v.dockerRunner.RunTest(ctx, v.ws.RepoPath, target.TestFile, language)
+
+	result.Duration = dockerResult.Duration
+	result.Output = dockerResult.Stdout + dockerResult.Stderr
+
+	if dockerResult.Error != nil {
+		result.Error = dockerResult.Error.Error()
+		result.Passed = false
+	} else if dockerResult.ExitCode != 0 {
+		result.Passed = false
+		result.Error = fmt.Sprintf("tests failed (exit code %d)", dockerResult.ExitCode)
+	} else {
+		result.Passed = true
+	}
+
+	// Parse test counts from output
+	v.parseTestOutput(ext, result.Output, &result)
+
+	return result
+}
+
+// extToLanguage maps file extension to language identifier
+func (v *TestValidator) extToLanguage(ext string) string {
+	switch ext {
+	case ".go":
+		return "go"
+	case ".py":
+		return "python"
+	case ".js":
+		return "javascript"
+	case ".ts":
+		return "typescript"
+	case ".java":
+		return "java"
+	default:
+		return ""
+	}
 }
 
 // goTestCommand creates a command to run Go tests
