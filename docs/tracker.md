@@ -345,8 +345,8 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P3-030 | Implement maintenance scheduler | ✅ | P0 | P3-020 | internal/maintenance/scheduler.go |
 | P3-031 | Implement test regenerator | ✅ | P0 | P3-023, P1-083 | regenerator.go |
 | P3-032 | Implement test remover | ✅ | P0 | P3-022 | remover.go |
-| P3-033 | Implement test updater PR | 🔴 | P0 | P1-114, P3-031 | Maintenance PRs |
-| P3-034 | Write maintenance tests | 🔴 | P1 | P3-030-033 | |
+| P3-033 | Implement test updater PR | ✅ | P0 | P1-114, P3-031 | prcreator.go with GitHub API |
+| P3-034 | Write maintenance tests | ✅ | P1 | P3-030-033 | 77 tests in maintenance package |
 
 ### 3.5 Flakiness Management
 
