@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QTest-hq/qtest/internal/api/ratelimit"
 	"github.com/QTest-hq/qtest/internal/auth"
 	"github.com/QTest-hq/qtest/internal/config"
 	"github.com/QTest-hq/qtest/internal/db"
@@ -46,6 +47,9 @@ type Server struct {
 	// Auth components
 	authHandlers   *auth.Handlers
 	authMiddleware *auth.Middleware
+
+	// Rate limiter
+	rateLimiter *ratelimit.RateLimiter
 
 	// Organization handlers
 	orgHandlers *OrganizationHandlers
@@ -97,6 +101,12 @@ func (s *Server) SetAuth(handlers *auth.Handlers, middleware *auth.Middleware) {
 	log.Info().Msg("auth system configured with API key support")
 }
 
+// SetRateLimiter configures the rate limiting system
+func (s *Server) SetRateLimiter(rl *ratelimit.RateLimiter) {
+	s.rateLimiter = rl
+	log.Info().Msg("rate limiter configured")
+}
+
 // apiKeyValidatorWrapper wraps db.Store to implement auth.APIKeyValidator
 type apiKeyValidatorWrapper struct {
 	store *db.Store
@@ -132,6 +142,19 @@ func (s *Server) setupMiddleware() {
 	s.router.Use(middleware.Recoverer)
 	s.router.Use(middleware.Timeout(60 * time.Second))
 	s.router.Use(corsMiddleware)
+
+	// Rate limiting middleware (added after auth to have access to user context)
+	// Note: Actually applied via SetRateLimiter after router setup
+}
+
+// ApplyRateLimiting adds rate limiting middleware to the API routes
+// Called after SetRateLimiter to ensure rate limiter is configured
+func (s *Server) ApplyRateLimiting() {
+	if s.rateLimiter != nil {
+		// Apply rate limiting to /api/v1 routes
+		s.router.Use(s.rateLimiter.Middleware())
+		log.Info().Msg("rate limiting middleware applied")
+	}
 }
 
 func corsMiddleware(next http.Handler) http.Handler {

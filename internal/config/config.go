@@ -29,6 +29,19 @@ type Config struct {
 
 	// GitHub OAuth
 	GitHubOAuth GitHubOAuthConfig
+
+	// Rate Limiting
+	RateLimit RateLimitConfig
+}
+
+// RateLimitConfig holds rate limiting configuration
+type RateLimitConfig struct {
+	Enabled          bool
+	DefaultPerMinute int
+	DefaultPerHour   int
+	IPPerMinute      int
+	IPPerHour        int
+	StorageBackend   string // "memory" or "redis"
 }
 
 // GitHubOAuthConfig holds GitHub OAuth configuration
@@ -81,6 +94,15 @@ func Load() (*Config, error) {
 			AnthropicTier3:  getEnv("ANTHROPIC_TIER3_MODEL", "claude-3-5-sonnet-20241022"),
 			OpenAIKey:       getEnv("OPENAI_API_KEY", ""),
 		},
+
+		RateLimit: RateLimitConfig{
+			Enabled:          getEnvBool("RATE_LIMIT_ENABLED", true),
+			DefaultPerMinute: getEnvInt("RATE_LIMIT_DEFAULT_PER_MINUTE", 100),
+			DefaultPerHour:   getEnvInt("RATE_LIMIT_DEFAULT_PER_HOUR", 1000),
+			IPPerMinute:      getEnvInt("RATE_LIMIT_IP_PER_MINUTE", 20),
+			IPPerHour:        getEnvInt("RATE_LIMIT_IP_PER_HOUR", 100),
+			StorageBackend:   getEnv("RATE_LIMIT_STORAGE", "memory"),
+		},
 	}
 
 	return cfg, nil
@@ -114,6 +136,15 @@ func getEnvInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if i, err := strconv.Atoi(value); err == nil {
 			return i
+		}
+	}
+	return defaultValue
+}
+
+func getEnvBool(key string, defaultValue bool) bool {
+	if value := os.Getenv(key); value != "" {
+		if b, err := strconv.ParseBool(value); err == nil {
+			return b
 		}
 	}
 	return defaultValue

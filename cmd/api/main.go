@@ -15,6 +15,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/QTest-hq/qtest/internal/api"
+	"github.com/QTest-hq/qtest/internal/api/ratelimit"
 	"github.com/QTest-hq/qtest/internal/config"
 	"github.com/QTest-hq/qtest/internal/db"
 	"github.com/QTest-hq/qtest/internal/jobs"
@@ -85,6 +86,33 @@ func main() {
 	if jobRepo != nil {
 		srv.SetJobSystem(jobRepo, natsClient)
 		log.Info().Msg("job system enabled")
+	}
+
+	// Configure rate limiting
+	if cfg.RateLimit.Enabled {
+		rateLimitCfg := &ratelimit.Config{
+			Enabled:          cfg.RateLimit.Enabled,
+			DefaultPerMinute: cfg.RateLimit.DefaultPerMinute,
+			DefaultPerHour:   cfg.RateLimit.DefaultPerHour,
+			IPPerMinute:      cfg.RateLimit.IPPerMinute,
+			IPPerHour:        cfg.RateLimit.IPPerHour,
+			StorageBackend:   cfg.RateLimit.StorageBackend,
+		}
+
+		rateLimiter, err := ratelimit.New(rateLimitCfg)
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to create rate limiter")
+		}
+		defer rateLimiter.Close()
+
+		srv.SetRateLimiter(rateLimiter)
+		srv.ApplyRateLimiting()
+		log.Info().
+			Int("default_per_minute", cfg.RateLimit.DefaultPerMinute).
+			Int("default_per_hour", cfg.RateLimit.DefaultPerHour).
+			Int("ip_per_minute", cfg.RateLimit.IPPerMinute).
+			Int("ip_per_hour", cfg.RateLimit.IPPerHour).
+			Msg("rate limiting enabled")
 	}
 
 	// Start server
