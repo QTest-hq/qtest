@@ -376,11 +376,11 @@ jobRepo.SetEventHook(handler.HandleEvent)
 ## Remaining Gaps (Priority)
 
 1. **GitHub App Auth** - Full OAuth flow works, GitHub App auth not yet implemented (P1-110)
-2. **Database Integration Tests** - testcontainers needed (P1-018)
-3. **OpenAPI Documentation** - API docs not yet implemented (P1-146)
+2. **OpenAPI Documentation** - API docs not yet implemented (P1-146)
 
 ### Completed (Previously Gaps)
 - ✅ GitHub PR Integration - internal/github/pr.go
 - ✅ JUnit Emitter - emitter/junit.go
 - ✅ LLM Cache/Budget - internal/llm/cache.go, usage.go
 - ✅ Rate Limiting - internal/api/ratelimit/
+- ✅ Database Integration Tests - internal/db/*_integration_test.go (fixed import cycle, added testcontainers-go)
