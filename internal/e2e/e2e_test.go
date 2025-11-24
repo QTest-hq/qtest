@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -724,5 +725,298 @@ func TestLLMEnhancer_BuildPrompts(t *testing.T) {
 	edgeCasePrompt := enhancer.buildEdgeCasePrompt(spec)
 	if !strings.Contains(edgeCasePrompt, "edge case") {
 		t.Error("Edge case prompt should mention 'edge case'")
+	}
+}
+
+// Test Runner Tests
+
+func TestDefaultRunnerConfig(t *testing.T) {
+	config := DefaultRunnerConfig()
+
+	if config.WorkDir != "." {
+		t.Errorf("WorkDir = %q, want %q", config.WorkDir, ".")
+	}
+	if config.TestDir != "tests" {
+		t.Errorf("TestDir = %q, want %q", config.TestDir, "tests")
+	}
+	if config.OutputDir != "test-results" {
+		t.Errorf("OutputDir = %q, want %q", config.OutputDir, "test-results")
+	}
+	if !config.Headless {
+		t.Error("Headless should be true by default")
+	}
+	if config.Retries != 2 {
+		t.Errorf("Retries = %d, want 2", config.Retries)
+	}
+	if config.Workers != 4 {
+		t.Errorf("Workers = %d, want 4", config.Workers)
+	}
+	if config.Reporter != "json" {
+		t.Errorf("Reporter = %q, want %q", config.Reporter, "json")
+	}
+	if config.Browser != "chromium" {
+		t.Errorf("Browser = %q, want %q", config.Browser, "chromium")
+	}
+}
+
+func TestNewTestRunner(t *testing.T) {
+	// Test with nil config
+	runner := NewTestRunner(nil)
+	if runner == nil {
+		t.Fatal("NewTestRunner returned nil")
+	}
+	if runner.config == nil {
+		t.Error("config should not be nil")
+	}
+
+	// Test with custom config
+	customConfig := &RunnerConfig{
+		WorkDir:  "/custom",
+		Headless: false,
+		Workers:  8,
+	}
+	runner = NewTestRunner(customConfig)
+	if runner.config.WorkDir != "/custom" {
+		t.Errorf("WorkDir = %q, want %q", runner.config.WorkDir, "/custom")
+	}
+	if runner.config.Workers != 8 {
+		t.Errorf("Workers = %d, want 8", runner.config.Workers)
+	}
+}
+
+func TestTestRunner_BuildPlaywrightArgs(t *testing.T) {
+	runner := NewTestRunner(&RunnerConfig{
+		OutputDir: "results",
+		Headless:  true,
+		Retries:   3,
+		Workers:   2,
+		Browser:   "firefox",
+		BaseURL:   "http://localhost:3000",
+	})
+
+	args := runner.buildPlaywrightArgs("")
+	argsStr := strings.Join(args, " ")
+
+	if !strings.Contains(argsStr, "playwright test") {
+		t.Error("Should contain 'playwright test'")
+	}
+	if !strings.Contains(argsStr, "--output results") {
+		t.Error("Should contain output directory")
+	}
+	if !strings.Contains(argsStr, "--retries 3") {
+		t.Error("Should contain retries")
+	}
+	if !strings.Contains(argsStr, "--workers 2") {
+		t.Error("Should contain workers")
+	}
+	if !strings.Contains(argsStr, "--browser firefox") {
+		t.Error("Should contain browser")
+	}
+	if !strings.Contains(argsStr, "--base-url http://localhost:3000") {
+		t.Error("Should contain base URL")
+	}
+}
+
+func TestTestRunner_BuildPlaywrightArgs_WithPattern(t *testing.T) {
+	runner := NewTestRunner(DefaultRunnerConfig())
+
+	// Test with file pattern
+	args := runner.buildPlaywrightArgs("login.spec.ts")
+	argsStr := strings.Join(args, " ")
+	if !strings.Contains(argsStr, "login.spec.ts") {
+		t.Error("Should contain file pattern")
+	}
+
+	// Test with grep pattern
+	args = runner.buildPlaywrightArgs("login test")
+	argsStr = strings.Join(args, " ")
+	if !strings.Contains(argsStr, "--grep") {
+		t.Error("Should contain --grep for non-file patterns")
+	}
+}
+
+func TestCategorizeFailure(t *testing.T) {
+	tests := []struct {
+		errorMsg string
+		expected string
+	}{
+		{"Timeout of 30000ms exceeded", "timeout"},
+		{"waiting for selector timed out", "timeout"},
+		{"expect(received).toBe(expected)", "assertion"},
+		{"locator.click: Target closed", "selector"},
+		{"selector not found", "selector"},
+		{"network request failed", "network"},
+		{"connection refused", "network"},
+		{"some unknown error", "unknown"},
+	}
+
+	for _, tt := range tests {
+		result := categorizeFailure(tt.errorMsg)
+		if result != tt.expected {
+			t.Errorf("categorizeFailure(%q) = %q, want %q", tt.errorMsg, result, tt.expected)
+		}
+	}
+}
+
+func TestTestRunner_ValidateResults(t *testing.T) {
+	runner := NewTestRunner(nil)
+
+	result := &RunResult{
+		TotalTests: 10,
+		Passed:     7,
+		Failed:     2,
+		Skipped:    1,
+		Duration:   30 * time.Second,
+		Tests: []TestResult{
+			{Name: "Test 1", Status: "passed"},
+			{Name: "Test 2", Status: "failed", Error: "Timeout exceeded"},
+			{Name: "Test 3", Status: "failed", Error: "expect(1).toBe(2)"},
+		},
+	}
+
+	summary := runner.ValidateResults(result)
+
+	if summary.TotalTests != 10 {
+		t.Errorf("TotalTests = %d, want 10", summary.TotalTests)
+	}
+	if summary.PassedTests != 7 {
+		t.Errorf("PassedTests = %d, want 7", summary.PassedTests)
+	}
+	if summary.PassRate != 70 {
+		t.Errorf("PassRate = %f, want 70", summary.PassRate)
+	}
+	if len(summary.Failures) != 2 {
+		t.Errorf("len(Failures) = %d, want 2", len(summary.Failures))
+	}
+	if summary.Failures[0].Category != "timeout" {
+		t.Errorf("Failures[0].Category = %q, want %q", summary.Failures[0].Category, "timeout")
+	}
+	if summary.Failures[1].Category != "assertion" {
+		t.Errorf("Failures[1].Category = %q, want %q", summary.Failures[1].Category, "assertion")
+	}
+}
+
+func TestTestRunner_GenerateMarkdownReport(t *testing.T) {
+	runner := NewTestRunner(nil)
+
+	result := &RunResult{
+		Success:    true,
+		TotalTests: 3,
+		Passed:     3,
+		Failed:     0,
+		Duration:   5 * time.Second,
+		Tests: []TestResult{
+			{Name: "Test 1", Status: "passed", Duration: time.Second},
+			{Name: "Test 2", Status: "passed", Duration: 2 * time.Second},
+			{Name: "Test 3", Status: "passed", Duration: 2 * time.Second},
+		},
+	}
+
+	report, err := runner.GenerateReport(result, "markdown")
+	if err != nil {
+		t.Fatalf("GenerateReport error: %v", err)
+	}
+
+	if !strings.Contains(report, "# E2E Test Report") {
+		t.Error("Report should contain title")
+	}
+	if !strings.Contains(report, "**Total Tests:** 3") {
+		t.Error("Report should contain total tests")
+	}
+	if !strings.Contains(report, "All tests passed") {
+		t.Error("Report should indicate success")
+	}
+	if !strings.Contains(report, "Test 1") {
+		t.Error("Report should contain test names")
+	}
+}
+
+func TestTestRunner_GenerateJSONReport(t *testing.T) {
+	runner := NewTestRunner(nil)
+
+	result := &RunResult{
+		Success:    false,
+		TotalTests: 2,
+		Passed:     1,
+		Failed:     1,
+		Tests: []TestResult{
+			{Name: "Test 1", Status: "passed"},
+			{Name: "Test 2", Status: "failed", Error: "error"},
+		},
+	}
+
+	report, err := runner.GenerateReport(result, "json")
+	if err != nil {
+		t.Fatalf("GenerateReport error: %v", err)
+	}
+
+	// Verify it's valid JSON
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(report), &parsed); err != nil {
+		t.Fatalf("Report is not valid JSON: %v", err)
+	}
+
+	if parsed["totalTests"].(float64) != 2 {
+		t.Error("JSON should contain totalTests")
+	}
+}
+
+func TestTestRunner_GenerateHTMLReport(t *testing.T) {
+	runner := NewTestRunner(nil)
+
+	result := &RunResult{
+		TotalTests: 1,
+		Passed:     1,
+		Tests: []TestResult{
+			{Name: "Test 1", Status: "passed"},
+		},
+	}
+
+	report, err := runner.GenerateReport(result, "html")
+	if err != nil {
+		t.Fatalf("GenerateReport error: %v", err)
+	}
+
+	if !strings.Contains(report, "<!DOCTYPE html>") {
+		t.Error("Report should be valid HTML")
+	}
+	if !strings.Contains(report, "E2E Test Report") {
+		t.Error("Report should contain title")
+	}
+	if !strings.Contains(report, "<table>") {
+		t.Error("Report should contain table")
+	}
+}
+
+func TestTestRunner_ParseStdoutResults(t *testing.T) {
+	runner := NewTestRunner(nil)
+	result := &RunResult{}
+
+	stdout := `
+  Running 5 tests using 2 workers
+
+  ✓ login.spec.ts:5:1 › should login successfully (2.5s)
+  ✓ login.spec.ts:15:1 › should show error for invalid credentials (1.2s)
+  × logout.spec.ts:5:1 › should logout (500ms)
+  ⊘ admin.spec.ts:5:1 › should access admin panel
+
+  3 passed
+  1 failed
+  1 skipped
+`
+
+	runner.parseStdoutResults(result, stdout)
+
+	if result.Passed != 3 {
+		t.Errorf("Passed = %d, want 3", result.Passed)
+	}
+	if result.Failed != 1 {
+		t.Errorf("Failed = %d, want 1", result.Failed)
+	}
+	if result.Skipped != 1 {
+		t.Errorf("Skipped = %d, want 1", result.Skipped)
+	}
+	if result.TotalTests != 5 {
+		t.Errorf("TotalTests = %d, want 5", result.TotalTests)
 	}
 }
