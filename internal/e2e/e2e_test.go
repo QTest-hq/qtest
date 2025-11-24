@@ -554,3 +554,175 @@ func TestMapAssertionType(t *testing.T) {
 		}
 	}
 }
+
+// LLM Enhancer Tests
+
+func TestDefaultEnhancerConfig(t *testing.T) {
+	config := DefaultEnhancerConfig()
+
+	if config.MaxSuggestionsPerTest != 5 {
+		t.Errorf("MaxSuggestionsPerTest = %d, want 5", config.MaxSuggestionsPerTest)
+	}
+	if !config.GenerateNegativeTests {
+		t.Error("GenerateNegativeTests should be true by default")
+	}
+	if !config.GenerateEdgeCases {
+		t.Error("GenerateEdgeCases should be true by default")
+	}
+	if !config.ImproveDescriptions {
+		t.Error("ImproveDescriptions should be true by default")
+	}
+	if config.AddAccessibilityTests {
+		t.Error("AddAccessibilityTests should be false by default")
+	}
+}
+
+func TestNewLLMEnhancer(t *testing.T) {
+	// Test with nil config
+	enhancer := NewLLMEnhancer(nil, nil)
+	if enhancer == nil {
+		t.Fatal("NewLLMEnhancer returned nil")
+	}
+	if enhancer.config == nil {
+		t.Error("config should not be nil")
+	}
+
+	// Test with custom config
+	customConfig := &EnhancerConfig{
+		MaxSuggestionsPerTest: 10,
+		GenerateNegativeTests: false,
+	}
+	enhancer = NewLLMEnhancer(nil, customConfig)
+	if enhancer.config.MaxSuggestionsPerTest != 10 {
+		t.Errorf("MaxSuggestionsPerTest = %d, want 10", enhancer.config.MaxSuggestionsPerTest)
+	}
+}
+
+func TestExtractJSONArray(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{
+			input:    `Here is the result: [{"name": "test"}]`,
+			expected: `[{"name": "test"}]`,
+		},
+		{
+			input:    `[{"a": 1}, {"b": 2}]`,
+			expected: `[{"a": 1}, {"b": 2}]`,
+		},
+		{
+			input:    `No array here`,
+			expected: "",
+		},
+		{
+			input:    `Nested [[1, 2], [3, 4]]`,
+			expected: `[[1, 2], [3, 4]]`,
+		},
+	}
+
+	for _, tt := range tests {
+		result := extractJSONArray(tt.input)
+		if result != tt.expected {
+			t.Errorf("extractJSONArray(%q) = %q, want %q", tt.input, result, tt.expected)
+		}
+	}
+}
+
+func TestLLMEnhancer_ParseTestCaseSuggestions(t *testing.T) {
+	enhancer := NewLLMEnhancer(nil, nil)
+
+	response := `Here are suggested tests:
+[
+  {"name": "Test Login", "description": "Test user login", "tags": ["auth"]},
+  {"name": "Test Logout", "description": "Test user logout", "tags": ["auth"]}
+]`
+
+	tests, err := enhancer.parseTestCaseSuggestions(response)
+	if err != nil {
+		t.Fatalf("parseTestCaseSuggestions error: %v", err)
+	}
+
+	if len(tests) != 2 {
+		t.Fatalf("len(tests) = %d, want 2", len(tests))
+	}
+
+	if tests[0].Name != "Test Login" {
+		t.Errorf("tests[0].Name = %q, want %q", tests[0].Name, "Test Login")
+	}
+	if tests[0].Description != "Test user login" {
+		t.Errorf("tests[0].Description = %q, want %q", tests[0].Description, "Test user login")
+	}
+	if len(tests[0].Tags) != 1 || tests[0].Tags[0] != "auth" {
+		t.Errorf("tests[0].Tags = %v, want [auth]", tests[0].Tags)
+	}
+}
+
+func TestLLMEnhancer_ParseAssertionSuggestions(t *testing.T) {
+	enhancer := NewLLMEnhancer(nil, nil)
+
+	response := `[
+  {"type": "visible", "selector": "#submit", "expected": null},
+  {"type": "text", "selector": ".message", "expected": "Success"}
+]`
+
+	assertions, err := enhancer.parseAssertionSuggestions(response)
+	if err != nil {
+		t.Fatalf("parseAssertionSuggestions error: %v", err)
+	}
+
+	if len(assertions) != 2 {
+		t.Fatalf("len(assertions) = %d, want 2", len(assertions))
+	}
+
+	if assertions[0].Type != AssertVisible {
+		t.Errorf("assertions[0].Type = %q, want %q", assertions[0].Type, AssertVisible)
+	}
+	if assertions[0].Selector != "#submit" {
+		t.Errorf("assertions[0].Selector = %q, want %q", assertions[0].Selector, "#submit")
+	}
+
+	if assertions[1].Type != AssertText {
+		t.Errorf("assertions[1].Type = %q, want %q", assertions[1].Type, AssertText)
+	}
+	if assertions[1].Expected != "Success" {
+		t.Errorf("assertions[1].Expected = %v, want %q", assertions[1].Expected, "Success")
+	}
+}
+
+func TestLLMEnhancer_BuildPrompts(t *testing.T) {
+	enhancer := NewLLMEnhancer(nil, nil)
+
+	spec := &E2ETestSpec{
+		Name:    "Login Tests",
+		BaseURL: "https://example.com",
+		TestCases: []TestCase{
+			{
+				ID:          "test-1",
+				Name:        "Test Login",
+				Description: "Test user login flow",
+			},
+		},
+	}
+
+	// Test suggestion prompt
+	suggestionPrompt := enhancer.buildSuggestionPrompt(spec)
+	if !strings.Contains(suggestionPrompt, "Login Tests") {
+		t.Error("Suggestion prompt should contain test suite name")
+	}
+	if !strings.Contains(suggestionPrompt, "Test Login") {
+		t.Error("Suggestion prompt should contain existing test name")
+	}
+
+	// Test negative test prompt
+	negativePrompt := enhancer.buildNegativeTestPrompt(spec)
+	if !strings.Contains(negativePrompt, "negative") {
+		t.Error("Negative test prompt should mention 'negative'")
+	}
+
+	// Test edge case prompt
+	edgeCasePrompt := enhancer.buildEdgeCasePrompt(spec)
+	if !strings.Contains(edgeCasePrompt, "edge case") {
+		t.Error("Edge case prompt should mention 'edge case'")
+	}
+}
