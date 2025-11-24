@@ -34,6 +34,7 @@ describe('Sidebar', () => {
     expect(screen.getByText('Jobs')).toBeInTheDocument();
     expect(screen.getByText('Tests')).toBeInTheDocument();
     expect(screen.getByText('Coverage')).toBeInTheDocument();
+    expect(screen.getByText('Team')).toBeInTheDocument();
     expect(screen.getByText('Settings')).toBeInTheDocument();
   });
 
@@ -65,15 +66,18 @@ describe('Sidebar', () => {
     
     const coverageLink = screen.getByText('Coverage').closest('a');
     expect(coverageLink).toHaveAttribute('href', '/coverage');
-    
+
+    const teamLink = screen.getByText('Team').closest('a');
+    expect(teamLink).toHaveAttribute('href', '/team');
+
     const settingsLink = screen.getByText('Settings').closest('a');
     expect(settingsLink).toHaveAttribute('href', '/settings');
   });
 
-  it('should render 6 navigation items', () => {
+  it('should render 7 navigation items', () => {
     render(<Sidebar />);
     const navLinks = screen.getAllByRole('link');
-    // Dashboard, Repos, Jobs, Tests, Coverage, Settings = 6 links
-    expect(navLinks.length).toBe(6);
+    // Dashboard, Repos, Jobs, Tests, Coverage, Team, Settings = 7 links
+    expect(navLinks.length).toBe(7);
   });
 });

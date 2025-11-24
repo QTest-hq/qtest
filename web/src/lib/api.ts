@@ -390,6 +390,71 @@ class ApiClient {
   async revokeAPIKey(keyId: string): Promise<void> {
     await this.request(`/api/v1/api-keys/${keyId}`, { method: "DELETE" });
   }
+
+  // Organization endpoints
+  async listOrganizations(): Promise<OrganizationWithRole[]> {
+    return this.request("/api/v1/organizations");
+  }
+
+  async getOrganization(orgId: string): Promise<{ organization: Organization; role: MemberRole }> {
+    return this.request(`/api/v1/organizations/${orgId}`);
+  }
+
+  async createOrganization(req: CreateOrganizationRequest): Promise<Organization> {
+    return this.request("/api/v1/organizations", {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  }
+
+  async updateOrganization(orgId: string, updates: { name?: string; description?: string }): Promise<Organization> {
+    return this.request(`/api/v1/organizations/${orgId}`, {
+      method: "PATCH",
+      body: JSON.stringify(updates),
+    });
+  }
+
+  async deleteOrganization(orgId: string): Promise<void> {
+    await this.request(`/api/v1/organizations/${orgId}`, { method: "DELETE" });
+  }
+
+  // Organization members endpoints
+  async listMembers(orgId: string): Promise<OrganizationMember[]> {
+    return this.request(`/api/v1/organizations/${orgId}/members`);
+  }
+
+  async addMember(orgId: string, req: AddMemberRequest): Promise<void> {
+    await this.request(`/api/v1/organizations/${orgId}/members`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  }
+
+  async updateMemberRole(orgId: string, userId: string, role: MemberRole): Promise<void> {
+    await this.request(`/api/v1/organizations/${orgId}/members/${userId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role }),
+    });
+  }
+
+  async removeMember(orgId: string, userId: string): Promise<void> {
+    await this.request(`/api/v1/organizations/${orgId}/members/${userId}`, { method: "DELETE" });
+  }
+
+  // Team Stats (aggregated from repos/jobs in org)
+  async getOrgStats(orgId: string): Promise<TeamStats> {
+    // This endpoint may need to be added to the backend
+    // For now, we'll aggregate from existing endpoints
+    return this.request(`/api/v1/organizations/${orgId}/stats`);
+  }
+
+  async getOrgRepos(orgId: string, limit = 20): Promise<Repository[]> {
+    return this.request(`/api/v1/organizations/${orgId}/repos?limit=${limit}`);
+  }
+
+  async getOrgJobs(orgId: string, limit = 20): Promise<Job[]> {
+    return this.request(`/api/v1/organizations/${orgId}/jobs?limit=${limit}`);
+  }
 }
 
 // Export singleton instance
@@ -413,6 +478,70 @@ export interface CreateAPIKeyRequest {
   scopes: string[];
   organization_id?: string;
   expires_in_days?: number;
+}
+
+// Organization types
+export type MemberRole = "owner" | "admin" | "member" | "viewer";
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  owner_id: string;
+  github_org_id?: number;
+  settings?: Record<string, unknown>;
+  is_personal: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrganizationWithRole extends Organization {
+  role: MemberRole;
+}
+
+export interface OrganizationMember {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  role: MemberRole;
+  invited_by?: string;
+  joined_at: string;
+  created_at: string;
+  github_login: string;
+  name?: string;
+  avatar_url?: string;
+}
+
+export interface CreateOrganizationRequest {
+  name: string;
+  slug: string;
+  description?: string;
+}
+
+export interface AddMemberRequest {
+  user_id: string;
+  role: MemberRole;
+}
+
+// Team Stats types
+export interface TeamStats {
+  total_repos: number;
+  total_tests_generated: number;
+  avg_coverage: number;
+  total_jobs: number;
+  jobs_this_week: number;
+  active_members: number;
+}
+
+export interface TeamActivity {
+  id: string;
+  type: string;
+  actor_name: string;
+  actor_avatar?: string;
+  description: string;
+  repo_name?: string;
+  created_at: string;
 }
 
 // Export class for custom instances
