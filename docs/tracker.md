@@ -429,7 +429,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P4-023 | Build repository detail page | 🟢 | P0 | P4-020 | repos/[id]/page.tsx with stats, jobs |
 | P4-024 | Build run history page | 🟢 | P0 | P4-020 | jobs/page.tsx with filters |
 | P4-025 | Build run detail page | 🟢 | P0 | P4-020 | jobs/[id]/page.tsx with polling |
-| P4-026 | Build coverage dashboard | 🔴 | P1 | P4-020 | Charts, trends |
+| P4-026 | Build coverage dashboard | 🟢 | P1 | P4-020 | Backend API + Frontend with stats, distribution, snapshots |
 | P4-027 | Build settings page | 🔴 | P1 | P4-020 | |
 | P4-028 | Write frontend tests | 🔴 | P1 | P4-022-027 | |
 
@@ -437,12 +437,12 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P4-030 | Design organization model | 🔴 | P0 | - | Multi-tenant |
-| P4-031 | Implement organization CRUD | 🔴 | P0 | P4-030 | |
-| P4-032 | Implement team membership | 🔴 | P0 | P4-031 | Invite, roles |
-| P4-033 | Implement RBAC | 🔴 | P0 | P4-032 | Admin, member, viewer |
+| P4-030 | Design organization model | 🟢 | P0 | - | db/organization.go, migrations/005 |
+| P4-031 | Implement organization CRUD | 🟢 | P0 | P4-030 | api/organizations.go with full CRUD |
+| P4-032 | Implement team membership | 🟢 | P0 | P4-031 | Add/remove members, invites |
+| P4-033 | Implement RBAC | 🟢 | P0 | P4-032 | owner/admin/member/viewer roles |
 | P4-034 | Build team dashboard | 🔴 | P1 | P4-020, P4-031 | Aggregate metrics |
-| P4-035 | Write team feature tests | 🔴 | P1 | P4-030-034 | |
+| P4-035 | Write team feature tests | 🟢 | P1 | P4-030-034 | 26 tests in multitenancy_integration_test.go |
 
 ### 4.4 Enterprise Features
 

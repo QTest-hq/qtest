@@ -66,6 +66,37 @@ export interface HealthStatus {
   nats?: string;
 }
 
+export interface CoverageSummary {
+  total_repos: number;
+  avg_coverage: number;
+  total_lines: number;
+  total_covered: number;
+  repos_above_80: number;
+  repos_below_50: number;
+  trend_direction: string;
+  trend_delta: number;
+}
+
+export interface CoverageSnapshot {
+  id: string;
+  repository_id: string;
+  commit_sha?: string;
+  branch?: string;
+  language: string;
+  total_lines: number;
+  covered_lines: number;
+  coverage_percent: number;
+  lines_delta: number;
+  coverage_delta: number;
+  created_at: string;
+}
+
+export interface CoverageTrend {
+  date: string;
+  avg_coverage: number;
+  snapshot_count: number;
+}
+
 // IRSpec types - Universal Intermediate Representation for tests
 export interface IRVariable {
   name: string;
@@ -324,6 +355,23 @@ class ApiClient {
       method: "PUT",
       body: JSON.stringify({ reason }),
     });
+  }
+
+  // Coverage endpoints
+  async getCoverageSummary(): Promise<CoverageSummary> {
+    return this.request("/api/v1/coverage/summary");
+  }
+
+  async listCoverageSnapshots(repoId?: string, limit = 50): Promise<CoverageSnapshot[]> {
+    const params = new URLSearchParams();
+    if (repoId) params.set("repository_id", repoId);
+    if (limit) params.set("limit", limit.toString());
+    const query = params.toString();
+    return this.request(`/api/v1/coverage/snapshots${query ? `?${query}` : ""}`);
+  }
+
+  async getCoverageTrend(repoId: string, days = 30): Promise<CoverageTrend[]> {
+    return this.request(`/api/v1/coverage/repos/${repoId}/trend?days=${days}`);
   }
 }
 
