@@ -431,7 +431,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P4-025 | Build run detail page | 🟢 | P0 | P4-020 | jobs/[id]/page.tsx with polling |
 | P4-026 | Build coverage dashboard | 🟢 | P1 | P4-020 | Backend API + Frontend with stats, distribution, snapshots |
 | P4-027 | Build settings page | 🟢 | P1 | P4-020 | Profile, API keys management, generation defaults |
-| P4-028 | Write frontend tests | 🔴 | P1 | P4-022-027 | |
+| P4-028 | Write frontend tests | 🟢 | P1 | P4-022-027 | Jest + RTL, 19 tests (API client + Sidebar) |
 
 ### 4.3 Team Features
 
