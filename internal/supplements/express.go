@@ -130,6 +130,12 @@ func (s *ExpressSupplement) Analyze(m *model.SystemModel) error {
 				// Try to find middleware in the same line
 				endpoint.Middleware = extractMiddleware(line)
 
+				// Extract request body schema (TypeScript typed requests)
+				if schema := s.extractRequestSchema(line, contentStr, m); schema != nil {
+					endpoint.RequestBody = schema.TypeName
+					endpoint.RequestSchema = schema
+				}
+
 				m.Endpoints = append(m.Endpoints, endpoint)
 			}
 		}
@@ -187,4 +193,98 @@ func isValidIdentifier(s string) bool {
 	// Simple check: starts with letter or underscore, contains only word chars or dots
 	matched, _ := regexp.MatchString(`^[a-zA-Z_][\w.]*$`, s)
 	return matched
+}
+
+// extractRequestSchema extracts request body schema from TypeScript typed requests
+// e.g., Request<{}, {}, UserDTO> or req.body as UserDTO
+func (s *ExpressSupplement) extractRequestSchema(line string, fileContent string, m *model.SystemModel) *model.BodySchema {
+	// Skip primitive types
+	skipTypes := map[string]bool{
+		"string": true, "number": true, "boolean": true, "object": true,
+		"any": true, "unknown": true, "void": true, "never": true,
+		"null": true, "undefined": true, "Request": true, "Response": true,
+	}
+
+	// Pattern 1: Request<ParamsType, ResBodyType, ReqBodyType>
+	// The third type parameter is the request body type
+	reqTypePattern := regexp.MustCompile(`Request\s*<[^,]*,\s*[^,]*,\s*(\w+)`)
+	if matches := reqTypePattern.FindStringSubmatch(line); len(matches) >= 2 {
+		typeName := matches[1]
+		if !skipTypes[typeName] && isTypeCapitalized(typeName) {
+			return s.buildBodySchema(typeName, m)
+		}
+	}
+
+	// Pattern 2: req.body as TypeName
+	bodyAsPattern := regexp.MustCompile(`req\.body\s+as\s+(\w+)`)
+	if matches := bodyAsPattern.FindStringSubmatch(fileContent); len(matches) >= 2 {
+		typeName := matches[1]
+		if !skipTypes[typeName] && isTypeCapitalized(typeName) {
+			return s.buildBodySchema(typeName, m)
+		}
+	}
+
+	// Pattern 3: const { ... }: TypeName = req.body
+	destructurePattern := regexp.MustCompile(`:\s*(\w+)\s*=\s*req\.body`)
+	if matches := destructurePattern.FindStringSubmatch(fileContent); len(matches) >= 2 {
+		typeName := matches[1]
+		if !skipTypes[typeName] && isTypeCapitalized(typeName) {
+			return s.buildBodySchema(typeName, m)
+		}
+	}
+
+	return nil
+}
+
+// buildBodySchema creates a BodySchema from a type name
+func (s *ExpressSupplement) buildBodySchema(typeName string, m *model.SystemModel) *model.BodySchema {
+	schema := &model.BodySchema{
+		TypeName:    typeName,
+		ContentType: "application/json",
+		Required:    true,
+	}
+
+	// Look up the type in the model to get field information
+	for i := range m.Types {
+		if m.Types[i].Name == typeName {
+			schema.Fields = s.extractFieldsFromType(&m.Types[i])
+			break
+		}
+	}
+
+	return schema
+}
+
+// extractFieldsFromType extracts schema fields from a TypeDef (TypeScript interface)
+func (s *ExpressSupplement) extractFieldsFromType(t *model.TypeDef) []model.SchemaField {
+	var fields []model.SchemaField
+
+	for _, f := range t.Fields {
+		field := model.SchemaField{
+			Name:     f.Name,
+			Type:     f.Type,
+			Required: true, // Default to required
+		}
+
+		// Check for optional type (name?)
+		if strings.HasSuffix(f.Name, "?") {
+			field.Required = false
+			field.Name = strings.TrimSuffix(f.Name, "?")
+		}
+
+		// Use camelCase name as JSON name for JavaScript
+		field.JSONName = f.Name
+
+		fields = append(fields, field)
+	}
+
+	return fields
+}
+
+// isTypeCapitalized checks if a string starts with an uppercase letter
+func isTypeCapitalized(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	return s[0] >= 'A' && s[0] <= 'Z'
 }

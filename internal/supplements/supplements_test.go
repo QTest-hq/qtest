@@ -1460,6 +1460,198 @@ func main() {
 	}
 }
 
+func TestFastAPISupplement_ExtractMiddleware(t *testing.T) {
+	s := &FastAPISupplement{}
+
+	tests := []struct {
+		name string
+		line string
+		want []string
+	}{
+		{
+			name: "single Depends",
+			line: `@app.get("/users", dependencies=[Depends(auth)])`,
+			want: []string{"auth"},
+		},
+		{
+			name: "multiple Depends",
+			line: `@app.post("/users", dependencies=[Depends(auth), Depends(rate_limit)])`,
+			want: []string{"auth", "rate_limit"},
+		},
+		{
+			name: "no dependencies",
+			line: `@app.get("/health")`,
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := s.extractMiddleware(tt.line)
+			if len(got) != len(tt.want) {
+				t.Errorf("extractMiddleware() = %v, want %v", got, tt.want)
+				return
+			}
+			for i, m := range got {
+				if m != tt.want[i] {
+					t.Errorf("extractMiddleware()[%d] = %s, want %s", i, m, tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestFastAPISupplement_ExtractDependsFromParams(t *testing.T) {
+	s := &FastAPISupplement{}
+
+	tests := []struct {
+		name string
+		line string
+		want []string
+	}{
+		{
+			name: "single Depends in params",
+			line: `async def get_user(user: User = Depends(get_current_user)):`,
+			want: []string{"get_current_user"},
+		},
+		{
+			name: "multiple Depends in params",
+			line: `async def create_item(user: User = Depends(get_current_user), db: Session = Depends(get_db)):`,
+			want: []string{"get_current_user", "get_db"},
+		},
+		{
+			name: "no Depends",
+			line: `async def health_check():`,
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := s.extractDependsFromParams(tt.line)
+			if len(got) != len(tt.want) {
+				t.Errorf("extractDependsFromParams() = %v, want %v", got, tt.want)
+				return
+			}
+			for i, m := range got {
+				if m != tt.want[i] {
+					t.Errorf("extractDependsFromParams()[%d] = %s, want %s", i, m, tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestFastAPISupplement_Analyze_WithMiddleware(t *testing.T) {
+	s := &FastAPISupplement{}
+	tmpDir := createTempDir(t)
+	defer os.RemoveAll(tmpDir)
+
+	routerCode := `
+from fastapi import FastAPI, Depends
+
+app = FastAPI()
+
+def auth():
+    pass
+
+def rate_limit():
+    pass
+
+@app.get("/users", dependencies=[Depends(auth)])
+async def list_users():
+    return []
+
+@app.post("/users", dependencies=[Depends(auth), Depends(rate_limit)])
+async def create_user(user: User = Depends(get_current_user)):
+    return user
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+`
+	routerFile := createFile(t, tmpDir, "main.py", routerCode)
+
+	m := &model.SystemModel{
+		Modules: []model.Module{{Files: []string{routerFile}}},
+	}
+
+	err := s.Analyze(m)
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+
+	// Check middleware is extracted correctly
+	for _, ep := range m.Endpoints {
+		if ep.Method == "GET" && ep.Path == "/users" {
+			if len(ep.Middleware) != 1 || ep.Middleware[0] != "auth" {
+				t.Errorf("GET /users middleware = %v, want [auth]", ep.Middleware)
+			}
+		}
+		if ep.Method == "POST" && ep.Path == "/users" {
+			// Should have middleware from both decorator and function params
+			if len(ep.Middleware) < 2 {
+				t.Errorf("POST /users should have at least 2 middleware, got %d", len(ep.Middleware))
+			}
+		}
+		if ep.Method == "GET" && ep.Path == "/health" {
+			if len(ep.Middleware) != 0 {
+				t.Errorf("GET /health should have no middleware, got %v", ep.Middleware)
+			}
+		}
+	}
+}
+
+func TestSpringBootSupplement_Analyze_WithMiddleware(t *testing.T) {
+	s := &SpringBootSupplement{}
+	tmpDir := createTempDir(t)
+	defer os.RemoveAll(tmpDir)
+
+	controllerCode := `
+package com.example.demo;
+
+import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
+
+@RestController
+@RequestMapping("/api")
+public class UserController {
+
+    @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/users")
+    public List<User> listUsers() {
+        return userService.findAll();
+    }
+
+    @Secured("ROLE_USER")
+    @PostMapping("/users")
+    public User createUser(@RequestBody User user) {
+        return userService.save(user);
+    }
+
+    @GetMapping("/health")
+    public Map<String, String> health() {
+        return Map.of("status", "ok");
+    }
+}
+`
+	controllerFile := createFile(t, tmpDir, "UserController.java", controllerCode)
+
+	m := &model.SystemModel{
+		Modules: []model.Module{{Files: []string{controllerFile}}},
+	}
+
+	err := s.Analyze(m)
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+
+	// Check we got the endpoints
+	if len(m.Endpoints) == 0 {
+		t.Error("expected endpoints to be detected")
+	}
+}
+
 func TestBodySchema_Fields(t *testing.T) {
 	schema := model.BodySchema{
 		TypeName:    "CreateUserRequest",
@@ -1501,5 +1693,223 @@ func TestSchemaField_Fields(t *testing.T) {
 	}
 	if field.Validation != "required,email" {
 		t.Errorf("Validation = %s, want required,email", field.Validation)
+	}
+}
+
+func TestDjangoSupplement_Analyze_WithMiddleware(t *testing.T) {
+	s := &DjangoSupplement{}
+	tmpDir := createTempDir(t)
+	defer os.RemoveAll(tmpDir)
+
+	viewsCode := `
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated, IsAdmin
+from rest_framework.decorators import api_view, permission_classes
+
+class UserView(APIView):
+    permission_classes = [IsAuthenticated, IsAdmin]
+    authentication_classes = [TokenAuthentication]
+
+    def get(self, request):
+        return Response({"users": []})
+
+    def post(self, request):
+        return Response({"created": True})
+
+@permission_classes([IsAuthenticated])
+@api_view(['GET', 'POST'])
+def profile_view(request):
+    return Response({"profile": {}})
+`
+	viewsFile := createFile(t, tmpDir, "views.py", viewsCode)
+
+	urlsCode := `
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('users/', views.UserView.as_view()),
+    path('profile/', views.profile_view),
+]
+`
+	createFile(t, tmpDir, "urls.py", urlsCode)
+
+	m := &model.SystemModel{
+		Modules: []model.Module{{Files: []string{viewsFile}}},
+	}
+
+	err := s.Analyze(m)
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+
+	// Check we got endpoints
+	if len(m.Endpoints) == 0 {
+		t.Error("expected endpoints to be detected")
+	}
+
+	// Check that middleware was detected on class-based views
+	for _, ep := range m.Endpoints {
+		if ep.Handler == "UserView.get" || ep.Handler == "UserView.post" {
+			if len(ep.Middleware) == 0 {
+				t.Errorf("expected middleware on %s", ep.Handler)
+			}
+		}
+	}
+}
+
+func TestDjangoSupplement_ParseClassList(t *testing.T) {
+	s := &DjangoSupplement{}
+
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{
+			name:  "single class",
+			input: "IsAuthenticated",
+			want:  []string{"IsAuthenticated"},
+		},
+		{
+			name:  "multiple classes",
+			input: "IsAuthenticated, IsAdmin",
+			want:  []string{"IsAuthenticated", "IsAdmin"},
+		},
+		{
+			name:  "with parentheses",
+			input: "IsAuthenticated(), IsAdmin()",
+			want:  []string{"IsAuthenticated", "IsAdmin"},
+		},
+		{
+			name:  "empty string",
+			input: "",
+			want:  nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := s.parseClassList(tt.input)
+			if len(got) != len(tt.want) {
+				t.Errorf("parseClassList() = %v, want %v", got, tt.want)
+				return
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("parseClassList()[%d] = %s, want %s", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestNestJSSupplement_Analyze_WithMiddleware(t *testing.T) {
+	s := &NestJSSupplement{}
+	tmpDir := createTempDir(t)
+	defer os.RemoveAll(tmpDir)
+
+	controllerCode := `
+import { Controller, Get, Post, UseGuards, UsePipes } from '@nestjs/common';
+import { AuthGuard } from './guards/auth.guard';
+import { ValidationPipe } from './pipes/validation.pipe';
+
+@Controller('users')
+@UseGuards(AuthGuard)
+export class UsersController {
+
+  @Get()
+  findAll() {
+    return [];
+  }
+
+  @UseGuards(AdminGuard)
+  @UsePipes(ValidationPipe)
+  @Post()
+  create() {
+    return { created: true };
+  }
+}
+`
+	controllerFile := createFile(t, tmpDir, "users.controller.ts", controllerCode)
+
+	// Create package.json for NestJS detection
+	packageJSON := `{"dependencies": {"@nestjs/core": "^10.0.0"}}`
+	createFile(t, tmpDir, "package.json", packageJSON)
+
+	m := &model.SystemModel{
+		Modules: []model.Module{{Files: []string{controllerFile}}},
+	}
+
+	err := s.Analyze(m)
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+
+	// Check we got endpoints
+	if len(m.Endpoints) < 2 {
+		t.Errorf("expected at least 2 endpoints, got %d", len(m.Endpoints))
+	}
+
+	// Check that middleware was detected
+	for _, ep := range m.Endpoints {
+		if ep.Method == "GET" {
+			// GET should have controller-level AuthGuard
+			if len(ep.Middleware) == 0 {
+				t.Error("expected middleware on GET endpoint")
+			}
+		}
+		if ep.Method == "POST" {
+			// POST should have controller-level AuthGuard + method-level AdminGuard, ValidationPipe
+			if len(ep.Middleware) < 2 {
+				t.Errorf("expected at least 2 middleware on POST endpoint, got %d", len(ep.Middleware))
+			}
+		}
+	}
+}
+
+func TestNestJSSupplement_ExtractMiddlewareNames(t *testing.T) {
+	s := &NestJSSupplement{}
+
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{
+			name:  "single guard",
+			input: "AuthGuard",
+			want:  []string{"AuthGuard"},
+		},
+		{
+			name:  "multiple guards",
+			input: "AuthGuard, AdminGuard",
+			want:  []string{"AuthGuard", "AdminGuard"},
+		},
+		{
+			name:  "guard with parameter",
+			input: "AuthGuard('jwt')",
+			want:  []string{"AuthGuard"},
+		},
+		{
+			name:  "empty",
+			input: "",
+			want:  nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := s.extractMiddlewareNames(tt.input)
+			if len(got) != len(tt.want) {
+				t.Errorf("extractMiddlewareNames() = %v, want %v", got, tt.want)
+				return
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("extractMiddlewareNames()[%d] = %s, want %s", i, got[i], tt.want[i])
+				}
+			}
+		})
 	}
 }

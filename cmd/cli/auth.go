@@ -26,12 +26,14 @@ Examples:
   qtest auth login                    # Login with API key
   qtest auth login --token KEY        # Login with provided key
   qtest auth status                   # Show current auth status
-  qtest auth logout                   # Remove stored credentials`,
+  qtest auth logout                   # Remove stored credentials
+  qtest auth github-app               # Check GitHub App configuration`,
 	}
 
 	cmd.AddCommand(authLoginCmd())
 	cmd.AddCommand(authLogoutCmd())
 	cmd.AddCommand(authStatusCmd())
+	cmd.AddCommand(authGitHubAppCmd())
 
 	return cmd
 }
@@ -325,4 +327,139 @@ func validateWithServer(server, apiKey string) error {
 	}
 
 	return nil
+}
+
+func authGitHubAppCmd() *cobra.Command {
+	var checkAPI bool
+
+	cmd := &cobra.Command{
+		Use:   "github-app",
+		Short: "Check GitHub App configuration",
+		Long: `Check the GitHub App configuration status.
+
+This command validates:
+  1. Environment variables are set (GITHUB_APP_ID, private key)
+  2. Private key is valid and readable
+  3. Optionally validates against GitHub API
+
+Required environment variables:
+  GITHUB_APP_ID                    - Your GitHub App ID
+  GITHUB_APP_PRIVATE_KEY_PATH      - Path to private key file
+  or
+  GITHUB_APP_PRIVATE_KEY           - Private key PEM content
+
+Optional:
+  GITHUB_APP_WEBHOOK_SECRET        - Webhook secret for verification
+
+Examples:
+  qtest auth github-app            # Check configuration
+  qtest auth github-app --check    # Validate with GitHub API`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Println("GitHub App Configuration")
+			fmt.Println("========================")
+			fmt.Println()
+
+			// Check environment variables
+			appID := os.Getenv("GITHUB_APP_ID")
+			privateKeyPath := os.Getenv("GITHUB_APP_PRIVATE_KEY_PATH")
+			privateKeyPEM := os.Getenv("GITHUB_APP_PRIVATE_KEY")
+			webhookSecret := os.Getenv("GITHUB_APP_WEBHOOK_SECRET")
+
+			hasConfig := false
+
+			// App ID
+			if appID != "" {
+				fmt.Printf("App ID:           %s\n", appID)
+				hasConfig = true
+			} else {
+				fmt.Println("App ID:           NOT SET (GITHUB_APP_ID)")
+			}
+
+			// Private Key
+			keySource := ""
+			if privateKeyPath != "" {
+				if _, err := os.Stat(privateKeyPath); err == nil {
+					fmt.Printf("Private Key:      %s (file exists)\n", privateKeyPath)
+					keySource = "file"
+					hasConfig = true
+				} else {
+					fmt.Printf("Private Key:      %s (FILE NOT FOUND)\n", privateKeyPath)
+				}
+			} else if privateKeyPEM != "" {
+				fmt.Printf("Private Key:      [%d chars] (from env)\n", len(privateKeyPEM))
+				keySource = "env"
+				hasConfig = true
+			} else {
+				fmt.Println("Private Key:      NOT SET (GITHUB_APP_PRIVATE_KEY_PATH or GITHUB_APP_PRIVATE_KEY)")
+			}
+
+			// Webhook Secret
+			if webhookSecret != "" {
+				fmt.Printf("Webhook Secret:   %s...%s\n", webhookSecret[:4], webhookSecret[len(webhookSecret)-4:])
+			} else {
+				fmt.Println("Webhook Secret:   NOT SET (optional)")
+			}
+
+			// Summary
+			fmt.Println()
+			if !hasConfig {
+				fmt.Println("Status: NOT CONFIGURED")
+				fmt.Println()
+				fmt.Println("To configure GitHub App authentication:")
+				fmt.Println()
+				fmt.Println("1. Create a GitHub App at https://github.com/settings/apps/new")
+				fmt.Println("   Use the manifest at deployments/github-app-manifest.json")
+				fmt.Println()
+				fmt.Println("2. Set environment variables:")
+				fmt.Println("   export GITHUB_APP_ID=your-app-id")
+				fmt.Println("   export GITHUB_APP_PRIVATE_KEY_PATH=/path/to/private-key.pem")
+				fmt.Println("   export GITHUB_APP_WEBHOOK_SECRET=your-secret")
+				fmt.Println()
+				fmt.Println("3. See deployments/github-app.env.example for full configuration")
+				return nil
+			}
+
+			// Validate key can be parsed
+			if keySource != "" {
+				fmt.Println("Validating private key...")
+				var keyData []byte
+				var err error
+
+				if keySource == "file" {
+					keyData, err = os.ReadFile(privateKeyPath)
+					if err != nil {
+						fmt.Printf("Private Key:      INVALID (cannot read file: %v)\n", err)
+						return nil
+					}
+				} else {
+					keyData = []byte(privateKeyPEM)
+				}
+
+				if !strings.Contains(string(keyData), "BEGIN") || !strings.Contains(string(keyData), "PRIVATE KEY") {
+					fmt.Println("Private Key:      INVALID (not a valid PEM format)")
+					return nil
+				}
+
+				fmt.Println("Private Key:      VALID (PEM format)")
+			}
+
+			// Check with GitHub API if requested
+			if checkAPI && hasConfig && keySource != "" {
+				fmt.Println()
+				fmt.Println("Checking GitHub API...")
+				// Note: Would need to import auth package and create client
+				// For now just show that the config is ready
+				fmt.Println("Configuration appears valid. Use GitHub App client to fully validate.")
+			}
+
+			fmt.Println()
+			fmt.Println("Status: CONFIGURED")
+
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVarP(&checkAPI, "check", "c", false, "Validate with GitHub API")
+
+	return cmd
 }

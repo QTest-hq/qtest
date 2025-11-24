@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/QTest-hq/qtest/internal/llm"
 	"github.com/QTest-hq/qtest/internal/parser"
@@ -391,23 +392,49 @@ type BatchOptions struct {
 	Concurrency int      // Number of concurrent generations (default: 4)
 	Files       []string // Files to process
 	OnProgress  func(completed, total int, current string) // Progress callback
+	MaxRetries  int      // Max retries per function (default: 2)
+	RetryDelay  time.Duration // Delay between retries (default: 1s)
+	SkipPrivate bool     // Skip private/unexported functions
+	FuncFilter  func(name string) bool // Optional filter for function names
 }
 
 // BatchResult contains results from batch generation
 type BatchResult struct {
-	Tests      []GeneratedTest     // Successfully generated tests
-	Errors     []BatchError        // Errors encountered
-	TotalFiles int                 // Total files processed
-	TotalFuncs int                 // Total functions found
-	Generated  int                 // Successfully generated tests
-	Failed     int                 // Failed generations
+	Tests       []GeneratedTest     // Successfully generated tests
+	Errors      []BatchError        // Errors encountered
+	TotalFiles  int                 // Total files processed
+	TotalFuncs  int                 // Total functions found
+	Generated   int                 // Successfully generated tests
+	Failed      int                 // Failed generations
+	Skipped     int                 // Skipped functions
+	Retried     int                 // Functions that required retries
+	StartTime   time.Time           // When batch started
+	EndTime     time.Time           // When batch completed
+	Duration    time.Duration       // Total duration
+}
+
+// SuccessRate returns the percentage of successful generations
+func (r *BatchResult) SuccessRate() float64 {
+	total := r.Generated + r.Failed
+	if total == 0 {
+		return 0
+	}
+	return float64(r.Generated) / float64(total) * 100
+}
+
+// Summary returns a human-readable summary of the batch result
+func (r *BatchResult) Summary() string {
+	return fmt.Sprintf("Generated %d/%d tests (%.1f%% success) in %v",
+		r.Generated, r.Generated+r.Failed, r.SuccessRate(), r.Duration.Round(time.Millisecond))
 }
 
 // BatchError represents an error during batch generation
 type BatchError struct {
-	File     string
-	Function string
-	Error    error
+	File      string
+	Function  string
+	Error     error
+	Retries   int  // Number of retries attempted
+	Retryable bool // Whether error is retryable
 }
 
 // GenerateBatch generates tests for multiple files concurrently
@@ -421,10 +448,21 @@ func (g *Generator) GenerateBatch(ctx context.Context, opts BatchOptions) (*Batc
 		concurrency = 4
 	}
 
+	// Set default retry options
+	maxRetries := opts.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 2
+	}
+	retryDelay := opts.RetryDelay
+	if retryDelay <= 0 {
+		retryDelay = time.Second
+	}
+
 	result := &BatchResult{
 		Tests:      make([]GeneratedTest, 0),
 		Errors:     make([]BatchError, 0),
 		TotalFiles: len(opts.Files),
+		StartTime:  time.Now(),
 	}
 
 	// Parse all files first to get function count
@@ -463,8 +501,18 @@ func (g *Generator) GenerateBatch(ctx context.Context, opts BatchOptions) (*Batc
 	for _, pf := range parsedFiles {
 		for i := range pf.file.Functions {
 			fn := &pf.file.Functions[i]
-			// Skip private functions for unit tests
+			// Skip private functions if option enabled or for unit tests
+			if opts.SkipPrivate && !fn.Exported {
+				result.Skipped++
+				continue
+			}
 			if !fn.Exported && opts.TestType == dsl.TestTypeUnit {
+				result.Skipped++
+				continue
+			}
+			// Apply custom filter if provided
+			if opts.FuncFilter != nil && !opts.FuncFilter(fn.Name) {
+				result.Skipped++
 				continue
 			}
 			work = append(work, workItem{file: pf.file, fn: fn})
@@ -579,10 +627,17 @@ func (g *Generator) GenerateBatch(ctx context.Context, opts BatchOptions) (*Batc
 		}
 	}
 
+	// Calculate timing
+	result.EndTime = time.Now()
+	result.Duration = result.EndTime.Sub(result.StartTime)
+
 	log.Info().
 		Int("generated", result.Generated).
 		Int("failed", result.Failed).
-		Int("total_tests", len(result.Tests)).
+		Int("skipped", result.Skipped).
+		Int("retried", result.Retried).
+		Dur("duration", result.Duration).
+		Float64("success_rate", result.SuccessRate()).
 		Msg("batch generation complete")
 
 	return result, nil

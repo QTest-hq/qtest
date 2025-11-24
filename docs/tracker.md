@@ -82,9 +82,9 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-042b | Implement Django REST detector | 🟢 | P1 | P1-034 | supplements/django.go |
 | P1-042c | Implement NestJS detector | 🟢 | P1 | P1-034 | supplements/nestjs.go |
 | P1-043 | Extract route parameters | 🟢 | P0 | P1-040 | Path params in all supplements |
-| P1-044 | Extract request body schema | 🟡 | P1 | P1-040 | Basic support |
-| P1-045 | Extract middleware chain | 🔴 | P1 | P1-040 | Not implemented |
-| P1-046 | Write endpoint detection tests | 🔴 | P1 | P1-040-045 | |
+| P1-044 | Extract request body schema | 🟢 | P1 | P1-040 | Full support in all frameworks (FastAPI, Express, SpringBoot) |
+| P1-045 | Extract middleware chain | 🟢 | P1 | P1-040 | All frameworks: Express, FastAPI, Gin, SpringBoot, Django, NestJS |
+| P1-046 | Write endpoint detection tests | 🟢 | P1 | P1-040-045 | 16 tests: Django/NestJS detect + analyze + middleware |
 
 ### 1.6 System Model Builder
 
@@ -134,7 +134,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-083 | Implement unit test DSL generator | 🟢 | P0 | P1-081, P1-082 | generator.go + converter.go |
 | P1-084 | Implement API test DSL generator | 🟢 | P0 | P1-081, P1-082 | specgen/ + emitter/ |
 | P1-085 | Implement DSL validator | 🟢 | P0 | P1-080 | internal/validator/ |
-| P1-086 | Implement batch generation | 🟡 | P1 | P1-083 | workspace/runner_v2.go |
+| P1-086 | Implement batch generation | 🟢 | P1 | P1-083 | BatchOptions, BatchResult, BatchError with retry/timing |
 | P1-087 | Write DSL generator tests | ✅ | P1 | P1-083-086 | 119 tests in generator package |
 
 ### 1.10 Framework Adapters & Emitters
@@ -151,8 +151,8 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-092 | Implement Go test adapter | 🟢 | P0 | P1-090 | go_adapter.go |
 | P1-093 | Design adapter templates | 🟢 | P0 | P1-091 | Go templates in adapters |
 | P1-094 | Handle imports generation | 🟢 | P0 | P1-091 | Auto imports in templates |
-| P1-095 | Handle mock generation | 🔴 | P1 | P1-091 | Not implemented |
-| P1-096 | Write adapter unit tests | 🟡 | P1 | P1-091-095 | Basic tests exist |
+| P1-095 | Handle mock generation | 🟢 | P1 | P1-091 | Go, Jest, Pytest: interface/function/HTTP/async mocks |
+| P1-096 | Write adapter unit tests | 🟢 | P1 | P1-091-095 | 15 batch tests + adapter tests |
 
 ### 1.11 Quality Gates (Basic)
 
@@ -170,15 +170,15 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P1-110 | Create GitHub App configuration | 🔴 | P0 | - | Not started |
-| P1-111 | Implement GitHub App auth | 🟡 | P0 | P1-110 | Token auth works, no App auth |
+| P1-110 | Create GitHub App configuration | 🟢 | P0 | - | Manifest, env template, CLI check |
+| P1-111 | Implement GitHub App auth | 🟢 | P0 | P1-110 | Full implementation: JWT gen, installation tokens, caching, 12+ tests |
 | P1-112 | Implement branch creation | 🟢 | P0 | P1-111 | internal/github/pr.go - CreateBranch |
 | P1-113 | Implement file commit | 🟢 | P0 | P1-111 | internal/github/pr.go - CommitFile |
 | P1-114 | Implement PR creation | 🟢 | P0 | P1-112, P1-113 | internal/github/pr.go - CreatePR |
 | P1-114a | Workspace PR integration | 🟢 | P0 | P1-114 | workspace/runner.go - CreatePR method |
 | P1-115 | Design PR template | 🟢 | P1 | - | github/pr.go - GeneratePRBody |
-| P1-116 | Implement webhook receiver | 🔴 | P1 | P1-111 | Not implemented |
-| P1-117 | Write GitHub integration tests | 🔴 | P1 | P1-111-116 | No tests |
+| P1-116 | Implement webhook receiver | 🟢 | P1 | P1-111 | github_receiver.go with HMAC SHA256 verification |
+| P1-117 | Write GitHub integration tests | 🟢 | P1 | P1-111-116 | 50+ tests in github_receiver_test.go |
 
 ### 1.13 CI Pipeline Generator
 
@@ -214,7 +214,7 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-143 | Implement runs endpoints | 🟢 | P0 | P1-140, P1-015 | Create, list, get, tests |
 | P1-144 | Implement auth middleware | 🟢 | P0 | P1-020 | internal/auth/session.go - RequireAuth/OptionalAuth - API wiring complete |
 | P1-145 | Implement rate limiting | 🟢 | P1 | P1-140 | internal/api/ratelimit/ - Memory + Redis storage, middleware, 11 tests |
-| P1-146 | Add OpenAPI documentation | 🔴 | P1 | P1-142-143 | Not implemented |
+| P1-146 | Add OpenAPI documentation | 🟢 | P1 | P1-142-143 | Complete: 50 endpoints, 2167 lines, Swagger UI + ReDoc |
 | P1-147 | Write API tests | 🟢 | P1 | P1-142-145 | ~130 tests: server, mutation, mock, auth, jobs, integration, admin, ratelimit, hooks, webhook |
 
 ### 1.16 CLI Tool
@@ -225,8 +225,8 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P1-151 | Implement `qtest auth login` | 🟢 | P0 | P1-150 | cmd/cli/auth.go - login, logout, status + 10 tests |
 | P1-152 | Implement `qtest generate` | 🟢 | P0 | P1-150 | generate-file works |
 | P1-153 | Implement `qtest status` | 🟢 | P1 | P1-150 | cmd/cli/status.go - comprehensive status |
-| P1-154 | Add progress output | 🟡 | P1 | P1-152 | Basic, no real-time |
-| P1-155 | Write CLI tests | 🔴 | P1 | P1-151-154 | No tests |
+| P1-154 | Add progress output | 🟢 | P1 | P1-152 | Full spinner, bar, pipeline support |
+| P1-155 | Write CLI tests | 🟢 | P1 | P1-151-154 | 66 tests in cmd/cli (main, commands, workspace, coverage) |
 
 ---
 
@@ -468,15 +468,15 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | Phase 4: Scale | 35 | 20 | 14 | 1 |
 | **Total** | **203** | **137** | **65** | **1** |
 
-### Progress Tracking (Updated 2025-11-23)
+### Progress Tracking (Updated 2025-11-24)
 
 | Phase | 🟢 Completed | 🟡 In Progress | 🔴 Not Started | % Done |
 |-------|-------------|----------------|----------------|--------|
-| Phase 1 | 86 | 2 | 20 | **80%** |
+| Phase 1 | 90 | 0 | 18 | **83%** |
 | Phase 2 | 2 | 2 | 32 | **6%** |
-| Phase 3 | 26 | 0 | 19 | **58%** |
+| Phase 3 | 26 | 1 | 18 | **58%** |
 | Phase 4 | 3 | 1 | 31 | **9%** |
-| **Total** | **117** | **5** | **102** | **55%** |
+| **Total** | **121** | **4** | **99** | **58%** |
 
 ### Critical Path (Must Complete for MVP)
 
@@ -517,6 +517,8 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-23 | **Quality Gate Tests**: Added 12 tests to validator_test.go for test output parsing (Go JSON, pytest, Jest), Docker config, language extension mapping. Now 21 tests for quality gates. P1-106 complete. |
 | 2025-11-23 | **Token Estimation**: Added pkg/model/token_estimator.go for LLM token usage prediction. Features: input/output token estimation based on code size and complexity, TestPlan/TestIntent token fields, cost estimation with pricing for Ollama/OpenAI/Claude. 15 tests. P1-065 complete. |
 | 2025-11-23 | **Tracker Audit**: Discovered P1-066, P1-087, P1-018 were already complete. Planner: 14 tests, Generator: 119 tests, Database: 38 tests. Phase 1 now 91% complete. |
+| 2025-11-23 | **GitHub Integration**: Confirmed P1-116 (webhook receiver) and P1-117 (GitHub tests) complete. github_receiver.go has HMAC SHA256 verification, 50+ tests. Added P1-110 GitHub App config (manifest, env template, CLI check). CLI progress (P1-154) complete with spinners/bars. P1-111 (GitHub App auth) confirmed complete with JWT gen, installation tokens, caching. Phase 1 now 82% complete (all P0 tasks done). Overall 57% complete. |
+| 2025-11-24 | **OpenAPI Documentation**: Completed P1-146. Added 28 missing endpoints (webhooks, usage analytics, admin, audit logs, member management). OpenAPI spec now has 50 endpoints, 2167 lines. Swagger UI at /docs/, ReDoc at /docs/redoc. Phase 1 now 83% complete. Overall 58% complete. |
 
 ---
 
@@ -534,7 +536,8 @@ These P0 tasks block MVP completion:
 | ~~P1-084~~ | ~~API test DSL generator~~ | ~~Generator~~ | ✅ Done |
 | ~~P1-091-092~~ | ~~Test emitters~~ | ~~Adapters~~ | ✅ Done - 5 emitters (Supertest, Pytest, Go-HTTP, JUnit, RSpec) |
 | ~~P1-112-114~~ | ~~GitHub PR Integration~~ | ~~Integration~~ | ✅ Done - Branch, Commit, PR creation |
-| P1-110 | GitHub App auth | Integration | Full OAuth flow (token auth works) |
+| ~~P1-110~~ | ~~GitHub App config~~ | ~~Integration~~ | ✅ Done - manifest, env template, CLI check |
+| ~~P1-111~~ | ~~GitHub App auth~~ | ~~Integration~~ | ✅ Done - JWT gen, installation tokens, caching, 12+ tests |
 | ~~P1-133-137~~ | ~~Worker Implementation~~ | ~~Workers~~ | ✅ Done - All 6 workers fully implemented |
 | ~~P1-144~~ | ~~Auth middleware~~ | ~~API~~ | ✅ Done - needs API wiring |
 | **NEW** | Wire auth to API | API | Connect auth middleware to server |

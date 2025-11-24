@@ -65,6 +65,14 @@ func (s *NestJSSupplement) Analyze(m *model.SystemModel) error {
 	controllerPattern := regexp.MustCompile(`@Controller\s*\(\s*['"]?([^'")\s]*)['"]?\s*\)`)
 	routeDecorators := regexp.MustCompile(`@(Get|Post|Put|Patch|Delete|Head|Options|All)\s*\(\s*['"]?([^'")\s]*)['"]?\s*\)`)
 
+	// Middleware/Guard/Interceptor patterns
+	// @UseGuards(AuthGuard)
+	// @UsePipes(ValidationPipe)
+	// @UseInterceptors(LoggingInterceptor)
+	guardPattern := regexp.MustCompile(`@UseGuards\s*\(([^)]+)\)`)
+	pipePattern := regexp.MustCompile(`@UsePipes\s*\(([^)]+)\)`)
+	interceptorPattern := regexp.MustCompile(`@UseInterceptors\s*\(([^)]+)\)`)
+
 	// Handler method pattern
 	handlerPattern := regexp.MustCompile(`(?:async\s+)?(\w+)\s*\(`)
 
@@ -88,6 +96,22 @@ func (s *NestJSSupplement) Analyze(m *model.SystemModel) error {
 			}
 		}
 
+		// First pass also: extract controller-level middleware
+		var controllerMiddleware []string
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			// Check for controller-level guards
+			if matches := guardPattern.FindStringSubmatch(trimmed); len(matches) >= 2 {
+				controllerMiddleware = append(controllerMiddleware, s.extractMiddlewareNames(matches[1])...)
+			}
+			if matches := pipePattern.FindStringSubmatch(trimmed); len(matches) >= 2 {
+				controllerMiddleware = append(controllerMiddleware, s.extractMiddlewareNames(matches[1])...)
+			}
+			if matches := interceptorPattern.FindStringSubmatch(trimmed); len(matches) >= 2 {
+				controllerMiddleware = append(controllerMiddleware, s.extractMiddlewareNames(matches[1])...)
+			}
+		}
+
 		// Second pass: find route decorators
 		file, err := os.Open(filePath)
 		if err != nil {
@@ -97,15 +121,28 @@ func (s *NestJSSupplement) Analyze(m *model.SystemModel) error {
 		scanner := bufio.NewScanner(file)
 		lineNum := 0
 		var pendingRoute *struct {
-			method string
-			path   string
-			line   int
+			method     string
+			path       string
+			line       int
+			middleware []string
 		}
+		var pendingMiddleware []string // method-level middleware
 
 		for scanner.Scan() {
 			lineNum++
 			line := scanner.Text()
 			trimmed := strings.TrimSpace(line)
+
+			// Check for method-level middleware (before route decorator)
+			if matches := guardPattern.FindStringSubmatch(trimmed); len(matches) >= 2 {
+				pendingMiddleware = append(pendingMiddleware, s.extractMiddlewareNames(matches[1])...)
+			}
+			if matches := pipePattern.FindStringSubmatch(trimmed); len(matches) >= 2 {
+				pendingMiddleware = append(pendingMiddleware, s.extractMiddlewareNames(matches[1])...)
+			}
+			if matches := interceptorPattern.FindStringSubmatch(trimmed); len(matches) >= 2 {
+				pendingMiddleware = append(pendingMiddleware, s.extractMiddlewareNames(matches[1])...)
+			}
 
 			// Check for route decorator
 			if matches := routeDecorators.FindStringSubmatch(trimmed); len(matches) >= 3 {
@@ -115,11 +152,17 @@ func (s *NestJSSupplement) Analyze(m *model.SystemModel) error {
 				}
 				routePath := matches[2]
 
+				// Combine controller-level and method-level middleware
+				allMiddleware := append([]string{}, controllerMiddleware...)
+				allMiddleware = append(allMiddleware, pendingMiddleware...)
+
 				pendingRoute = &struct {
-					method string
-					path   string
-					line   int
-				}{method, routePath, lineNum}
+					method     string
+					path       string
+					line       int
+					middleware []string
+				}{method, routePath, lineNum, allMiddleware}
+				pendingMiddleware = nil // Reset method-level middleware
 			}
 
 			// Check for handler method after decorator
@@ -150,13 +193,14 @@ func (s *NestJSSupplement) Analyze(m *model.SystemModel) error {
 					fullPath = regexp.MustCompile(`//+`).ReplaceAllString(fullPath, "/")
 
 					endpoint := model.Endpoint{
-						ID:        fmt.Sprintf("ep:%s:%s:%d", filepath.Base(filePath), pendingRoute.method, pendingRoute.line),
-						Method:    pendingRoute.method,
-						Path:      fullPath,
-						Handler:   handler,
-						File:      filePath,
-						Line:      pendingRoute.line,
-						Framework: "nestjs",
+						ID:         fmt.Sprintf("ep:%s:%s:%d", filepath.Base(filePath), pendingRoute.method, pendingRoute.line),
+						Method:     pendingRoute.method,
+						Path:       fullPath,
+						Handler:    handler,
+						File:       filePath,
+						Line:       pendingRoute.line,
+						Framework:  "nestjs",
+						Middleware: pendingRoute.middleware,
 					}
 
 					// Extract path parameters (e.g., :id, :userId)
@@ -176,4 +220,20 @@ func (s *NestJSSupplement) Analyze(m *model.SystemModel) error {
 	}
 
 	return nil
+}
+
+// extractMiddlewareNames extracts class/function names from NestJS decorator arguments
+// e.g., "AuthGuard, RolesGuard" -> ["AuthGuard", "RolesGuard"]
+// e.g., "AuthGuard('jwt')" -> ["AuthGuard"]
+func (s *NestJSSupplement) extractMiddlewareNames(str string) []string {
+	var names []string
+	// Match class/function names (capitalized identifiers or function calls)
+	namePattern := regexp.MustCompile(`\b([A-Z]\w*)`)
+	matches := namePattern.FindAllStringSubmatch(str, -1)
+	for _, m := range matches {
+		if len(m) >= 2 {
+			names = append(names, m[1])
+		}
+	}
+	return names
 }

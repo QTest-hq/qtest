@@ -418,3 +418,141 @@ func TestJestAdapter_Generate_StringArgs(t *testing.T) {
 		t.Error("code should contain string argument")
 	}
 }
+
+// Tests for Jest mock generation
+func TestGenerateJestMock(t *testing.T) {
+	tests := []struct {
+		name     string
+		action   dsl.Action
+		contains string
+	}{
+		{
+			name: "module mock",
+			action: dsl.Action{
+				Type:   "mock",
+				Params: map[string]interface{}{"target": "axios", "type": "module"},
+			},
+			contains: "jest.mock('axios')",
+		},
+		{
+			name: "function mock",
+			action: dsl.Action{
+				Type:   "mock",
+				Params: map[string]interface{}{"target": "fetchData", "type": "function"},
+			},
+			contains: "jest.fn()",
+		},
+		{
+			name: "function mock with return",
+			action: dsl.Action{
+				Type:   "mock",
+				Params: map[string]interface{}{"target": "getData", "type": "function", "return": "test data"},
+			},
+			contains: "mockReturnValue",
+		},
+		{
+			name: "spy mock",
+			action: dsl.Action{
+				Type:   "mock",
+				Params: map[string]interface{}{"target": "service", "type": "spy", "method": "fetch"},
+			},
+			contains: "jest.spyOn",
+		},
+		{
+			name: "async mock",
+			action: dsl.Action{
+				Type:   "mock",
+				Params: map[string]interface{}{"target": "asyncFn", "type": "async", "return": "async result"},
+			},
+			contains: "mockResolvedValue",
+		},
+		{
+			name: "timer mock",
+			action: dsl.Action{
+				Type:   "mock",
+				Params: map[string]interface{}{"type": "timer"},
+			},
+			contains: "jest.useFakeTimers()",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := generateJestMock(tt.action)
+			if !strings.Contains(result, tt.contains) {
+				t.Errorf("generateJestMock() = %q, want to contain %q", result, tt.contains)
+			}
+		})
+	}
+}
+
+func TestGenerateJestHTTPMock(t *testing.T) {
+	tests := []struct {
+		name     string
+		action   dsl.Action
+		contains []string
+	}{
+		{
+			name: "basic http mock",
+			action: dsl.Action{
+				Type: "http_mock",
+				Params: map[string]interface{}{
+					"method":   "GET",
+					"path":     "/api/users",
+					"status":   200,
+					"response": map[string]interface{}{"data": "test"},
+				},
+			},
+			contains: []string{"global.fetch", "jest.fn()", "/api/users", "GET"},
+		},
+		{
+			name: "POST http mock",
+			action: dsl.Action{
+				Type: "http_mock",
+				Params: map[string]interface{}{
+					"method":   "POST",
+					"path":     "/api/create",
+					"status":   201,
+					"response": "created",
+				},
+			},
+			contains: []string{"POST", "/api/create", "201"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := generateJestHTTPMock(tt.action)
+			for _, want := range tt.contains {
+				if !strings.Contains(result, want) {
+					t.Errorf("generateJestHTTPMock() = %q, want to contain %q", result, want)
+				}
+			}
+		})
+	}
+}
+
+func TestFormatJSVal(t *testing.T) {
+	tests := []struct {
+		name string
+		val  interface{}
+		want string
+	}{
+		{"nil", nil, "null"},
+		{"string", "hello", "'hello'"},
+		{"int", 42, "42"},
+		{"bool true", true, "true"},
+		{"bool false", false, "false"},
+		{"array", []interface{}{"a", "b"}, "['a', 'b']"},
+		{"map", map[string]interface{}{"key": "val"}, "{ key: 'val' }"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatJSVal(tt.val)
+			if got != tt.want {
+				t.Errorf("formatJSVal() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

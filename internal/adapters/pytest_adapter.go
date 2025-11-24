@@ -290,3 +290,150 @@ func generatePytestAssertions(expected *dsl.Expected) string {
 
 	return assertions.String()
 }
+
+// generatePytestMock generates Python mock setup code
+func generatePytestMock(action dsl.Action) string {
+	target, _ := action.Params["target"].(string)
+	mockType, _ := action.Params["type"].(string)
+	returnVal, hasReturn := action.Params["return"]
+	attr, hasAttr := action.Params["attr"].(string)
+
+	switch mockType {
+	case "patch":
+		// Patch a module/class/function
+		if target != "" {
+			if hasReturn {
+				return fmt.Sprintf("with patch('%s', return_value=%s) as mock_%s:",
+					target, formatPyVal(returnVal), sanitizePythonName(target))
+			}
+			return fmt.Sprintf("with patch('%s') as mock_%s:", target, sanitizePythonName(target))
+		}
+		return "with patch('module.function') as mock_func:"
+
+	case "object":
+		// Patch object attribute
+		if target != "" && hasAttr {
+			if hasReturn {
+				return fmt.Sprintf("with patch.object(%s, '%s', return_value=%s):",
+					target, attr, formatPyVal(returnVal))
+			}
+			return fmt.Sprintf("with patch.object(%s, '%s'):", target, attr)
+		}
+		return "with patch.object(obj, 'method'):"
+
+	case "mock":
+		// Create a MagicMock
+		if target != "" {
+			if hasReturn {
+				return fmt.Sprintf("%s = MagicMock(return_value=%s)", target, formatPyVal(returnVal))
+			}
+			return fmt.Sprintf("%s = MagicMock()", target)
+		}
+		return "mock_obj = MagicMock()"
+
+	case "async":
+		// Create an AsyncMock
+		if target != "" {
+			if hasReturn {
+				return fmt.Sprintf("%s = AsyncMock(return_value=%s)", target, formatPyVal(returnVal))
+			}
+			return fmt.Sprintf("%s = AsyncMock()", target)
+		}
+		return "mock_async = AsyncMock()"
+
+	case "side_effect":
+		// Mock with side effect
+		sideEffect, _ := action.Params["side_effect"]
+		if target != "" {
+			if sideEffect != nil {
+				return fmt.Sprintf("%s = MagicMock(side_effect=%s)", target, formatPyVal(sideEffect))
+			}
+			return fmt.Sprintf("%s = MagicMock(side_effect=Exception('error'))", target)
+		}
+		return "mock_obj = MagicMock(side_effect=Exception('error'))"
+
+	case "spec":
+		// Mock with spec
+		spec, _ := action.Params["spec"].(string)
+		if target != "" && spec != "" {
+			return fmt.Sprintf("%s = MagicMock(spec=%s)", target, spec)
+		}
+		return "mock_obj = MagicMock(spec=SomeClass)"
+
+	default:
+		// Default patch
+		if target != "" {
+			return fmt.Sprintf("with patch('%s') as mock_%s:", target, sanitizePythonName(target))
+		}
+		return "# Mock setup - use patch() or MagicMock()"
+	}
+}
+
+// generatePytestHTTPMock generates HTTP mock code for pytest (using responses or httpx-mock)
+func generatePytestHTTPMock(action dsl.Action) string {
+	method, _ := action.Params["method"].(string)
+	if method == "" {
+		method = "GET"
+	}
+	url, _ := action.Params["url"].(string)
+	if url == "" {
+		url = "http://localhost/api"
+	}
+	statusCode, ok := action.Params["status"].(int)
+	if !ok {
+		statusCode = 200
+	}
+	responseBody, _ := action.Params["response"]
+
+	// Using responses library pattern
+	return fmt.Sprintf(`@responses.activate
+def test_with_http_mock():
+    responses.add(
+        responses.%s,
+        '%s',
+        json=%s,
+        status=%d
+    )`, strings.ToUpper(method), url, formatPyVal(responseBody), statusCode)
+}
+
+// formatPyVal formats a value for Python code (used by mock generation)
+// Note: formatPythonValue exists in pytest_spec_adapter.go with more comprehensive handling
+func formatPyVal(val interface{}) string {
+	if val == nil {
+		return "None"
+	}
+	switch v := val.(type) {
+	case string:
+		return fmt.Sprintf("'%s'", v)
+	case bool:
+		if v {
+			return "True"
+		}
+		return "False"
+	case map[string]interface{}:
+		// Python dict literal
+		parts := make([]string, 0, len(v))
+		for k, vv := range v {
+			parts = append(parts, fmt.Sprintf("'%s': %s", k, formatPyVal(vv)))
+		}
+		return fmt.Sprintf("{%s}", strings.Join(parts, ", "))
+	case []interface{}:
+		parts := make([]string, len(v))
+		for i, vv := range v {
+			parts[i] = formatPyVal(vv)
+		}
+		return fmt.Sprintf("[%s]", strings.Join(parts, ", "))
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// sanitizePythonName converts a dotted path to a valid Python variable name
+func sanitizePythonName(name string) string {
+	// Replace dots with underscores and get last part
+	parts := strings.Split(name, ".")
+	if len(parts) > 0 {
+		return strings.ToLower(parts[len(parts)-1])
+	}
+	return "mock"
+}

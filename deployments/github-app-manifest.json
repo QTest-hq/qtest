@@ -1,0 +1,29 @@
+{
+  "name": "QTest",
+  "url": "https://qtest.dev",
+  "hook_attributes": {
+    "url": "https://your-domain.com/api/v1/webhooks/github",
+    "active": true
+  },
+  "redirect_url": "https://your-domain.com/auth/github/callback",
+  "callback_urls": [
+    "https://your-domain.com/auth/github/callback"
+  ],
+  "setup_url": "https://your-domain.com/setup/github",
+  "description": "AI-powered test generation for your codebase",
+  "public": false,
+  "default_events": [
+    "pull_request",
+    "push",
+    "check_run",
+    "check_suite"
+  ],
+  "default_permissions": {
+    "contents": "read",
+    "pull_requests": "write",
+    "checks": "write",
+    "issues": "write",
+    "metadata": "read",
+    "statuses": "write"
+  }
+}

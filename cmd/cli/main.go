@@ -148,6 +148,8 @@ func generateCmd() *cobra.Command {
 		dryRun      bool
 		validate    bool
 		runMutation bool
+		verbose     bool
+		quiet       bool
 	)
 
 	cmd := &cobra.Command{
@@ -169,6 +171,9 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
+			// Initialize progress tracker
+			prog := NewCLIProgress(verbose, quiet)
+
 			// Determine if local path or remote URL
 			isLocal := !strings.HasPrefix(repoURL, "http")
 
@@ -187,13 +192,17 @@ Examples:
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			// Create LLM router
-			router, err := llm.NewRouter(cfg)
+			// Create LLM router with spinner
+			var router *llm.Router
+			err = prog.WithSpinner("Connecting to LLM", func() error {
+				var rerr error
+				router, rerr = llm.NewRouter(cfg)
+				if rerr != nil {
+					return rerr
+				}
+				return router.HealthCheck()
+			})
 			if err != nil {
-				return fmt.Errorf("failed to create LLM router: %w", err)
-			}
-
-			if err := router.HealthCheck(); err != nil {
 				return fmt.Errorf("LLM not available: %w\nMake sure Ollama is running: ollama serve", err)
 			}
 
@@ -204,8 +213,8 @@ Examples:
 				return fmt.Errorf("failed to create workspace: %w", err)
 			}
 
-			fmt.Printf("🚀 Generating tests for: %s\n", repoURL)
-			fmt.Printf("   Workspace: %s\n\n", ws.ID)
+			prog.Print("🚀 Generating tests for: %s\n", repoURL)
+			prog.Print("   Workspace: %s\n\n", ws.ID)
 
 			// Create runner config
 			tierNum, _ := strconv.Atoi(tier)
@@ -218,45 +227,44 @@ Examples:
 			// Create v2 runner (uses SystemModel pipeline)
 			runner := workspace.NewRunnerV2(ws, router, cfg.GitHubToken, runCfg)
 
-			runner.OnProgress = func(phase string, current, total int, message string) {
-				if total > 0 {
-					fmt.Printf("\r[%s] %d/%d %s", phase, current, total, message)
-				} else {
-					fmt.Printf("\r[%s] %s", phase, message)
-				}
-			}
+			// Use progress callbacks
+			runner.OnProgress = prog.ProgressCallback()
+			runner.OnComplete = prog.CompleteCallback()
 
-			runner.OnComplete = func(testFile string, count int) {
-				fmt.Printf("\n✓ Written: %s (%d tests)\n", testFile, count)
-			}
-
-			// Initialize workspace
-			fmt.Println("🔍 Analyzing repository...")
-			if err := runner.Initialize(ctx); err != nil {
+			// Initialize workspace with spinner
+			err = prog.WithSpinner("Analyzing repository", func() error {
+				return runner.Initialize(ctx)
+			})
+			if err != nil {
 				return fmt.Errorf("initialization failed: %w", err)
 			}
 
-			fmt.Printf("\n📊 Found %d test targets\n\n", ws.State.TotalTargets)
+			prog.Print("\n📊 Found %d test targets\n\n", ws.State.TotalTargets)
 
-			// Run generation
-			fmt.Println("⚡ Generating tests...")
+			// Run generation with progress bar
+			prog.StartBar(ws.State.TotalTargets, "⚡ Generating")
 			if err := runner.Run(ctx); err != nil {
+				prog.DoneBar()
 				return fmt.Errorf("generation failed: %w", err)
 			}
+			prog.DoneBar()
 
 			// Summary
 			summary := ws.Summary()
-			fmt.Println("\n" + strings.Repeat("=", 50))
-			fmt.Printf("✅ Generation complete!\n")
-			fmt.Printf("   Completed: %d\n", summary["completed"])
-			fmt.Printf("   Failed:    %d\n", summary["failed"])
-			fmt.Printf("   Output:    %s\n", ws.Path())
+			prog.Println()
+			prog.Separator("=", 50)
+			prog.Success("Generation complete!")
+			prog.Print("   Completed: %d\n", summary["completed"])
+			prog.Print("   Failed:    %d\n", summary["failed"])
+			prog.Print("   Output:    %s\n", ws.Path())
 
 			// Run mutation testing if requested
 			if runMutation && !dryRun {
-				fmt.Println("\n🧬 Running mutation testing...")
-				if err := runRepoMutationTesting(ctx, ws.Path()); err != nil {
-					fmt.Printf("⚠️  Mutation testing warning: %v\n", err)
+				err = prog.WithSpinner("Running mutation testing", func() error {
+					return runRepoMutationTesting(ctx, ws.Path())
+				})
+				if err != nil {
+					prog.Warning(fmt.Sprintf("Mutation testing warning: %v", err))
 				}
 			}
 
@@ -270,6 +278,8 @@ Examples:
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Don't write test files")
 	cmd.Flags().BoolVar(&validate, "validate", false, "Run tests after generation")
 	cmd.Flags().BoolVar(&runMutation, "mutation", false, "Run mutation testing after generation")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Quiet output (errors only)")
 	cmd.MarkFlagRequired("repo")
 
 	return cmd
@@ -284,6 +294,8 @@ func generateFileCmd() *cobra.Command {
 		write       bool
 		runMutation bool
 		useIRSpec   bool // Use new IRSpec JSON mode
+		verbose     bool
+		quiet       bool
 	)
 
 	cmd := &cobra.Command{
@@ -291,6 +303,9 @@ func generateFileCmd() *cobra.Command {
 		Short: "Generate tests for a single source file",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
+
+			// Initialize progress tracker
+			prog := NewCLIProgress(verbose, quiet)
 
 			// Validate file path
 			validPath, err := validateFilePath(filePath)
@@ -305,14 +320,17 @@ func generateFileCmd() *cobra.Command {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			// Create LLM router
-			router, err := llm.NewRouter(cfg)
+			// Create LLM router with spinner
+			var router *llm.Router
+			err = prog.WithSpinner("Connecting to LLM", func() error {
+				var rerr error
+				router, rerr = llm.NewRouter(cfg)
+				if rerr != nil {
+					return rerr
+				}
+				return router.HealthCheck()
+			})
 			if err != nil {
-				return fmt.Errorf("failed to create LLM router: %w", err)
-			}
-
-			// Check LLM health
-			if err := router.HealthCheck(); err != nil {
 				return fmt.Errorf("LLM not available: %w\nMake sure Ollama is running: ollama serve", err)
 			}
 
@@ -326,23 +344,25 @@ func generateFileCmd() *cobra.Command {
 				llmTier = llm.Tier2
 			}
 
-			log.Info().
-				Str("file", filePath).
-				Int("tier", int(llmTier)).
-				Msg("generating tests")
+			prog.PrintVerbose("File: %s, Tier: %d\n", filePath, llmTier)
 
-			// Generate tests
-			tests, err := gen.GenerateForFile(ctx, filePath, generator.GenerateOptions{
-				Tier:      llmTier,
-				TestType:  dsl.TestTypeUnit,
-				MaxTests:  maxTests,
-				UseIRSpec: useIRSpec,
+			// Generate tests with spinner
+			var tests []generator.GeneratedTest
+			err = prog.WithSpinner("Generating tests", func() error {
+				var gerr error
+				tests, gerr = gen.GenerateForFile(ctx, filePath, generator.GenerateOptions{
+					Tier:      llmTier,
+					TestType:  dsl.TestTypeUnit,
+					MaxTests:  maxTests,
+					UseIRSpec: useIRSpec,
+				})
+				return gerr
 			})
 			if err != nil {
 				return fmt.Errorf("failed to generate tests: %w", err)
 			}
 
-			fmt.Printf("\n✅ Generated %d tests:\n\n", len(tests))
+			prog.Success(fmt.Sprintf("Generated %d tests", len(tests)))
 
 			// Write test files if requested
 			if write {
@@ -352,17 +372,21 @@ func generateFileCmd() *cobra.Command {
 
 				// Run mutation testing if requested
 				if runMutation {
-					return runMutationTesting(ctx, filePath, outputDir)
+					err = prog.WithSpinner("Running mutation testing", func() error {
+						return runMutationTesting(ctx, filePath, outputDir)
+					})
+					return err
 				}
 				return nil
 			}
 
 			// Otherwise just output DSL
+			prog.Println()
 			for i, test := range tests {
-				fmt.Printf("--- Test %d: %s ---\n", i+1, test.DSL.Name)
-				fmt.Printf("Target: %s\n", test.Function.Name)
-				fmt.Println(test.RawYAML)
-				fmt.Println()
+				prog.Print("--- Test %d: %s ---\n", i+1, test.DSL.Name)
+				prog.Print("Target: %s\n", test.Function.Name)
+				prog.Println(test.RawYAML)
+				prog.Println()
 			}
 
 			return nil
@@ -375,6 +399,8 @@ func generateFileCmd() *cobra.Command {
 	cmd.Flags().IntVarP(&maxTests, "max", "m", 5, "Maximum number of tests to generate")
 	cmd.Flags().BoolVarP(&write, "write", "w", false, "Write test files to disk")
 	cmd.Flags().BoolVar(&runMutation, "mutation", false, "Run mutation testing after generating tests (requires --write)")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Quiet output (errors only)")
 	cmd.Flags().BoolVar(&useIRSpec, "irspec", false, "Use IRSpec JSON mode (structured output)")
 	cmd.MarkFlagRequired("file")
 

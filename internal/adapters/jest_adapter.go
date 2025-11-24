@@ -153,14 +153,148 @@ func hasAsyncSteps(test *dsl.TestDSL) bool {
 func generateJestAction(action dsl.Action) string {
 	switch action.Type {
 	case "mock":
-		if target, ok := action.Params["target"].(string); ok {
-			return fmt.Sprintf("jest.mock('%s')", target)
-		}
-		return "// mock setup"
+		return generateJestMock(action)
+	case "http_mock":
+		return generateJestHTTPMock(action)
 	case "db_setup":
 		return "// database setup"
 	default:
 		return fmt.Sprintf("// %s", action.Type)
+	}
+}
+
+// generateJestMock generates Jest mock setup code
+func generateJestMock(action dsl.Action) string {
+	target, _ := action.Params["target"].(string)
+	mockType, _ := action.Params["type"].(string)
+	returnVal, hasReturn := action.Params["return"]
+	method, hasMethod := action.Params["method"].(string)
+
+	switch mockType {
+	case "module":
+		// Mock an entire module
+		if target != "" {
+			var buf strings.Builder
+			buf.WriteString(fmt.Sprintf("jest.mock('%s'", target))
+			if hasReturn {
+				buf.WriteString(fmt.Sprintf(", () => ({ default: %v }))", formatJSVal(returnVal)))
+			} else {
+				buf.WriteString(")")
+			}
+			return buf.String()
+		}
+		return "jest.mock('module-name')"
+
+	case "function":
+		// Mock a function with jest.fn()
+		if target != "" {
+			if hasReturn {
+				return fmt.Sprintf("const %s = jest.fn().mockReturnValue(%v)", target, formatJSVal(returnVal))
+			}
+			return fmt.Sprintf("const %s = jest.fn()", target)
+		}
+		return "const mockFn = jest.fn()"
+
+	case "spy":
+		// Spy on an object method
+		if target != "" && hasMethod {
+			if hasReturn {
+				return fmt.Sprintf("jest.spyOn(%s, '%s').mockReturnValue(%v)", target, method, formatJSVal(returnVal))
+			}
+			return fmt.Sprintf("jest.spyOn(%s, '%s')", target, method)
+		}
+		return "jest.spyOn(object, 'method')"
+
+	case "async":
+		// Mock async function
+		if target != "" {
+			if hasReturn {
+				return fmt.Sprintf("const %s = jest.fn().mockResolvedValue(%v)", target, formatJSVal(returnVal))
+			}
+			return fmt.Sprintf("const %s = jest.fn().mockResolvedValue(undefined)", target)
+		}
+		return "const mockAsync = jest.fn().mockResolvedValue(undefined)"
+
+	case "implementation":
+		// Mock with custom implementation
+		impl, _ := action.Params["implementation"].(string)
+		if target != "" && impl != "" {
+			return fmt.Sprintf("const %s = jest.fn().mockImplementation(%s)", target, impl)
+		}
+		return "const mockFn = jest.fn().mockImplementation(() => {})"
+
+	case "timer":
+		// Mock timers
+		return "jest.useFakeTimers()"
+
+	default:
+		// Default module mock
+		if target != "" {
+			return fmt.Sprintf("jest.mock('%s')", target)
+		}
+		return "// mock setup - jest.mock('module') or jest.fn()"
+	}
+}
+
+// generateJestHTTPMock generates HTTP mock code for Jest (using nock or msw patterns)
+func generateJestHTTPMock(action dsl.Action) string {
+	method, _ := action.Params["method"].(string)
+	if method == "" {
+		method = "GET"
+	}
+	path, _ := action.Params["path"].(string)
+	if path == "" {
+		path = "/"
+	}
+	baseURL, _ := action.Params["baseUrl"].(string)
+	if baseURL == "" {
+		baseURL = "http://localhost"
+	}
+	statusCode, ok := action.Params["status"].(int)
+	if !ok {
+		statusCode = 200
+	}
+	responseBody, _ := action.Params["response"]
+
+	// Generate fetch mock
+	return fmt.Sprintf(`global.fetch = jest.fn().mockImplementation((url, options) => {
+      if (url.includes('%s') && (!options?.method || options.method === '%s')) {
+        return Promise.resolve({
+          ok: %v,
+          status: %d,
+          json: () => Promise.resolve(%v)
+        });
+      }
+      return Promise.reject(new Error('Not found'));
+    })`, path, method, statusCode >= 200 && statusCode < 300, statusCode, formatJSVal(responseBody))
+}
+
+// formatJSVal formats a value for JavaScript code (used by mock generation)
+// Note: formatJSValue exists in jest_spec_adapter.go with more comprehensive handling
+func formatJSVal(val interface{}) string {
+	if val == nil {
+		return "null"
+	}
+	switch v := val.(type) {
+	case string:
+		return fmt.Sprintf("'%s'", v)
+	case bool:
+		return fmt.Sprintf("%t", v)
+	case map[string]interface{}:
+		// Simple object literal
+		parts := make([]string, 0, len(v))
+		for k, vv := range v {
+			parts = append(parts, fmt.Sprintf("%s: %s", k, formatJSVal(vv)))
+		}
+		return fmt.Sprintf("{ %s }", strings.Join(parts, ", "))
+	case []interface{}:
+		parts := make([]string, len(v))
+		for i, vv := range v {
+			parts[i] = formatJSVal(vv)
+		}
+		return fmt.Sprintf("[%s]", strings.Join(parts, ", "))
+	default:
+		return fmt.Sprintf("%v", v)
 	}
 }
 

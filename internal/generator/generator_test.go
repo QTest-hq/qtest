@@ -2,6 +2,7 @@ package generator
 
 import (
 	"testing"
+	"time"
 
 	"github.com/QTest-hq/qtest/internal/llm"
 	"github.com/QTest-hq/qtest/internal/parser"
@@ -497,5 +498,169 @@ func TestBatchOptions_WithProgress(t *testing.T) {
 	}
 	if progressUpdates[1].current != "Func2" {
 		t.Errorf("second update current = %s, want Func2", progressUpdates[1].current)
+	}
+}
+
+func TestBatchResult_SuccessRate(t *testing.T) {
+	tests := []struct {
+		name      string
+		generated int
+		failed    int
+		want      float64
+	}{
+		{"all success", 10, 0, 100.0},
+		{"half success", 5, 5, 50.0},
+		{"no success", 0, 10, 0.0},
+		{"zero total", 0, 0, 0.0},
+		{"75% success", 3, 1, 75.0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := BatchResult{
+				Generated: tt.generated,
+				Failed:    tt.failed,
+			}
+			got := result.SuccessRate()
+			if got != tt.want {
+				t.Errorf("SuccessRate() = %.2f, want %.2f", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBatchResult_Summary(t *testing.T) {
+	result := BatchResult{
+		TotalFiles: 5,
+		TotalFuncs: 20,
+		Generated:  15,
+		Failed:     3,
+		Skipped:    2,
+		Retried:    4,
+	}
+
+	summary := result.Summary()
+
+	// Check that summary contains expected information
+	// Format: "Generated %d/%d tests (%.1f%% success) in %v"
+	if !containsHelper(summary, "15") {
+		t.Error("summary should contain generated count")
+	}
+	// Total is Generated+Failed (15+3=18)
+	if !containsHelper(summary, "18") {
+		t.Error("summary should contain total (generated+failed)")
+	}
+	if !containsHelper(summary, "success") {
+		t.Error("summary should contain 'success'")
+	}
+}
+
+func TestBatchResult_WithTiming(t *testing.T) {
+	now := time.Now()
+	result := BatchResult{
+		StartTime: now,
+		EndTime:   now.Add(5 * time.Second),
+		Duration:  5 * time.Second,
+	}
+
+	if result.Duration != 5*time.Second {
+		t.Errorf("Duration = %v, want 5s", result.Duration)
+	}
+	if result.StartTime.IsZero() {
+		t.Error("StartTime should not be zero")
+	}
+	if result.EndTime.Before(result.StartTime) {
+		t.Error("EndTime should be after StartTime")
+	}
+}
+
+func TestBatchOptions_RetrySettings(t *testing.T) {
+	opts := BatchOptions{
+		GenerateOptions: GenerateOptions{},
+		Files:           []string{"file.go"},
+		MaxRetries:      3,
+		RetryDelay:      2 * time.Second,
+	}
+
+	if opts.MaxRetries != 3 {
+		t.Errorf("MaxRetries = %d, want 3", opts.MaxRetries)
+	}
+	if opts.RetryDelay != 2*time.Second {
+		t.Errorf("RetryDelay = %v, want 2s", opts.RetryDelay)
+	}
+}
+
+func TestBatchOptions_Filtering(t *testing.T) {
+	filterCalled := false
+	opts := BatchOptions{
+		GenerateOptions: GenerateOptions{},
+		Files:           []string{"file.go"},
+		SkipPrivate:     true,
+		FuncFilter: func(name string) bool {
+			filterCalled = true
+			return name != "skipMe"
+		},
+	}
+
+	if !opts.SkipPrivate {
+		t.Error("SkipPrivate should be true")
+	}
+
+	// Test the filter function
+	if opts.FuncFilter != nil {
+		result := opts.FuncFilter("testFunc")
+		if !filterCalled {
+			t.Error("FuncFilter should have been called")
+		}
+		if !result {
+			t.Error("FuncFilter should return true for 'testFunc'")
+		}
+
+		result = opts.FuncFilter("skipMe")
+		if result {
+			t.Error("FuncFilter should return false for 'skipMe'")
+		}
+	}
+}
+
+func TestBatchError_RetryFields(t *testing.T) {
+	testErr := BatchError{
+		File:      "test.go",
+		Function:  "TestFunc",
+		Error:     nil,
+		Retries:   2,
+		Retryable: true,
+	}
+
+	if testErr.Retries != 2 {
+		t.Errorf("Retries = %d, want 2", testErr.Retries)
+	}
+	if !testErr.Retryable {
+		t.Error("Retryable should be true")
+	}
+}
+
+func TestBatchResult_SkippedAndRetried(t *testing.T) {
+	result := BatchResult{
+		Generated:  10,
+		Failed:     2,
+		Skipped:    3,
+		Retried:    5,
+		TotalFuncs: 15,
+	}
+
+	if result.Skipped != 3 {
+		t.Errorf("Skipped = %d, want 3", result.Skipped)
+	}
+	if result.Retried != 5 {
+		t.Errorf("Retried = %d, want 5", result.Retried)
+	}
+
+	// Verify counts add up correctly
+	// Generated + Failed + Skipped should equal TotalFuncs
+	total := result.Generated + result.Failed + result.Skipped
+	if total != result.TotalFuncs {
+		t.Errorf("Generated(%d) + Failed(%d) + Skipped(%d) = %d, want TotalFuncs(%d)",
+			result.Generated, result.Failed, result.Skipped, total, result.TotalFuncs)
 	}
 }

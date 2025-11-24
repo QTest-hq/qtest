@@ -783,6 +783,550 @@ paths:
         '201':
           description: Member added
 
+  /api/v1/organizations/{orgID}/members/{userID}:
+    patch:
+      tags: [Organizations]
+      summary: Update member role
+      operationId: updateMemberRole
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+        - $ref: '#/components/parameters/UserIDParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMemberRoleRequest'
+      responses:
+        '200':
+          description: Member role updated
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Organizations]
+      summary: Remove member
+      operationId: removeMember
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+        - $ref: '#/components/parameters/UserIDParam'
+      responses:
+        '204':
+          description: Member removed
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/organizations/{orgID}/audit-logs:
+    get:
+      tags: [Organizations]
+      summary: List organization audit logs
+      operationId: listOrgAuditLogs
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Audit logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditLog'
+
+  /api/v1/organizations/{orgID}/webhooks:
+    get:
+      tags: [Webhooks]
+      summary: List webhooks
+      operationId: listWebhooks
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+      responses:
+        '200':
+          description: List of webhooks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Webhook'
+    post:
+      tags: [Webhooks]
+      summary: Create webhook
+      operationId: createWebhook
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookRequest'
+      responses:
+        '201':
+          description: Webhook created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+
+  /api/v1/organizations/{orgID}/webhooks/{webhookID}:
+    get:
+      tags: [Webhooks]
+      summary: Get webhook
+      operationId: getWebhook
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+        - $ref: '#/components/parameters/WebhookIDParam'
+      responses:
+        '200':
+          description: Webhook details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Webhooks]
+      summary: Update webhook
+      operationId: updateWebhook
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+        - $ref: '#/components/parameters/WebhookIDParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWebhookRequest'
+      responses:
+        '200':
+          description: Webhook updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Webhooks]
+      summary: Delete webhook
+      operationId: deleteWebhook
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+        - $ref: '#/components/parameters/WebhookIDParam'
+      responses:
+        '204':
+          description: Webhook deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/organizations/{orgID}/webhooks/{webhookID}/deliveries:
+    get:
+      tags: [Webhooks]
+      summary: List webhook deliveries
+      operationId: listWebhookDeliveries
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+        - $ref: '#/components/parameters/WebhookIDParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: List of deliveries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WebhookDelivery'
+
+  /api/v1/organizations/{orgID}/webhooks/{webhookID}/test:
+    post:
+      tags: [Webhooks]
+      summary: Send test webhook
+      operationId: testWebhook
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+        - $ref: '#/components/parameters/WebhookIDParam'
+      responses:
+        '200':
+          description: Test webhook sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDelivery'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/organizations/{orgID}/usage/summary:
+    get:
+      tags: [Usage]
+      summary: Get usage summary
+      operationId: getUsageSummary
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+      responses:
+        '200':
+          description: Usage summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageSummary'
+
+  /api/v1/organizations/{orgID}/usage/daily:
+    get:
+      tags: [Usage]
+      summary: Get daily usage stats
+      operationId: getDailyUsage
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Daily usage statistics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DailyUsage'
+
+  /api/v1/organizations/{orgID}/usage/monthly:
+    get:
+      tags: [Usage]
+      summary: Get monthly usage stats
+      operationId: getMonthlyUsage
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+      responses:
+        '200':
+          description: Monthly usage statistics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MonthlyUsage'
+
+  /api/v1/organizations/{orgID}/usage/recent:
+    get:
+      tags: [Usage]
+      summary: Get recent usage
+      operationId: getRecentUsage
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Recent usage events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UsageEvent'
+
+  /api/v1/organizations/{orgID}/usage/endpoints:
+    get:
+      tags: [Usage]
+      summary: Get endpoint usage stats
+      operationId: getEndpointUsage
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgIDParam'
+      responses:
+        '200':
+          description: Endpoint usage statistics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EndpointUsage'
+
+  /api/v1/repos/{repoID}/jobs:
+    get:
+      tags: [Repositories]
+      summary: List repository jobs
+      operationId: listRepoJobs
+      security:
+        - bearerAuth: [jobs:read]
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/RepoIDParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: List of jobs for repository
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Job'
+
+  /api/v1/repos/{repoID}/mutation:
+    get:
+      tags: [Mutation]
+      summary: List repository mutation runs
+      operationId: listRepoMutationRuns
+      security:
+        - bearerAuth: [mutation:read]
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/RepoIDParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: List of mutation runs for repository
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MutationRun'
+
+  /api/v1/me/audit-logs:
+    get:
+      tags: [Auth]
+      summary: List user's audit logs
+      operationId: listUserAuditLogs
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: User's audit logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditLog'
+
+  /api/v1/admin/stats:
+    get:
+      tags: [Admin]
+      summary: Get system statistics
+      description: Requires admin role
+      operationId: getSystemStats
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: System statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStats'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/admin/organizations:
+    get:
+      tags: [Admin]
+      summary: List all organizations
+      description: Requires admin role
+      operationId: adminListOrganizations
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: All organizations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Organization'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/admin/users:
+    get:
+      tags: [Admin]
+      summary: List all users
+      description: Requires admin role
+      operationId: adminListUsers
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: All users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/admin/users/{userID}:
+    get:
+      tags: [Admin]
+      summary: Get user details
+      description: Requires admin role
+      operationId: adminGetUser
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIDParam'
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Admin]
+      summary: Update user
+      description: Requires admin role
+      operationId: adminUpdateUser
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIDParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/admin/jobs:
+    get:
+      tags: [Admin]
+      summary: List all jobs
+      description: Requires admin role
+      operationId: adminListJobs
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, running, completed, failed, cancelled]
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: All jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Job'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/admin/jobs/{jobID}/cancel:
+    post:
+      tags: [Admin]
+      summary: Cancel any job
+      description: Requires admin role
+      operationId: adminCancelJob
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/JobIDParam'
+      responses:
+        '200':
+          description: Job cancelled
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/admin/audit-logs:
+    get:
+      tags: [Admin]
+      summary: List system audit logs
+      description: Requires admin role
+      operationId: adminListAuditLogs
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: System audit logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditLog'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
   /api/v1/api-keys:
     get:
       tags: [API Keys]
@@ -900,6 +1444,20 @@ components:
         format: uuid
     OrgIDParam:
       name: orgID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserIDParam:
+      name: userID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    WebhookIDParam:
+      name: webhookID
       in: path
       required: true
       schema:
@@ -1342,3 +1900,268 @@ components:
       required:
         - name
         - scopes
+
+    UpdateMemberRoleRequest:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [admin, member]
+      required:
+        - role
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        is_active:
+          type: boolean
+        role:
+          type: string
+          enum: [user, admin]
+
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        action:
+          type: string
+          description: Action performed (e.g., "repo.create", "test.accept")
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        details:
+          type: object
+        ip_address:
+          type: string
+        user_agent:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Webhook:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            type: string
+            enum:
+              - run.started
+              - run.completed
+              - run.failed
+              - test.generated
+              - test.accepted
+              - test.rejected
+              - job.completed
+              - job.failed
+        is_active:
+          type: boolean
+        description:
+          type: string
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateWebhookRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+      required:
+        - name
+        - url
+        - events
+
+    UpdateWebhookRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            type: string
+        is_active:
+          type: boolean
+        description:
+          type: string
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+
+    WebhookDelivery:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        webhook_id:
+          type: string
+          format: uuid
+        event:
+          type: string
+        payload:
+          type: object
+        response_status:
+          type: integer
+        response_body:
+          type: string
+        success:
+          type: boolean
+        duration_ms:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    UsageSummary:
+      type: object
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+        total_runs:
+          type: integer
+        total_tests:
+          type: integer
+        total_api_calls:
+          type: integer
+        total_llm_tokens:
+          type: integer
+        period_start:
+          type: string
+          format: date-time
+        period_end:
+          type: string
+          format: date-time
+
+    DailyUsage:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        runs:
+          type: integer
+        tests:
+          type: integer
+        api_calls:
+          type: integer
+        llm_tokens:
+          type: integer
+
+    MonthlyUsage:
+      type: object
+      properties:
+        month:
+          type: string
+          description: "YYYY-MM format"
+        runs:
+          type: integer
+        tests:
+          type: integer
+        api_calls:
+          type: integer
+        llm_tokens:
+          type: integer
+
+    UsageEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        tokens_used:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    EndpointUsage:
+      type: object
+      properties:
+        endpoint:
+          type: string
+        method:
+          type: string
+        call_count:
+          type: integer
+        avg_response_time_ms:
+          type: number
+        error_count:
+          type: integer
+
+    SystemStats:
+      type: object
+      properties:
+        total_users:
+          type: integer
+        total_organizations:
+          type: integer
+        total_repositories:
+          type: integer
+        total_runs:
+          type: integer
+        total_tests:
+          type: integer
+        active_jobs:
+          type: integer
+        pending_jobs:
+          type: integer
+        failed_jobs_24h:
+          type: integer
+        llm_tokens_24h:
+          type: integer
+        api_calls_24h:
+          type: integer

@@ -366,3 +366,170 @@ func TestGeneratePytestStepCode(t *testing.T) {
 		}
 	})
 }
+
+// Tests for Pytest mock generation
+func TestGeneratePytestMock(t *testing.T) {
+	tests := []struct {
+		name     string
+		action   dsl.Action
+		contains string
+	}{
+		{
+			name: "patch mock",
+			action: dsl.Action{
+				Type:   "mock",
+				Params: map[string]interface{}{"target": "mymodule.func", "type": "patch"},
+			},
+			contains: "with patch('mymodule.func')",
+		},
+		{
+			name: "patch with return",
+			action: dsl.Action{
+				Type:   "mock",
+				Params: map[string]interface{}{"target": "module.get_data", "type": "patch", "return": "test data"},
+			},
+			contains: "return_value='test data'",
+		},
+		{
+			name: "object mock",
+			action: dsl.Action{
+				Type:   "mock",
+				Params: map[string]interface{}{"target": "service", "type": "object", "attr": "fetch"},
+			},
+			contains: "patch.object(service, 'fetch')",
+		},
+		{
+			name: "MagicMock",
+			action: dsl.Action{
+				Type:   "mock",
+				Params: map[string]interface{}{"target": "mock_service", "type": "mock"},
+			},
+			contains: "MagicMock()",
+		},
+		{
+			name: "AsyncMock",
+			action: dsl.Action{
+				Type:   "mock",
+				Params: map[string]interface{}{"target": "async_service", "type": "async"},
+			},
+			contains: "AsyncMock()",
+		},
+		{
+			name: "side effect mock",
+			action: dsl.Action{
+				Type:   "mock",
+				Params: map[string]interface{}{"target": "error_fn", "type": "side_effect"},
+			},
+			contains: "side_effect=Exception",
+		},
+		{
+			name: "spec mock",
+			action: dsl.Action{
+				Type:   "mock",
+				Params: map[string]interface{}{"target": "typed_mock", "type": "spec", "spec": "MyClass"},
+			},
+			contains: "MagicMock(spec=MyClass)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := generatePytestMock(tt.action)
+			if !strings.Contains(result, tt.contains) {
+				t.Errorf("generatePytestMock() = %q, want to contain %q", result, tt.contains)
+			}
+		})
+	}
+}
+
+func TestGeneratePytestHTTPMock(t *testing.T) {
+	tests := []struct {
+		name     string
+		action   dsl.Action
+		contains []string
+	}{
+		{
+			name: "basic http mock",
+			action: dsl.Action{
+				Type: "http_mock",
+				Params: map[string]interface{}{
+					"method":   "GET",
+					"url":      "http://api.example.com/users",
+					"status":   200,
+					"response": map[string]interface{}{"data": "test"},
+				},
+			},
+			contains: []string{"@responses.activate", "responses.GET", "http://api.example.com/users", "status=200"},
+		},
+		{
+			name: "POST http mock",
+			action: dsl.Action{
+				Type: "http_mock",
+				Params: map[string]interface{}{
+					"method":   "POST",
+					"url":      "http://api.example.com/create",
+					"status":   201,
+					"response": "created",
+				},
+			},
+			contains: []string{"responses.POST", "201"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := generatePytestHTTPMock(tt.action)
+			for _, want := range tt.contains {
+				if !strings.Contains(result, want) {
+					t.Errorf("generatePytestHTTPMock() = %q, want to contain %q", result, want)
+				}
+			}
+		})
+	}
+}
+
+func TestFormatPyVal(t *testing.T) {
+	tests := []struct {
+		name string
+		val  interface{}
+		want string
+	}{
+		{"nil", nil, "None"},
+		{"string", "hello", "'hello'"},
+		{"int", 42, "42"},
+		{"bool true", true, "True"},
+		{"bool false", false, "False"},
+		{"array", []interface{}{"a", "b"}, "['a', 'b']"},
+		{"map", map[string]interface{}{"key": "val"}, "{'key': 'val'}"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatPyVal(tt.val)
+			if got != tt.want {
+				t.Errorf("formatPyVal() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSanitizePythonName(t *testing.T) {
+	tests := []struct {
+		name string
+		val  string
+		want string
+	}{
+		{"simple", "mymodule", "mymodule"},
+		{"dotted path", "mypackage.mymodule.func", "func"},
+		{"uppercase", "MyClass.method", "method"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sanitizePythonName(tt.val)
+			if got != tt.want {
+				t.Errorf("sanitizePythonName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

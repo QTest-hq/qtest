@@ -91,6 +91,14 @@ func (s *DjangoSupplement) Analyze(m *model.SystemModel) error {
 
 	// Function-based views with decorators
 	apiViewPattern := regexp.MustCompile(`@api_view\s*\(\s*\[([^\]]+)\]\s*\)`)
+
+	// Permission/Authentication class patterns
+	// permission_classes = [IsAuthenticated, IsAdmin]
+	// authentication_classes = [TokenAuthentication]
+	permissionPattern := regexp.MustCompile(`permission_classes\s*=\s*\[([^\]]+)\]`)
+	authPattern := regexp.MustCompile(`authentication_classes\s*=\s*\[([^\]]+)\]`)
+	// @permission_classes([IsAuthenticated])
+	permDecoratorPattern := regexp.MustCompile(`@permission_classes\s*\(\s*\[([^\]]+)\]\s*\)`)
 	funcPattern := regexp.MustCompile(`def\s+(\w+)\s*\(\s*request`)
 
 	// Standard HTTP methods in class-based views
@@ -112,15 +120,18 @@ func (s *DjangoSupplement) Analyze(m *model.SystemModel) error {
 		scanner := bufio.NewScanner(file)
 		lineNum := 0
 		var currentClass string
+		var currentClassMiddleware []string // permission/auth classes for current class
 		var pendingAPIView *struct {
-			methods []string
-			line    int
+			methods    []string
+			line       int
+			middleware []string
 		}
 		var pendingAction *struct {
 			methods []string
 			detail  bool
 			line    int
 		}
+		var pendingPermDecorator []string // middleware from @permission_classes decorator
 
 		for scanner.Scan() {
 			lineNum++
@@ -130,6 +141,7 @@ func (s *DjangoSupplement) Analyze(m *model.SystemModel) error {
 			// Check for class definition
 			if matches := classPattern.FindStringSubmatch(trimmed); len(matches) >= 2 {
 				currentClass = matches[1]
+				currentClassMiddleware = nil // Reset middleware for new class
 
 				// Add endpoint for the viewset/view class
 				if basePath, ok := urlPatterns[currentClass]; ok {
@@ -146,13 +158,30 @@ func (s *DjangoSupplement) Analyze(m *model.SystemModel) error {
 				}
 			}
 
+			// Check for permission_classes = [...] in class body
+			if currentClass != "" {
+				if matches := permissionPattern.FindStringSubmatch(trimmed); len(matches) >= 2 {
+					currentClassMiddleware = append(currentClassMiddleware, s.parseClassList(matches[1])...)
+				}
+				if matches := authPattern.FindStringSubmatch(trimmed); len(matches) >= 2 {
+					currentClassMiddleware = append(currentClassMiddleware, s.parseClassList(matches[1])...)
+				}
+			}
+
+			// Check for @permission_classes decorator
+			if matches := permDecoratorPattern.FindStringSubmatch(trimmed); len(matches) >= 2 {
+				pendingPermDecorator = s.parseClassList(matches[1])
+			}
+
 			// Check for @api_view decorator
 			if matches := apiViewPattern.FindStringSubmatch(trimmed); len(matches) >= 2 {
 				methods := s.parseMethods(matches[1])
 				pendingAPIView = &struct {
-					methods []string
-					line    int
-				}{methods, lineNum}
+					methods    []string
+					line       int
+					middleware []string
+				}{methods, lineNum, pendingPermDecorator}
+				pendingPermDecorator = nil
 			}
 
 			// Check for @action decorator
@@ -182,13 +211,14 @@ func (s *DjangoSupplement) Analyze(m *model.SystemModel) error {
 
 					for _, method := range pendingAPIView.methods {
 						endpoint := model.Endpoint{
-							ID:        fmt.Sprintf("ep:%s:%s:%d", filepath.Base(filePath), method, pendingAPIView.line),
-							Method:    method,
-							Path:      basePath,
-							Handler:   funcName,
-							File:      filePath,
-							Line:      pendingAPIView.line,
-							Framework: "django",
+							ID:         fmt.Sprintf("ep:%s:%s:%d", filepath.Base(filePath), method, pendingAPIView.line),
+							Method:     method,
+							Path:       basePath,
+							Handler:    funcName,
+							File:       filePath,
+							Line:       pendingAPIView.line,
+							Framework:  "django",
+							Middleware: pendingAPIView.middleware,
 						}
 						m.Endpoints = append(m.Endpoints, endpoint)
 					}
@@ -207,13 +237,14 @@ func (s *DjangoSupplement) Analyze(m *model.SystemModel) error {
 
 					for _, method := range pendingAction.methods {
 						endpoint := model.Endpoint{
-							ID:        fmt.Sprintf("ep:%s:%s:%d", filepath.Base(filePath), method, pendingAction.line),
-							Method:    method,
-							Path:      actionPath,
-							Handler:   currentClass + "." + funcName,
-							File:      filePath,
-							Line:      pendingAction.line,
-							Framework: "django",
+							ID:         fmt.Sprintf("ep:%s:%s:%d", filepath.Base(filePath), method, pendingAction.line),
+							Method:     method,
+							Path:       actionPath,
+							Handler:    currentClass + "." + funcName,
+							File:       filePath,
+							Line:       pendingAction.line,
+							Framework:  "django",
+							Middleware: currentClassMiddleware,
 						}
 						m.Endpoints = append(m.Endpoints, endpoint)
 					}
@@ -232,13 +263,14 @@ func (s *DjangoSupplement) Analyze(m *model.SystemModel) error {
 						}
 
 						endpoint := model.Endpoint{
-							ID:        fmt.Sprintf("ep:%s:%s:%d", filepath.Base(filePath), strings.ToUpper(method), lineNum),
-							Method:    strings.ToUpper(method),
-							Path:      basePath,
-							Handler:   currentClass + "." + method,
-							File:      filePath,
-							Line:      lineNum,
-							Framework: "django",
+							ID:         fmt.Sprintf("ep:%s:%s:%d", filepath.Base(filePath), strings.ToUpper(method), lineNum),
+							Method:     strings.ToUpper(method),
+							Path:       basePath,
+							Handler:    currentClass + "." + method,
+							File:       filePath,
+							Line:       lineNum,
+							Framework:  "django",
+							Middleware: currentClassMiddleware,
 						}
 						m.Endpoints = append(m.Endpoints, endpoint)
 					}
@@ -331,4 +363,19 @@ func (s *DjangoSupplement) parseMethods(str string) []string {
 		return []string{"GET"}
 	}
 	return methods
+}
+
+// parseClassList extracts class names from a comma-separated list
+// e.g., "IsAuthenticated, IsAdmin" -> ["IsAuthenticated", "IsAdmin"]
+func (s *DjangoSupplement) parseClassList(str string) []string {
+	var classes []string
+	// Match class names (capitalized identifiers)
+	classPattern := regexp.MustCompile(`\b([A-Z]\w*)`)
+	matches := classPattern.FindAllStringSubmatch(str, -1)
+	for _, m := range matches {
+		if len(m) >= 2 {
+			classes = append(classes, m[1])
+		}
+	}
+	return classes
 }

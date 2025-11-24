@@ -70,6 +70,12 @@ func (s *SpringBootSupplement) Analyze(m *model.SystemModel) error {
 	pathPattern := regexp.MustCompile(`(?:value\s*=\s*)?"([^"]+)"`)
 	methodPattern := regexp.MustCompile(`method\s*=\s*RequestMethod\.(\w+)`)
 
+	// Security annotations (middleware)
+	// @PreAuthorize("hasRole('ADMIN')")
+	// @Secured("ROLE_USER")
+	// @RolesAllowed("admin")
+	securityPattern := regexp.MustCompile(`@(PreAuthorize|Secured|RolesAllowed)\s*\(\s*"?([^")]+)"?\s*\)`)
+
 	// Handler method pattern (public void/ResponseEntity/Object methodName)
 	handlerPattern := regexp.MustCompile(`public\s+\w+(?:<[^>]+>)?\s+(\w+)\s*\(`)
 
@@ -103,15 +109,26 @@ func (s *SpringBootSupplement) Analyze(m *model.SystemModel) error {
 		scanner := bufio.NewScanner(file)
 		lineNum := 0
 		var pendingAnnotation *struct {
-			method string
-			path   string
-			line   int
+			method     string
+			path       string
+			line       int
+			middleware []string
 		}
 
 		for scanner.Scan() {
 			lineNum++
 			line := scanner.Text()
 			trimmed := strings.TrimSpace(line)
+
+			// Check for security annotations (middleware)
+			if secMatches := securityPattern.FindStringSubmatch(trimmed); len(secMatches) >= 3 {
+				annotType := secMatches[1]
+				value := secMatches[2]
+				middleware := fmt.Sprintf("%s(%s)", annotType, value)
+				if pendingAnnotation != nil {
+					pendingAnnotation.middleware = append(pendingAnnotation.middleware, middleware)
+				}
+			}
 
 			// Check for mapping annotation
 			if matches := mappingAnnotations.FindStringSubmatch(trimmed); len(matches) >= 2 {
@@ -144,10 +161,11 @@ func (s *SpringBootSupplement) Analyze(m *model.SystemModel) error {
 				}
 
 				pendingAnnotation = &struct {
-					method string
-					path   string
-					line   int
-				}{method, path, lineNum}
+					method     string
+					path       string
+					line       int
+					middleware []string
+				}{method, path, lineNum, nil}
 			}
 
 			// Check for handler method after annotation
@@ -168,7 +186,8 @@ func (s *SpringBootSupplement) Analyze(m *model.SystemModel) error {
 						Handler:   handler,
 						File:      filePath,
 						Line:      pendingAnnotation.line,
-						Framework: "springboot",
+						Framework:  "springboot",
+						Middleware: pendingAnnotation.middleware,
 					}
 
 					// Extract path variables (e.g., {id}, {userId})
@@ -177,6 +196,12 @@ func (s *SpringBootSupplement) Analyze(m *model.SystemModel) error {
 						for _, pm := range paramMatches {
 							endpoint.PathParams = append(endpoint.PathParams, pm[1])
 						}
+					}
+
+					// Extract request body from @RequestBody annotation
+					if schema := s.extractRequestSchema(trimmed, m); schema != nil {
+						endpoint.RequestBody = schema.TypeName
+						endpoint.RequestSchema = schema
 					}
 
 					m.Endpoints = append(m.Endpoints, endpoint)
@@ -188,4 +213,74 @@ func (s *SpringBootSupplement) Analyze(m *model.SystemModel) error {
 	}
 
 	return nil
+}
+
+// extractRequestSchema extracts request body schema from @RequestBody annotation
+// e.g., public ResponseEntity<User> createUser(@RequestBody User user) {...}
+// Returns the Java class name used for the request body
+func (s *SpringBootSupplement) extractRequestSchema(line string, m *model.SystemModel) *model.BodySchema {
+	// Skip types that are not request body types
+	skipTypes := map[string]bool{
+		"String": true, "Integer": true, "Long": true, "Double": true,
+		"Float": true, "Boolean": true, "Object": true,
+		"HttpServletRequest": true, "HttpServletResponse": true,
+		"Model": true, "ModelAndView": true, "BindingResult": true,
+		"Principal": true, "Authentication": true,
+	}
+
+	// Pattern: @RequestBody TypeName varName
+	// Also handles @RequestBody @Valid TypeName varName
+	requestBodyPattern := regexp.MustCompile(`@RequestBody\s+(?:@\w+\s+)*(\w+)(?:<[^>]+>)?\s+\w+`)
+	if matches := requestBodyPattern.FindStringSubmatch(line); len(matches) >= 2 {
+		typeName := matches[1]
+		if !skipTypes[typeName] {
+			return s.buildBodySchema(typeName, m)
+		}
+	}
+
+	return nil
+}
+
+// buildBodySchema creates a BodySchema from a type name
+func (s *SpringBootSupplement) buildBodySchema(typeName string, m *model.SystemModel) *model.BodySchema {
+	schema := &model.BodySchema{
+		TypeName:    typeName,
+		ContentType: "application/json",
+		Required:    true,
+	}
+
+	// Look up the type in the model to get field information
+	for i := range m.Types {
+		if m.Types[i].Name == typeName {
+			schema.Fields = s.extractFieldsFromType(&m.Types[i])
+			break
+		}
+	}
+
+	return schema
+}
+
+// extractFieldsFromType extracts schema fields from a TypeDef (Java class)
+func (s *SpringBootSupplement) extractFieldsFromType(t *model.TypeDef) []model.SchemaField {
+	var fields []model.SchemaField
+
+	for _, f := range t.Fields {
+		field := model.SchemaField{
+			Name:     f.Name,
+			Type:     f.Type,
+			Required: true, // Default to required
+		}
+
+		// Check for Optional type or @Nullable annotation
+		if strings.Contains(f.Type, "Optional") || strings.Contains(f.Type, "Nullable") {
+			field.Required = false
+		}
+
+		// Use camelCase name as JSON name for Java
+		field.JSONName = f.Name
+
+		fields = append(fields, field)
+	}
+
+	return fields
 }

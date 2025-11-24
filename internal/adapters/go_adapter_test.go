@@ -695,3 +695,196 @@ func TestGenerateGoMock_FunctionNoTarget(t *testing.T) {
 	assert.Contains(t, result, "origFunc")
 	assert.Contains(t, result, "targetFunc")
 }
+
+// Edge case tests for lifecycle hooks
+func TestGoAdapter_Generate_WithLifecycleHooks(t *testing.T) {
+	adapter := NewGoAdapter()
+	testDSL := &dsl.TestDSL{
+		Name: "test_with_lifecycle",
+		Target: dsl.TestTarget{
+			File:     "service.go",
+			Function: "ProcessData",
+		},
+		Lifecycle: &dsl.Lifecycle{
+			BeforeEach: []dsl.Action{
+				{
+					Type:   "setup",
+					Params: map[string]interface{}{"target": "db.Connect()"},
+				},
+			},
+			AfterEach: []dsl.Action{
+				{
+					Type:   "teardown",
+					Params: map[string]interface{}{"target": "db.Close()"},
+				},
+			},
+		},
+		Steps: []dsl.TestStep{
+			{
+				Description: "Process data",
+				Action: dsl.StepAction{
+					Type:   dsl.ActionCall,
+					Target: "ProcessData",
+					Args:   []interface{}{"input"},
+				},
+			},
+		},
+	}
+
+	code, err := adapter.Generate(testDSL)
+	require.NoError(t, err)
+	assert.Contains(t, code, "Setup")
+}
+
+// Edge case: error assertions
+func TestGoAdapter_Generate_ErrorAssertion(t *testing.T) {
+	adapter := NewGoAdapter()
+	testDSL := &dsl.TestDSL{
+		Name: "test_error_handling",
+		Target: dsl.TestTarget{
+			File:     "errors.go",
+			Function: "ValidateInput",
+		},
+		Steps: []dsl.TestStep{
+			{
+				Description: "Invalid input returns error",
+				Action: dsl.StepAction{
+					Type:   dsl.ActionCall,
+					Target: "ValidateInput",
+					Args:   []interface{}{""},
+				},
+				Expected: &dsl.Expected{
+					Error: &dsl.ExpectedError{
+						Type: "ValidationError",
+					},
+				},
+			},
+		},
+	}
+
+	code, err := adapter.Generate(testDSL)
+	require.NoError(t, err)
+	assert.Contains(t, code, "expected error")
+}
+
+// Edge case: contains assertion
+func TestGoAdapter_Generate_ContainsAssertion(t *testing.T) {
+	adapter := NewGoAdapter()
+	testDSL := &dsl.TestDSL{
+		Name: "test_string_contains",
+		Target: dsl.TestTarget{
+			File:     "strings.go",
+			Function: "BuildMessage",
+		},
+		Steps: []dsl.TestStep{
+			{
+				Description: "Message contains greeting",
+				Action: dsl.StepAction{
+					Type:   dsl.ActionCall,
+					Target: "BuildMessage",
+					Args:   []interface{}{"World"},
+				},
+				Expected: &dsl.Expected{
+					Contains: "Hello",
+				},
+			},
+		},
+	}
+
+	code, err := adapter.Generate(testDSL)
+	require.NoError(t, err)
+	assert.Contains(t, code, "strings.Contains")
+	assert.Contains(t, code, "Hello")
+}
+
+// Edge case: empty test name uses function name
+func TestGoAdapter_Generate_EmptyTestName(t *testing.T) {
+	adapter := NewGoAdapter()
+	testDSL := &dsl.TestDSL{
+		Name: "",
+		Target: dsl.TestTarget{
+			File:     "math.go",
+			Function: "Add",
+		},
+		Steps: []dsl.TestStep{
+			{
+				Description: "Add numbers",
+				Action: dsl.StepAction{
+					Type:   dsl.ActionCall,
+					Target: "Add",
+					Args:   []interface{}{1, 2},
+				},
+			},
+		},
+	}
+
+	code, err := adapter.Generate(testDSL)
+	require.NoError(t, err)
+	assert.Contains(t, code, "func TestAdd")
+}
+
+// Edge case: nested map arguments
+func TestFormatGoArg_NestedMap(t *testing.T) {
+	nested := map[string]interface{}{
+		"outer": map[string]interface{}{
+			"inner": "value",
+		},
+	}
+	result := formatGoArg(nested)
+	// Should handle nested maps gracefully
+	assert.NotEmpty(t, result)
+}
+
+// Edge case: nil expected value
+func TestGenerateGoAssertions_NilExpected(t *testing.T) {
+	step := dsl.TestStep{
+		Expected: nil,
+	}
+	assertions := generateGoAssertions(step)
+	assert.Empty(t, assertions)
+}
+
+// Edge case: empty expected value
+func TestGenerateGoAssertions_EmptyExpected(t *testing.T) {
+	step := dsl.TestStep{
+		Expected: &dsl.Expected{},
+	}
+	assertions := generateGoAssertions(step)
+	assert.Empty(t, assertions)
+}
+
+// Edge case: special characters in function name
+// toGoFunctionName splits on space, underscore, hyphen, dot only
+func TestToGoFunctionName_SpecialChars(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"test@user", "Test@user"},      // @ not a delimiter, remains in output
+		{"test#123", "Test#123"},        // # not a delimiter
+		{"test_with_underscores", "TestWithUnderscores"},
+		{"test-with-hyphens", "TestWithHyphens"},
+		{"test with  multiple   spaces", "TestWithMultipleSpaces"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			result := toGoFunctionName(tc.input)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+// Edge case: HTTP action with body
+func TestGenerateGoStepAction_HTTPWithBody(t *testing.T) {
+	step := dsl.TestStep{
+		Action: dsl.StepAction{
+			Type:   dsl.ActionHTTP,
+			Target: "/api/users",
+			Method: "POST",
+		},
+	}
+	code := generateGoStepAction(step)
+	assert.Contains(t, code, "httptest.NewRequest")
+	assert.Contains(t, code, "POST")
+}
