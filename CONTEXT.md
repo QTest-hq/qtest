@@ -217,13 +217,29 @@ cd examples && go test -v
 
 ## Recent Changes (2025-11-24)
 
-1. **E2E Test Generation CLI** - `qtest e2e` commands for E2E test workflow
+1. **E2E API Endpoints** - REST API for E2E test workflow
+   - `POST /api/v1/e2e/discover` - Start flow discovery job
+   - `POST /api/v1/e2e/generate` - Generate E2E tests from flows
+   - `POST /api/v1/e2e/runs` - Start E2E test run
+   - `GET /api/v1/e2e/runs` - List E2E runs
+   - `GET /api/v1/e2e/runs/{runID}` - Get run details
+   - `GET /api/v1/e2e/flows` - List flows
+   - `POST /api/v1/e2e/flows` - Upload flow spec
+2. **E2E Workers** - internal/worker/e2e_workers.go with 3 workers:
+   - E2EDiscoveryWorker - Discovers user flows from websites
+   - E2EGenerateWorker - Generates Playwright tests from flows
+   - E2ERunWorker - Runs E2E tests
+3. **E2E Job Types** - Added to internal/jobs/types.go:
+   - `JobTypeE2EDiscovery` - Flow discovery
+   - `JobTypeE2EGenerate` - Test generation
+   - `JobTypeE2ERun` - Test execution
+4. **E2E Test Generation CLI** - `qtest e2e` commands for E2E test workflow
    - `qtest e2e discover` - Auto-discover user flows using LLM (requires playwright sidecar)
    - `qtest e2e generate` - Generate Playwright tests from flow specifications
    - `qtest e2e run` - Run E2E tests with result parsing and reporting
    - `qtest e2e list` - List available flow specifications
-2. **E2E Package** - internal/e2e/ with playwright.go, runner.go, llm_enhancer.go (32 tests)
-3. **Flow Package** - internal/flow/ with discovery.go for LLM-based flow detection
+5. **E2E Package** - internal/e2e/ with playwright.go, runner.go, llm_enhancer.go (32 tests)
+6. **Flow Package** - internal/flow/ with discovery.go for LLM-based flow detection
 
 ### Previous Changes (2025-11-23)
 
@@ -378,6 +394,27 @@ Track API usage with daily/monthly aggregated statistics:
 | `GET /api/v1/organizations/{orgID}/usage/monthly` | Monthly statistics |
 | `GET /api/v1/organizations/{orgID}/usage/recent` | Recent API calls |
 | `GET /api/v1/organizations/{orgID}/usage/endpoints` | Stats by endpoint |
+
+## E2E Testing API
+
+E2E testing endpoints for flow discovery, test generation, and execution:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST /api/v1/e2e/discover` | Start flow discovery job |
+| `POST /api/v1/e2e/generate` | Generate E2E tests from flows |
+| `POST /api/v1/e2e/runs` | Start E2E test run |
+| `GET /api/v1/e2e/runs` | List E2E test runs |
+| `GET /api/v1/e2e/runs/{runID}` | Get E2E run details |
+| `GET /api/v1/e2e/flows` | List available flows |
+| `POST /api/v1/e2e/flows` | Upload flow specification |
+
+### Job Types
+- `e2e_discovery` - Auto-discover user flows using LLM
+- `e2e_generation` - Generate Playwright tests from flows
+- `e2e_run` - Execute E2E tests
+
+---
 
 ## Admin Endpoints
 

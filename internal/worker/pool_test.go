@@ -23,9 +23,9 @@ func TestNewPool_AllWorkers(t *testing.T) {
 		t.Fatal("pool should not be nil")
 	}
 
-	// Should have 6 workers (one for each job type)
-	if len(pool.workers) != 6 {
-		t.Errorf("len(workers) = %d, want 6", len(pool.workers))
+	// Should have 10 workers (one for each job type including E2E)
+	if len(pool.workers) != 10 {
+		t.Errorf("len(workers) = %d, want 10", len(pool.workers))
 	}
 }
 
@@ -42,6 +42,9 @@ func TestNewPool_SingleWorker(t *testing.T) {
 		{"generation", "generation"},
 		{"mutation", "mutation"},
 		{"integration", "integration"},
+		{"e2e_discovery", "e2e_discovery"},
+		{"e2e_generation", "e2e_generation"},
+		{"e2e_run", "e2e_run"},
 	}
 
 	for _, tt := range tests {
@@ -148,6 +151,9 @@ func TestWorkerType_Constants(t *testing.T) {
 		{WorkerGeneration, "generation"},
 		{WorkerMutation, "mutation"},
 		{WorkerIntegration, "integration"},
+		{WorkerE2EDiscovery, "e2e_discovery"},
+		{WorkerE2EGenerate, "e2e_generation"},
+		{WorkerE2ERun, "e2e_run"},
 		{WorkerAll, "all"},
 	}
 
@@ -175,6 +181,9 @@ func TestPool_AddWorker(t *testing.T) {
 		jobs.JobTypeGeneration,
 		jobs.JobTypeMutation,
 		jobs.JobTypeIntegration,
+		jobs.JobTypeE2EDiscovery,
+		jobs.JobTypeE2EGenerate,
+		jobs.JobTypeE2ERun,
 	}
 
 	for _, jt := range jobTypes {
@@ -186,7 +195,7 @@ func TestPool_AddWorker(t *testing.T) {
 		}
 	}
 
-	if len(pool.workers) != 6 {
-		t.Errorf("len(workers) = %d, want 6", len(pool.workers))
+	if len(pool.workers) != 9 {
+		t.Errorf("len(workers) = %d, want 9", len(pool.workers))
 	}
 }

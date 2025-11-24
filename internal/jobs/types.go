@@ -12,13 +12,16 @@ import (
 type JobType string
 
 const (
-	JobTypeIngestion   JobType = "ingestion"
-	JobTypeModeling    JobType = "modeling"
-	JobTypePlanning    JobType = "planning"
-	JobTypeGeneration  JobType = "generation"
-	JobTypeValidation  JobType = "validation"
-	JobTypeMutation    JobType = "mutation"
-	JobTypeIntegration JobType = "integration"
+	JobTypeIngestion    JobType = "ingestion"
+	JobTypeModeling     JobType = "modeling"
+	JobTypePlanning     JobType = "planning"
+	JobTypeGeneration   JobType = "generation"
+	JobTypeValidation   JobType = "validation"
+	JobTypeMutation     JobType = "mutation"
+	JobTypeIntegration  JobType = "integration"
+	JobTypeE2EDiscovery JobType = "e2e_discovery"
+	JobTypeE2EGenerate  JobType = "e2e_generation"
+	JobTypeE2ERun       JobType = "e2e_run"
 )
 
 // JobStatus represents the current state of a job
@@ -206,6 +209,59 @@ type IntegrationResult struct {
 	PRNumber        int    `json:"pr_number,omitempty"`
 	PRURL           string `json:"pr_url,omitempty"`
 	BranchName      string `json:"branch_name,omitempty"`
+}
+
+// E2EDiscoveryPayload is the payload for E2E flow discovery jobs
+type E2EDiscoveryPayload struct {
+	URL           string `json:"url"`
+	MaxPages      int    `json:"max_pages,omitempty"`
+	PlaywrightURL string `json:"playwright_url,omitempty"`
+}
+
+// E2EGeneratePayload is the payload for E2E test generation jobs
+type E2EGeneratePayload struct {
+	FlowID    string          `json:"flow_id,omitempty"`
+	Flows     json.RawMessage `json:"flows,omitempty"`
+	Framework string          `json:"framework,omitempty"` // playwright, cypress
+	Language  string          `json:"language,omitempty"`  // typescript, javascript
+	BaseURL   string          `json:"base_url,omitempty"`
+	Enhance   bool            `json:"enhance,omitempty"`
+	OutputDir string          `json:"output_dir,omitempty"`
+}
+
+// E2ERunPayload is the payload for E2E test run jobs
+type E2ERunPayload struct {
+	TestDir  string `json:"test_dir"`
+	Pattern  string `json:"pattern,omitempty"`
+	Browser  string `json:"browser,omitempty"` // chromium, firefox, webkit
+	Headless bool   `json:"headless,omitempty"`
+	Workers  int    `json:"workers,omitempty"`
+	Retries  int    `json:"retries,omitempty"`
+	BaseURL  string `json:"base_url,omitempty"`
+}
+
+// E2EDiscoveryResult is the result of E2E flow discovery
+type E2EDiscoveryResult struct {
+	FlowsDiscovered int             `json:"flows_discovered"`
+	Flows           json.RawMessage `json:"flows,omitempty"`
+	OutputFile      string          `json:"output_file,omitempty"`
+}
+
+// E2EGenerateResult is the result of E2E test generation
+type E2EGenerateResult struct {
+	TestsGenerated int      `json:"tests_generated"`
+	StepsCount     int      `json:"steps_count"`
+	OutputDir      string   `json:"output_dir"`
+	Files          []string `json:"files,omitempty"`
+}
+
+// E2ERunResult is the result of E2E test execution
+type E2ERunResult struct {
+	TotalTests int    `json:"total_tests"`
+	Passed     int    `json:"passed"`
+	Failed     int    `json:"failed"`
+	Skipped    int    `json:"skipped"`
+	Duration   string `json:"duration"`
 }
 
 // NewJob creates a new job with defaults

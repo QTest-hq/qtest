@@ -18,14 +18,17 @@ import (
 type WorkerType string
 
 const (
-	WorkerIngestion   WorkerType = "ingestion"
-	WorkerModeling    WorkerType = "modeling"
-	WorkerPlanning    WorkerType = "planning"
-	WorkerGeneration  WorkerType = "generation"
-	WorkerValidation  WorkerType = "validation"
-	WorkerMutation    WorkerType = "mutation"
-	WorkerIntegration WorkerType = "integration"
-	WorkerAll         WorkerType = "all"
+	WorkerIngestion    WorkerType = "ingestion"
+	WorkerModeling     WorkerType = "modeling"
+	WorkerPlanning     WorkerType = "planning"
+	WorkerGeneration   WorkerType = "generation"
+	WorkerValidation   WorkerType = "validation"
+	WorkerMutation     WorkerType = "mutation"
+	WorkerIntegration  WorkerType = "integration"
+	WorkerE2EDiscovery WorkerType = "e2e_discovery"
+	WorkerE2EGenerate  WorkerType = "e2e_generation"
+	WorkerE2ERun       WorkerType = "e2e_run"
+	WorkerAll          WorkerType = "all"
 )
 
 // Pool manages a pool of workers
@@ -93,6 +96,9 @@ func (p *Pool) initWorkers() error {
 		p.addWorker(jobs.JobTypeValidation)
 		p.addWorker(jobs.JobTypeMutation)
 		p.addWorker(jobs.JobTypeIntegration)
+		p.addWorker(jobs.JobTypeE2EDiscovery)
+		p.addWorker(jobs.JobTypeE2EGenerate)
+		p.addWorker(jobs.JobTypeE2ERun)
 	case WorkerIngestion:
 		p.addWorker(jobs.JobTypeIngestion)
 	case WorkerModeling:
@@ -107,6 +113,12 @@ func (p *Pool) initWorkers() error {
 		p.addWorker(jobs.JobTypeMutation)
 	case WorkerIntegration:
 		p.addWorker(jobs.JobTypeIntegration)
+	case WorkerE2EDiscovery:
+		p.addWorker(jobs.JobTypeE2EDiscovery)
+	case WorkerE2EGenerate:
+		p.addWorker(jobs.JobTypeE2EGenerate)
+	case WorkerE2ERun:
+		p.addWorker(jobs.JobTypeE2ERun)
 	default:
 		return fmt.Errorf("unknown worker type: %s", p.workerType)
 	}
@@ -141,6 +153,12 @@ func (p *Pool) addWorker(jobType jobs.JobType) {
 		worker = NewMutationWorker(base, p.store, p.cfg)
 	case jobs.JobTypeIntegration:
 		worker = NewIntegrationWorker(base, p.store)
+	case jobs.JobTypeE2EDiscovery:
+		worker = NewE2EDiscoveryWorker(base, p.cfg, p.llmRouter)
+	case jobs.JobTypeE2EGenerate:
+		worker = NewE2EGenerateWorker(base, p.cfg, p.llmRouter)
+	case jobs.JobTypeE2ERun:
+		worker = NewE2ERunWorker(base, p.cfg)
 	}
 
 	if worker != nil {

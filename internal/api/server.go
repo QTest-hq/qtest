@@ -278,6 +278,18 @@ func (s *Server) setupRoutes() {
 		// Repo-specific mutation runs
 		r.With(s.optionalAuth, s.requireScope("mutation:read")).Get("/repos/{repoID}/mutation", s.listRepoMutationRuns)
 
+		// E2E Testing
+		r.Route("/e2e", func(r chi.Router) {
+			r.Use(s.optionalAuth)
+			r.With(s.requireScope("e2e:write")).Post("/discover", s.startE2EDiscovery)
+			r.With(s.requireScope("e2e:write")).Post("/generate", s.generateE2ETests)
+			r.With(s.requireScope("e2e:write")).Post("/runs", s.startE2ERun)
+			r.With(s.requireScope("e2e:read")).Get("/runs", s.listE2ERuns)
+			r.With(s.requireScope("e2e:read")).Get("/runs/{runID}", s.getE2ERun)
+			r.With(s.requireScope("e2e:read")).Get("/flows", s.listE2EFlows)
+			r.With(s.requireScope("e2e:write")).Post("/flows", s.uploadE2EFlow)
+		})
+
 		// Organizations (requires auth)
 		r.Route("/organizations", func(r chi.Router) {
 			r.Use(s.requireAuth)
