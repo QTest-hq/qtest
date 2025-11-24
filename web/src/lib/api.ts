@@ -373,10 +373,47 @@ class ApiClient {
   async getCoverageTrend(repoId: string, days = 30): Promise<CoverageTrend[]> {
     return this.request(`/api/v1/coverage/repos/${repoId}/trend?days=${days}`);
   }
+
+  // API Key endpoints
+  async listAPIKeys(organizationId?: string): Promise<APIKey[]> {
+    const params = organizationId ? `?organization_id=${organizationId}` : "";
+    return this.request(`/api/v1/api-keys${params}`);
+  }
+
+  async createAPIKey(req: CreateAPIKeyRequest): Promise<APIKey> {
+    return this.request("/api/v1/api-keys", {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  }
+
+  async revokeAPIKey(keyId: string): Promise<void> {
+    await this.request(`/api/v1/api-keys/${keyId}`, { method: "DELETE" });
+  }
 }
 
 // Export singleton instance
 export const api = new ApiClient();
+
+// API Key types
+export interface APIKey {
+  id: string;
+  organization_id: string;
+  name: string;
+  key_prefix: string;
+  scopes: string[];
+  expires_at?: string;
+  last_used_at?: string;
+  created_at: string;
+  secret?: string; // Only returned on creation
+}
+
+export interface CreateAPIKeyRequest {
+  name: string;
+  scopes: string[];
+  organization_id?: string;
+  expires_in_days?: number;
+}
 
 // Export class for custom instances
 export { ApiClient };
