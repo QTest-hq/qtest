@@ -182,9 +182,10 @@ export default function JobsPage() {
           ) : (
             <div className="space-y-4">
               {jobs.map((job) => (
-                <div
+                <a
+                  href={`/jobs/${job.id}`}
                   key={job.id}
-                  className="rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200 dark:bg-gray-800 dark:ring-gray-700"
+                  className="block rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200 hover:ring-indigo-500 dark:bg-gray-800 dark:ring-gray-700 dark:hover:ring-indigo-400 transition-all"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center">
@@ -244,7 +245,7 @@ export default function JobsPage() {
                       Retries: {job.retry_count}/{job.max_retries}
                     </span>
                   </div>
-                </div>
+                </a>
               ))}
             </div>
           )}

@@ -260,6 +260,14 @@ class ApiClient {
     return this.request(`/api/v1/jobs/${id}/retry`, { method: "POST" });
   }
 
+  async getJobsByRepo(repoId: string, limit = 20): Promise<Job[]> {
+    return this.request(`/api/v1/jobs?repository_id=${repoId}&limit=${limit}`);
+  }
+
+  async getJobChildren(parentId: string): Promise<Job[]> {
+    return this.request(`/api/v1/jobs?parent_id=${parentId}`);
+  }
+
   // Mutation endpoints
   async createMutationRun(params: {
     source_file_path: string;

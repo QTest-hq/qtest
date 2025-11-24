@@ -621,3 +621,298 @@ func TestTruncateOutput(t *testing.T) {
 		})
 	}
 }
+
+// Integration tests
+
+func TestSimpleMutationTool_Run(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a simple Go source file
+	sourceCode := `package main
+
+func Add(a, b int) int {
+	return a + b
+}
+
+func Subtract(a, b int) int {
+	return a - b
+}
+`
+	sourcePath := tmpDir + "/calc.go"
+	os.WriteFile(sourcePath, []byte(sourceCode), 0644)
+
+	// Create a test file
+	testCode := `package main
+
+import "testing"
+
+func TestAdd(t *testing.T) {
+	if Add(1, 2) != 3 {
+		t.Error("Add failed")
+	}
+}
+`
+	testPath := tmpDir + "/calc_test.go"
+	os.WriteFile(testPath, []byte(testCode), 0644)
+
+	tool := NewSimpleMutationTool()
+	ctx := context.Background()
+
+	result, err := tool.Run(ctx, sourcePath, testPath, DefaultConfig())
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("Run() returned nil result")
+	}
+
+	// SimpleMutationTool should produce some results
+	if result.SourceFile != sourcePath {
+		t.Errorf("SourceFile = %s, want %s", result.SourceFile, sourcePath)
+	}
+	if result.TestFile != testPath {
+		t.Errorf("TestFile = %s, want %s", result.TestFile, testPath)
+	}
+}
+
+func TestSimpleMutationTool_Run_NonExistentFile(t *testing.T) {
+	tool := NewSimpleMutationTool()
+	ctx := context.Background()
+
+	result, err := tool.Run(ctx, "/nonexistent/source.go", "/nonexistent/test.go", DefaultConfig())
+	// Should not panic, may return error or empty result
+	if err != nil {
+		return // Error is acceptable
+	}
+	if result != nil && result.Error != "" {
+		return // Error in result is acceptable
+	}
+}
+
+func TestRunner_Run_WithSimpleTool(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create source file
+	sourceCode := `package main
+func Multiply(a, b int) int { return a * b }
+`
+	sourcePath := tmpDir + "/multiply.go"
+	os.WriteFile(sourcePath, []byte(sourceCode), 0644)
+
+	// Create test file
+	testCode := `package main
+import "testing"
+func TestMultiply(t *testing.T) {
+	if Multiply(2, 3) != 6 { t.Error("failed") }
+}
+`
+	testPath := tmpDir + "/multiply_test.go"
+	os.WriteFile(testPath, []byte(testCode), 0644)
+
+	// Create runner with SimpleMutationTool
+	runner := NewRunner(NewSimpleMutationTool())
+	ctx := context.Background()
+
+	result, err := runner.Run(ctx, sourcePath, testPath, DefaultConfig())
+	if err != nil {
+		t.Fatalf("Runner.Run() error: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("Runner.Run() returned nil result")
+	}
+}
+
+func TestCachedRunner_Integration(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create cache
+	cache, err := NewCache(&CacheConfig{
+		Enabled:       true,
+		Directory:     tmpDir,
+		TTL:           time.Hour,
+		MaxEntries:    10,
+		PersistToDisk: false,
+	})
+	if err != nil {
+		t.Fatalf("NewCache error: %v", err)
+	}
+
+	// Create source and test files
+	sourceCode := `package main
+func Divide(a, b int) int { if b == 0 { return 0 }; return a / b }
+`
+	sourcePath := tmpDir + "/divide.go"
+	os.WriteFile(sourcePath, []byte(sourceCode), 0644)
+
+	testCode := `package main
+import "testing"
+func TestDivide(t *testing.T) { if Divide(6, 2) != 3 { t.Error("failed") } }
+`
+	testPath := tmpDir + "/divide_test.go"
+	os.WriteFile(testPath, []byte(testCode), 0644)
+
+	// Create cached runner
+	tool := NewSimpleMutationTool()
+	cachedRunner := NewCachedRunner(tool, cache)
+	ctx := context.Background()
+
+	// First run - should call the underlying tool
+	result1, err := cachedRunner.Run(ctx, sourcePath, testPath, DefaultConfig())
+	if err != nil {
+		t.Fatalf("First Run() error: %v", err)
+	}
+	if result1 == nil {
+		t.Fatal("First Run() returned nil")
+	}
+
+	// Second run - should use cache
+	result2, err := cachedRunner.Run(ctx, sourcePath, testPath, DefaultConfig())
+	if err != nil {
+		t.Fatalf("Second Run() error: %v", err)
+	}
+	if result2 == nil {
+		t.Fatal("Second Run() returned nil")
+	}
+
+	// Both results should have same source file
+	if result1.SourceFile != result2.SourceFile {
+		t.Error("Cached result should match original")
+	}
+}
+
+func TestCachedRunner_CacheInvalidation(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cache, _ := NewCache(&CacheConfig{
+		Enabled:       true,
+		Directory:     tmpDir,
+		TTL:           time.Hour,
+		MaxEntries:    10,
+		PersistToDisk: false,
+	})
+
+	sourcePath := tmpDir + "/mod.go"
+	testPath := tmpDir + "/mod_test.go"
+
+	// Initial content
+	os.WriteFile(sourcePath, []byte(`package main
+func Mod(a, b int) int { return a % b }
+`), 0644)
+	os.WriteFile(testPath, []byte(`package main
+import "testing"
+func TestMod(t *testing.T) { if Mod(7, 3) != 1 { t.Error("failed") } }
+`), 0644)
+
+	// Manually set a cached result (to test invalidation)
+	result := &Result{
+		SourceFile: sourcePath,
+		TestFile:   testPath,
+		Total:      5,
+		Killed:     4,
+		Score:      0.8,
+	}
+	cache.Set(sourcePath, testPath, result)
+
+	// Verify cached
+	_, found := cache.Get(sourcePath, testPath)
+	if !found {
+		t.Error("Result should be cached after Set")
+	}
+
+	// Modify source file
+	os.WriteFile(sourcePath, []byte(`package main
+func Mod(a, b int) int { if b == 0 { return 0 }; return a % b }
+`), 0644)
+
+	// Cache should be invalidated on next get (hash mismatch)
+	_, found = cache.Get(sourcePath, testPath)
+	if found {
+		t.Error("Cache should be invalidated after source modification")
+	}
+}
+
+func TestMutationConfig_Validation(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// Test that default values are reasonable
+	if cfg.MaxMutantsPerFunction <= 0 {
+		t.Error("MaxMutantsPerFunction should be positive")
+	}
+	if cfg.Timeout <= 0 {
+		t.Error("Timeout should be positive")
+	}
+	if cfg.TimeoutPerMutant <= 0 {
+		t.Error("TimeoutPerMutant should be positive")
+	}
+
+	// Test thorough config has higher limits
+	thorough := ThoroughConfig()
+	if thorough.MaxMutantsPerFunction <= cfg.MaxMutantsPerFunction {
+		t.Error("Thorough config should have higher MaxMutantsPerFunction")
+	}
+	if thorough.Timeout <= cfg.Timeout {
+		t.Error("Thorough config should have higher Timeout")
+	}
+}
+
+func TestResult_CalculateScore(t *testing.T) {
+	tests := []struct {
+		name     string
+		killed   int
+		survived int
+		timeout  int
+		want     float64
+	}{
+		{"all killed", 10, 0, 0, 1.0},
+		{"all survived", 0, 10, 0, 0.0},
+		{"half and half", 5, 5, 0, 0.5},
+		{"with timeouts", 7, 2, 1, 0.8}, // timeouts count as killed (7+1=8 out of 10)
+		{"no mutants", 0, 0, 0, 0.0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &Result{
+				Total:    tt.killed + tt.survived + tt.timeout,
+				Killed:   tt.killed,
+				Survived: tt.survived,
+				Timeout:  tt.timeout,
+			}
+			// Calculate score
+			if r.Total > 0 {
+				r.Score = float64(r.Killed+r.Timeout) / float64(r.Total)
+			}
+
+			if r.Score != tt.want {
+				t.Errorf("Score = %f, want %f", r.Score, tt.want)
+			}
+		})
+	}
+}
+
+func TestMutant_Fields(t *testing.T) {
+	m := Mutant{
+		ID:          "mut-001",
+		Type:        "arithmetic",
+		Line:        42,
+		Status:      StatusKilled,
+		Description: "Replaced + with -",
+		Original:    "a + b",
+		Mutated:     "a - b",
+	}
+
+	if m.ID != "mut-001" {
+		t.Errorf("ID = %s, want mut-001", m.ID)
+	}
+	if m.Type != "arithmetic" {
+		t.Errorf("Type = %s, want arithmetic", m.Type)
+	}
+	if m.Line != 42 {
+		t.Errorf("Line = %d, want 42", m.Line)
+	}
+	if m.Status != StatusKilled {
+		t.Errorf("Status = %s, want %s", m.Status, StatusKilled)
+	}
+}

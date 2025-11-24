@@ -165,7 +165,7 @@ export default function RepositoriesPage() {
                   {repos.map((repo) => (
                     <tr key={repo.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
+                        <a href={`/repos/${repo.id}`} className="flex items-center hover:text-indigo-600">
                           <svg
                             className="h-5 w-5 text-gray-400 mr-3"
                             fill="currentColor"
@@ -185,7 +185,7 @@ export default function RepositoriesPage() {
                               {repo.url}
                             </p>
                           </div>
-                        </div>
+                        </a>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm text-gray-900 dark:text-white">
