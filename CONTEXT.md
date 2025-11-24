@@ -28,6 +28,7 @@ cmd/cli/                     # CLI entry point (cobra)
   datagen.go                 # Data generation commands
   validate.go                # Validation commands
   workspace.go               # Workspace management
+  e2e.go                     # E2E testing commands
 
 internal/
   adapters/                  # DSL → Test code adapters
@@ -49,10 +50,19 @@ internal/
     generator.go             # Field-aware data generator
     schema.go                # Schema-based generation
 
+  e2e/                       # E2E test generation
+    playwright.go            # Playwright test generator
+    runner.go                # Test runner with result parsing
+    llm_enhancer.go          # LLM-powered test enhancement
+
   emitter/                   # TestSpec → Test code emitters
     supertest.go             # JavaScript API tests
     pytest.go                # Python API tests
     go_http.go               # Go API tests
+
+  flow/                      # User flow detection
+    discovery.go             # LLM-based flow discovery
+    types.go                 # Flow types and structures
 
   generator/                 # Legacy DSL generator
     generator.go             # LLM orchestration
@@ -116,6 +126,10 @@ pkg/
 | `qtest datagen generate` | Generate test data |
 | `qtest validate run` | Run and validate tests |
 | `qtest validate fix` | Auto-fix failing tests |
+| `qtest e2e discover` | Auto-discover user flows using LLM |
+| `qtest e2e generate` | Generate Playwright tests from flows |
+| `qtest e2e run` | Run E2E tests |
+| `qtest e2e list` | List flow specifications |
 
 ### Framework Supplements
 
@@ -168,6 +182,18 @@ pkg/
 ./bin/qtest contract validate -c contracts.json --url http://localhost:3000
 ```
 
+### 5. E2E Test Generation
+```bash
+# Discover user flows (requires playwright sidecar)
+./bin/qtest e2e discover -u https://example.com -o flows.yaml
+
+# Generate Playwright tests from flows
+./bin/qtest e2e generate -f flows.yaml -o tests/ --enhance
+
+# Run E2E tests
+./bin/qtest e2e run -d tests/ --browser chromium
+```
+
 ---
 
 ## Quick Start
@@ -189,7 +215,17 @@ cd examples && go test -v
 
 ---
 
-## Recent Changes (2025-11-23)
+## Recent Changes (2025-11-24)
+
+1. **E2E Test Generation CLI** - `qtest e2e` commands for E2E test workflow
+   - `qtest e2e discover` - Auto-discover user flows using LLM (requires playwright sidecar)
+   - `qtest e2e generate` - Generate Playwright tests from flow specifications
+   - `qtest e2e run` - Run E2E tests with result parsing and reporting
+   - `qtest e2e list` - List available flow specifications
+2. **E2E Package** - internal/e2e/ with playwright.go, runner.go, llm_enhancer.go (32 tests)
+3. **Flow Package** - internal/flow/ with discovery.go for LLM-based flow detection
+
+### Previous Changes (2025-11-23)
 
 1. **CLI Auth Commands** - `qtest auth login/logout/status` for API key authentication
    - Credentials stored in `~/.qtest/credentials.json` with 0600 permissions
