@@ -87,10 +87,14 @@ func NewServer(cfg *config.Config, database *db.DB) (*Server, error) {
 		adminHandlers:  NewAdminHandlers(store),
 	}
 
+	return s, nil
+}
+
+// Initialize sets up middleware and routes after all components are configured
+func (s *Server) Initialize() error {
 	s.setupMiddleware()
 	s.setupRoutes()
-
-	return s, nil
+	return nil
 }
 
 // SetJobSystem configures the job processing system
@@ -169,19 +173,13 @@ func (s *Server) setupMiddleware() {
 	s.router.Use(middleware.Timeout(60 * time.Second))
 	s.router.Use(corsMiddleware)
 
-	// Rate limiting middleware (added after auth to have access to user context)
-	// Note: Actually applied via SetRateLimiter after router setup
-}
-
-// ApplyRateLimiting adds rate limiting middleware to the API routes
-// Called after SetRateLimiter to ensure rate limiter is configured
-func (s *Server) ApplyRateLimiting() {
+	// Apply rate limiting if configured
 	if s.rateLimiter != nil {
-		// Apply rate limiting to /api/v1 routes
 		s.router.Use(s.rateLimiter.Middleware())
 		log.Info().Msg("rate limiting middleware applied")
 	}
 }
+
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

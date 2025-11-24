@@ -108,7 +108,6 @@ func main() {
 		defer rateLimiter.Close()
 
 		srv.SetRateLimiter(rateLimiter)
-		srv.ApplyRateLimiting()
 		storageBackend := cfg.RateLimit.StorageBackend
 		if storageBackend == "" {
 			storageBackend = "memory"
@@ -126,6 +125,12 @@ func main() {
 	webhookStore := db.NewStore(database)
 	webhookService := webhook.NewService(webhookStore)
 	srv.SetWebhookService(webhookService)
+
+	// Initialize server (setup middleware and routes after all components configured)
+	if err := srv.Initialize(); err != nil {
+		log.Fatal().Err(err).Msg("failed to initialize server")
+	}
+	log.Info().Msg("server initialized")
 
 	// Start webhook dispatcher for background delivery
 	webhookDispatcher := webhook.NewDispatcher(webhookService, 5*time.Second, 50)
