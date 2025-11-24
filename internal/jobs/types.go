@@ -3,6 +3,7 @@ package jobs
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -313,7 +314,7 @@ func (j *Job) SetResult(result interface{}) error {
 // GetResult unmarshals the result into the provided struct
 func (j *Job) GetResult(v interface{}) error {
 	if j.Result == nil {
-		return nil
+		return errors.New("job has no result")
 	}
 	return json.Unmarshal(*j.Result, v)
 }

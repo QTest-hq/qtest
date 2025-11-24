@@ -107,11 +107,12 @@ func (s *Server) SetAuth(handlers *auth.Handlers, middleware *auth.Middleware) {
 	s.authHandlers = handlers
 	s.authMiddleware = middleware
 
-	// Set up API key validator
-	validator := &apiKeyValidatorWrapper{store: s.store}
-	middleware.SetAPIKeyValidator(validator)
-
-	log.Info().Msg("auth system configured with API key support")
+	// Set up API key validator if middleware is provided
+	if middleware != nil && s.store != nil {
+		validator := &apiKeyValidatorWrapper{store: s.store}
+		middleware.SetAPIKeyValidator(validator)
+		log.Info().Msg("auth system configured with API key support")
+	}
 }
 
 // SetRateLimiter configures the rate limiting system
