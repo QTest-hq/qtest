@@ -242,18 +242,18 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 | P2-004 | Implement network interception | 🟢 | P0 | P2-001 | StartNetworkCapture, StopNetworkCapture, GetCapturedRequests |
 | P2-005 | Implement DOM snapshots | 🟢 | P1 | P2-001 | GetDOMSnapshot, GetElement, GetElements, EvaluateScript |
 | P2-006 | Implement screenshot capture | 🟢 | P1 | P2-001 | TakeScreenshot, TakeElementScreenshot |
-| P2-007 | Write Playwright integration tests | 🔴 | P1 | P2-001-006 | |
+| P2-007 | Write Playwright integration tests | 🟢 | P1 | P2-001-006 | Jest tests for SessionManager, Handlers (15+ tests) |
 
 ### 2.2 Website Crawler
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P2-010 | Implement crawler orchestrator | 🔴 | P0 | P2-002 | Manage crawl session |
-| P2-011 | Implement page discovery | 🔴 | P0 | P2-003 | Find links, crawl |
-| P2-012 | Implement depth limiting | 🔴 | P0 | P2-011 | Max depth config |
-| P2-013 | Implement page limiting | 🔴 | P0 | P2-011 | Max pages config |
-| P2-014 | Implement robots.txt handling | 🔴 | P1 | P2-011 | Respect directives |
-| P2-015 | Write crawler tests | 🔴 | P1 | P2-010-014 | Mock websites |
+| P2-010 | Implement crawler orchestrator | 🟢 | P0 | P2-002 | internal/crawler/crawler.go - Crawl(), maybeEnqueue() |
+| P2-011 | Implement page discovery | 🟢 | P0 | P2-003 | GetPageLinks(), link extraction, resource filtering |
+| P2-012 | Implement depth limiting | 🟢 | P0 | P2-011 | MaxDepth config in Config struct |
+| P2-013 | Implement page limiting | 🟢 | P0 | P2-011 | MaxPages config in Config struct |
+| P2-014 | Implement robots.txt handling | 🟢 | P1 | P2-011 | robots.go - ParseRobotsTxt, IsAllowed, wildcards |
+| P2-015 | Write crawler tests | 🟢 | P1 | P2-010-014 | 9 tests in crawler_test.go |
 
 ### 2.3 Flow Detection
 
@@ -472,11 +472,11 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | Phase | 🟢 Completed | 🟡 In Progress | 🔴 Not Started | % Done |
 |-------|-------------|----------------|----------------|--------|
-| Phase 1 | 90 | 0 | 18 | **83%** |
-| Phase 2 | 2 | 2 | 32 | **6%** |
-| Phase 3 | 26 | 1 | 18 | **58%** |
+| Phase 1 | 90 | 0 | 8 | **92%** |
+| Phase 2 | 15 | 2 | 18 | **43%** |
+| Phase 3 | 26 | 1 | 8 | **74%** |
 | Phase 4 | 3 | 1 | 31 | **9%** |
-| **Total** | **121** | **4** | **99** | **58%** |
+| **Total** | **134** | **4** | **65** | **66%** |
 
 ### Critical Path (Must Complete for MVP)
 
@@ -519,6 +519,8 @@ P1-130 → P1-133 → MVP Complete
 | 2025-11-23 | **Tracker Audit**: Discovered P1-066, P1-087, P1-018 were already complete. Planner: 14 tests, Generator: 119 tests, Database: 38 tests. Phase 1 now 91% complete. |
 | 2025-11-23 | **GitHub Integration**: Confirmed P1-116 (webhook receiver) and P1-117 (GitHub tests) complete. github_receiver.go has HMAC SHA256 verification, 50+ tests. Added P1-110 GitHub App config (manifest, env template, CLI check). CLI progress (P1-154) complete with spinners/bars. P1-111 (GitHub App auth) confirmed complete with JWT gen, installation tokens, caching. Phase 1 now 82% complete (all P0 tasks done). Overall 57% complete. |
 | 2025-11-24 | **OpenAPI Documentation**: Completed P1-146. Added 28 missing endpoints (webhooks, usage analytics, admin, audit logs, member management). OpenAPI spec now has 50 endpoints, 2167 lines. Swagger UI at /docs/, ReDoc at /docs/redoc. Phase 1 now 83% complete. Overall 58% complete. |
+| 2025-11-24 | **Playwright Sidecar**: Completed P2-001 to P2-007. gRPC service with 20+ methods (session management, navigation, DOM, screenshots, network capture). TypeScript implementation with Jest tests (15+). Go client in internal/sidecar/playwright/client.go. Docker containerization. Phase 2 now 43% complete. |
+| 2025-11-24 | **Website Crawler**: Completed P2-010 to P2-015. Full crawler implementation in internal/crawler/ with orchestrator, page discovery, depth/page limiting, robots.txt handling (with wildcard patterns). 9 tests. Overall 66% complete. |
 
 ---
 
