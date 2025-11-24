@@ -1,0 +1,407 @@
+syntax = "proto3";
+
+package playwright;
+
+option go_package = "github.com/QTest-hq/qtest/internal/sidecar/playwright";
+
+// PlaywrightService provides browser automation capabilities
+service PlaywrightService {
+  // Session management
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+  rpc DestroySession(DestroySessionRequest) returns (DestroySessionResponse);
+  rpc GetSessionStatus(GetSessionStatusRequest) returns (GetSessionStatusResponse);
+
+  // Page navigation
+  rpc Navigate(NavigateRequest) returns (NavigateResponse);
+  rpc Click(ClickRequest) returns (ClickResponse);
+  rpc Fill(FillRequest) returns (FillResponse);
+  rpc Select(SelectRequest) returns (SelectResponse);
+  rpc Press(PressRequest) returns (PressResponse);
+  rpc Hover(HoverRequest) returns (HoverResponse);
+  rpc WaitForSelector(WaitForSelectorRequest) returns (WaitForSelectorResponse);
+  rpc WaitForNavigation(WaitForNavigationRequest) returns (WaitForNavigationResponse);
+
+  // DOM operations
+  rpc GetDOMSnapshot(GetDOMSnapshotRequest) returns (GetDOMSnapshotResponse);
+  rpc GetElement(GetElementRequest) returns (GetElementResponse);
+  rpc GetElements(GetElementsRequest) returns (GetElementsResponse);
+  rpc EvaluateScript(EvaluateScriptRequest) returns (EvaluateScriptResponse);
+
+  // Screenshots
+  rpc TakeScreenshot(TakeScreenshotRequest) returns (TakeScreenshotResponse);
+  rpc TakeElementScreenshot(TakeElementScreenshotRequest) returns (TakeElementScreenshotResponse);
+
+  // Network interception
+  rpc StartNetworkCapture(StartNetworkCaptureRequest) returns (StartNetworkCaptureResponse);
+  rpc StopNetworkCapture(StopNetworkCaptureRequest) returns (StopNetworkCaptureResponse);
+  rpc GetCapturedRequests(GetCapturedRequestsRequest) returns (GetCapturedRequestsResponse);
+  rpc SetRequestInterceptor(SetRequestInterceptorRequest) returns (SetRequestInterceptorResponse);
+
+  // Crawler support
+  rpc GetPageLinks(GetPageLinksRequest) returns (GetPageLinksResponse);
+  rpc GetPageForms(GetPageFormsRequest) returns (GetPageFormsResponse);
+}
+
+// Session management
+message CreateSessionRequest {
+  string browser_type = 1;  // chromium, firefox, webkit
+  bool headless = 2;
+  int32 viewport_width = 3;
+  int32 viewport_height = 4;
+  string user_agent = 5;
+  map<string, string> extra_http_headers = 6;
+  bool ignore_https_errors = 7;
+  string proxy_server = 8;
+  int32 timeout_ms = 9;
+}
+
+message CreateSessionResponse {
+  string session_id = 1;
+  bool success = 2;
+  string error = 3;
+}
+
+message DestroySessionRequest {
+  string session_id = 1;
+}
+
+message DestroySessionResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message GetSessionStatusRequest {
+  string session_id = 1;
+}
+
+message GetSessionStatusResponse {
+  bool exists = 1;
+  string current_url = 2;
+  string page_title = 3;
+  int64 created_at = 4;
+  int64 last_activity = 5;
+}
+
+// Navigation
+message NavigateRequest {
+  string session_id = 1;
+  string url = 2;
+  int32 timeout_ms = 3;
+  string wait_until = 4;  // load, domcontentloaded, networkidle
+}
+
+message NavigateResponse {
+  bool success = 1;
+  string error = 2;
+  string final_url = 3;
+  int32 status_code = 4;
+}
+
+message ClickRequest {
+  string session_id = 1;
+  string selector = 2;
+  int32 timeout_ms = 3;
+  bool force = 4;
+  int32 click_count = 5;
+  string button = 6;  // left, right, middle
+}
+
+message ClickResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message FillRequest {
+  string session_id = 1;
+  string selector = 2;
+  string value = 3;
+  int32 timeout_ms = 4;
+  bool force = 5;
+}
+
+message FillResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message SelectRequest {
+  string session_id = 1;
+  string selector = 2;
+  repeated string values = 3;
+  int32 timeout_ms = 4;
+}
+
+message SelectResponse {
+  bool success = 1;
+  string error = 2;
+  repeated string selected_values = 3;
+}
+
+message PressRequest {
+  string session_id = 1;
+  string selector = 2;
+  string key = 3;
+  int32 timeout_ms = 4;
+}
+
+message PressResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message HoverRequest {
+  string session_id = 1;
+  string selector = 2;
+  int32 timeout_ms = 3;
+}
+
+message HoverResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message WaitForSelectorRequest {
+  string session_id = 1;
+  string selector = 2;
+  int32 timeout_ms = 3;
+  string state = 4;  // attached, detached, visible, hidden
+}
+
+message WaitForSelectorResponse {
+  bool success = 1;
+  string error = 2;
+  bool found = 3;
+}
+
+message WaitForNavigationRequest {
+  string session_id = 1;
+  int32 timeout_ms = 2;
+  string wait_until = 3;
+}
+
+message WaitForNavigationResponse {
+  bool success = 1;
+  string error = 2;
+  string url = 3;
+}
+
+// DOM operations
+message GetDOMSnapshotRequest {
+  string session_id = 1;
+  string selector = 2;  // optional, defaults to document
+  bool include_styles = 3;
+  bool include_attributes = 4;
+  int32 max_depth = 5;
+}
+
+message DOMNode {
+  string tag_name = 1;
+  string id = 2;
+  repeated string class_names = 3;
+  map<string, string> attributes = 4;
+  string text_content = 5;
+  repeated DOMNode children = 6;
+  BoundingBox bounding_box = 7;
+  bool is_visible = 8;
+}
+
+message BoundingBox {
+  float x = 1;
+  float y = 2;
+  float width = 3;
+  float height = 4;
+}
+
+message GetDOMSnapshotResponse {
+  bool success = 1;
+  string error = 2;
+  DOMNode root = 3;
+  string html = 4;
+}
+
+message GetElementRequest {
+  string session_id = 1;
+  string selector = 2;
+  int32 timeout_ms = 3;
+}
+
+message GetElementResponse {
+  bool success = 1;
+  string error = 2;
+  DOMNode element = 3;
+}
+
+message GetElementsRequest {
+  string session_id = 1;
+  string selector = 2;
+}
+
+message GetElementsResponse {
+  bool success = 1;
+  string error = 2;
+  repeated DOMNode elements = 3;
+}
+
+message EvaluateScriptRequest {
+  string session_id = 1;
+  string script = 2;
+  string arg = 3;  // JSON-encoded argument
+}
+
+message EvaluateScriptResponse {
+  bool success = 1;
+  string error = 2;
+  string result = 3;  // JSON-encoded result
+}
+
+// Screenshots
+message TakeScreenshotRequest {
+  string session_id = 1;
+  bool full_page = 2;
+  string format = 3;  // png, jpeg
+  int32 quality = 4;  // 0-100 for jpeg
+}
+
+message TakeScreenshotResponse {
+  bool success = 1;
+  string error = 2;
+  bytes image_data = 3;
+  string format = 4;
+}
+
+message TakeElementScreenshotRequest {
+  string session_id = 1;
+  string selector = 2;
+  string format = 3;
+  int32 quality = 4;
+}
+
+message TakeElementScreenshotResponse {
+  bool success = 1;
+  string error = 2;
+  bytes image_data = 3;
+}
+
+// Network interception
+message StartNetworkCaptureRequest {
+  string session_id = 1;
+  repeated string url_patterns = 2;  // Optional filter patterns
+  bool capture_request_body = 3;
+  bool capture_response_body = 4;
+}
+
+message StartNetworkCaptureResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message StopNetworkCaptureRequest {
+  string session_id = 1;
+}
+
+message StopNetworkCaptureResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message NetworkRequest {
+  string request_id = 1;
+  string method = 2;
+  string url = 3;
+  map<string, string> headers = 4;
+  string body = 5;
+  string resource_type = 6;
+  int64 timestamp = 7;
+}
+
+message NetworkResponse {
+  string request_id = 1;
+  int32 status_code = 2;
+  string status_text = 3;
+  map<string, string> headers = 4;
+  string body = 5;
+  int64 timestamp = 6;
+}
+
+message CapturedRequest {
+  NetworkRequest request = 1;
+  NetworkResponse response = 2;
+}
+
+message GetCapturedRequestsRequest {
+  string session_id = 1;
+  bool clear_after = 2;
+}
+
+message GetCapturedRequestsResponse {
+  bool success = 1;
+  string error = 2;
+  repeated CapturedRequest requests = 3;
+}
+
+message SetRequestInterceptorRequest {
+  string session_id = 1;
+  string url_pattern = 2;
+  InterceptAction action = 3;
+}
+
+enum InterceptAction {
+  INTERCEPT_CONTINUE = 0;
+  INTERCEPT_ABORT = 1;
+  INTERCEPT_FULFILL = 2;
+}
+
+message SetRequestInterceptorResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// Crawler support
+message GetPageLinksRequest {
+  string session_id = 1;
+  bool same_origin_only = 2;
+  bool include_external = 3;
+}
+
+message PageLink {
+  string href = 1;
+  string text = 2;
+  string rel = 3;
+  bool is_external = 4;
+}
+
+message GetPageLinksResponse {
+  bool success = 1;
+  string error = 2;
+  repeated PageLink links = 3;
+}
+
+message GetPageFormsRequest {
+  string session_id = 1;
+}
+
+message FormField {
+  string name = 1;
+  string type = 2;
+  string id = 3;
+  string placeholder = 4;
+  bool required = 5;
+  string value = 6;
+  repeated string options = 7;  // For select elements
+  string label = 8;
+}
+
+message PageForm {
+  string action = 1;
+  string method = 2;
+  string id = 3;
+  string name = 4;
+  repeated FormField fields = 5;
+  string submit_button_selector = 6;
+}
+
+message GetPageFormsResponse {
+  bool success = 1;
+  string error = 2;
+  repeated PageForm forms = 3;
+}

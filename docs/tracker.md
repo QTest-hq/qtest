@@ -236,12 +236,12 @@ This document tracks all implementation tasks for QTest. Tasks are organized by 
 
 | ID | Task | Status | Priority | Dependencies | Notes |
 |----|------|--------|----------|--------------|-------|
-| P2-001 | Design Playwright sidecar service | 🔴 | P0 | - | Node.js gRPC server |
-| P2-002 | Implement crawler API | 🔴 | P0 | P2-001 | Start, stop, status |
-| P2-003 | Implement page navigation | 🔴 | P0 | P2-001 | goto, click, fill |
-| P2-004 | Implement network interception | 🔴 | P0 | P2-001 | Capture XHR/fetch |
-| P2-005 | Implement DOM snapshots | 🔴 | P1 | P2-001 | For selector generation |
-| P2-006 | Implement screenshot capture | 🔴 | P1 | P2-001 | |
+| P2-001 | Design Playwright sidecar service | 🟢 | P0 | - | gRPC server with 20+ methods, proto definitions, Go client |
+| P2-002 | Implement crawler API | 🟢 | P0 | P2-001 | CreateSession, DestroySession, GetSessionStatus |
+| P2-003 | Implement page navigation | 🟢 | P0 | P2-001 | Navigate, Click, Fill, Select, Press, Hover, Wait methods |
+| P2-004 | Implement network interception | 🟢 | P0 | P2-001 | StartNetworkCapture, StopNetworkCapture, GetCapturedRequests |
+| P2-005 | Implement DOM snapshots | 🟢 | P1 | P2-001 | GetDOMSnapshot, GetElement, GetElements, EvaluateScript |
+| P2-006 | Implement screenshot capture | 🟢 | P1 | P2-001 | TakeScreenshot, TakeElementScreenshot |
 | P2-007 | Write Playwright integration tests | 🔴 | P1 | P2-001-006 | |
 
 ### 2.2 Website Crawler

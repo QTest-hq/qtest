@@ -47,6 +47,24 @@ services:
       timeout: 5s
       retries: 5
 
+  playwright:
+    build:
+      context: ./sidecar/playwright
+      dockerfile: Dockerfile
+    container_name: qtest-playwright
+    ports:
+      - "50051:50051"   # gRPC port
+    environment:
+      - GRPC_PORT=50051
+      - LOG_LEVEL=info
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"const grpc = require('@grpc/grpc-js'); process.exit(0);\""]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    shm_size: '2gb'  # Required for Playwright/Chrome
+
 volumes:
   pgdata:
   redisdata:
