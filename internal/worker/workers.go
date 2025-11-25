@@ -268,10 +268,25 @@ func (w *ModelingWorker) handleJob(ctx context.Context, job *jobs.Job) error {
 		return fmt.Errorf("failed to serialize model: %w", err)
 	}
 
-	// Create system model in database
+	// Create or update system model in database (use upsert to handle duplicate commits)
 	modelID := uuid.New()
 	if w.store != nil {
-		if err := w.store.CreateSystemModel(ctx, &db.SystemModel{
+		// Check if model already exists for this commit
+		existing, err := w.store.GetSystemModelByRepoAndCommit(ctx, payload.RepositoryID, commitSHA)
+		if err != nil {
+			log.Warn().Err(err).Msg("failed to check for existing system model")
+		}
+
+		if existing != nil {
+			// Reuse existing model ID and update data
+			modelID = existing.ID
+			log.Info().
+				Str("model_id", modelID.String()).
+				Str("commit_sha", commitSHA).
+				Msg("updating existing system model for commit")
+		}
+
+		if err := w.store.CreateOrUpdateSystemModel(ctx, &db.SystemModel{
 			ID:           modelID,
 			RepositoryID: payload.RepositoryID,
 			CommitSHA:    commitSHA,
@@ -387,10 +402,25 @@ func (w *ModelingWorker) handleJobLegacy(ctx context.Context, job *jobs.Job, pay
 	// Get commit SHA for the model
 	commitSHA := getCommitSHA(ctx, payload.WorkspacePath)
 
-	// Create system model in database
+	// Create or update system model in database (use upsert to handle duplicate commits)
 	modelID := uuid.New()
 	if w.store != nil {
-		if err := w.store.CreateSystemModel(ctx, &db.SystemModel{
+		// Check if model already exists for this commit
+		existing, err := w.store.GetSystemModelByRepoAndCommit(ctx, payload.RepositoryID, commitSHA)
+		if err != nil {
+			log.Warn().Err(err).Msg("failed to check for existing system model")
+		}
+
+		if existing != nil {
+			// Reuse existing model ID and update data
+			modelID = existing.ID
+			log.Info().
+				Str("model_id", modelID.String()).
+				Str("commit_sha", commitSHA).
+				Msg("updating existing system model for commit")
+		}
+
+		if err := w.store.CreateOrUpdateSystemModel(ctx, &db.SystemModel{
 			ID:           modelID,
 			RepositoryID: payload.RepositoryID,
 			CommitSHA:    commitSHA,

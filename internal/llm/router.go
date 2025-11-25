@@ -9,7 +9,10 @@ import (
 	"time"
 
 	"github.com/QTest-hq/qtest/internal/config"
+	"github.com/QTest-hq/qtest/internal/metrics"
+	"github.com/QTest-hq/qtest/internal/resilience"
 	"github.com/rs/zerolog/log"
+	"github.com/sony/gobreaker"
 )
 
 // Retry configuration
@@ -22,16 +25,18 @@ const (
 
 // Router routes LLM requests to appropriate providers based on tier and availability
 type Router struct {
-	config    *RouterConfig
-	clients   map[Provider]Client
-	fallbacks []Provider // Fallback order
+	config         *RouterConfig
+	clients        map[Provider]Client
+	fallbacks      []Provider // Fallback order
+	circuitBreaker *resilience.CircuitBreakerManager
 }
 
 // NewRouter creates a new LLM router from config
 func NewRouter(cfg *config.Config) (*Router, error) {
 	r := &Router{
-		clients:   make(map[Provider]Client),
-		fallbacks: []Provider{ProviderOllama, ProviderAnthropic, ProviderOpenAI},
+		clients:        make(map[Provider]Client),
+		fallbacks:      []Provider{ProviderOllama, ProviderAnthropic, ProviderOpenAI},
+		circuitBreaker: resilience.NewCircuitBreakerManager(),
 	}
 
 	// Build router config from application config
@@ -94,6 +99,9 @@ func NewRouter(cfg *config.Config) (*Router, error) {
 
 // Complete sends a completion request, routing to appropriate provider with retry logic
 func (r *Router) Complete(ctx context.Context, req *Request) (*Response, error) {
+	start := time.Now()
+	tierStr := fmt.Sprintf("tier%d", req.Tier)
+
 	// Get providers that support this tier
 	providers := r.getProvidersForTier(req.Tier)
 	if len(providers) == 0 {
@@ -126,7 +134,30 @@ func (r *Router) Complete(ctx context.Context, req *Request) (*Response, error) 
 				Str("provider", string(provider)).
 				Msg("provider failed after retries, trying next")
 			lastErr = err
+
+			// Record failed LLM request
+			metrics.LLMRequestsTotal.WithLabelValues(
+				string(provider),
+				r.getModelForProviderTier(provider, req.Tier),
+				tierStr,
+				"error",
+			).Inc()
+			metrics.LLMErrors.WithLabelValues(string(provider), classifyError(err)).Inc()
 			continue
+		}
+
+		// Record successful metrics
+		duration := time.Since(start).Seconds()
+		providerStr := string(provider)
+		model := r.getModelForProviderTier(provider, req.Tier)
+
+		metrics.LLMRequestsTotal.WithLabelValues(providerStr, model, tierStr, "success").Inc()
+		metrics.LLMRequestDuration.WithLabelValues(providerStr, tierStr).Observe(duration)
+
+		// Record token usage
+		if resp.InputTokens > 0 || resp.OutputTokens > 0 {
+			metrics.LLMTokensInputTotal.WithLabelValues(providerStr, model).Add(float64(resp.InputTokens))
+			metrics.LLMTokensOutputTotal.WithLabelValues(providerStr, model).Add(float64(resp.OutputTokens))
 		}
 
 		return resp, nil
@@ -139,10 +170,80 @@ func (r *Router) Complete(ctx context.Context, req *Request) (*Response, error) 
 	return nil, fmt.Errorf("no available providers for tier %d", req.Tier)
 }
 
-// completeWithRetry attempts completion with exponential backoff retry
+// getModelForProviderTier returns the model name for a given provider and tier
+func (r *Router) getModelForProviderTier(provider Provider, tier Tier) string {
+	if tierModels, ok := r.config.TierModels[tier]; ok {
+		if model, ok := tierModels[provider]; ok {
+			return model
+		}
+	}
+	return "unknown"
+}
+
+// classifyError categorizes an error for metrics purposes
+func classifyError(err error) string {
+	if err == nil {
+		return "none"
+	}
+
+	errStr := err.Error()
+
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		if netErr.Timeout() {
+			return "timeout"
+		}
+		return "network"
+	}
+
+	if strings.Contains(errStr, "timeout") || strings.Contains(errStr, "deadline exceeded") {
+		return "timeout"
+	}
+	if strings.Contains(errStr, "429") || strings.Contains(errStr, "rate limit") {
+		return "rate_limited"
+	}
+	if strings.Contains(errStr, "401") || strings.Contains(errStr, "403") {
+		return "auth"
+	}
+	if strings.Contains(errStr, "500") || strings.Contains(errStr, "502") ||
+		strings.Contains(errStr, "503") || strings.Contains(errStr, "504") {
+		return "server_error"
+	}
+
+	return "unknown"
+}
+
+// getCircuitBreakerName returns the circuit breaker name for a provider
+func (r *Router) getCircuitBreakerName(provider Provider) string {
+	switch provider {
+	case ProviderOllama:
+		return resilience.BreakerLLMOllama
+	case ProviderAnthropic:
+		return resilience.BreakerLLMAnthropic
+	case ProviderOpenAI:
+		return resilience.BreakerLLMOpenAI
+	default:
+		return "llm:" + string(provider)
+	}
+}
+
+// completeWithRetry attempts completion with exponential backoff retry and circuit breaker
 func (r *Router) completeWithRetry(ctx context.Context, client Client, provider Provider, req *Request) (*Response, error) {
 	var lastErr error
 	backoff := initialBackoff
+
+	// Get the circuit breaker for this provider
+	breakerName := r.getCircuitBreakerName(provider)
+	cb := r.circuitBreaker.Get(breakerName)
+
+	// Check if circuit is open before trying
+	if cb.State() == gobreaker.StateOpen {
+		log.Debug().
+			Str("provider", string(provider)).
+			Str("breaker", breakerName).
+			Msg("circuit breaker is open, skipping provider")
+		return nil, fmt.Errorf("circuit breaker open for %s", provider)
+	}
 
 	for attempt := 0; attempt <= defaultMaxRetries; attempt++ {
 		if attempt > 0 {
@@ -166,12 +267,25 @@ func (r *Router) completeWithRetry(ctx context.Context, client Client, provider 
 			}
 		}
 
-		resp, err := client.Complete(ctx, req)
+		// Execute through circuit breaker
+		result, err := cb.Execute(func() (interface{}, error) {
+			return client.Complete(ctx, req)
+		})
+
 		if err == nil {
-			return resp, nil
+			return result.(*Response), nil
 		}
 
 		lastErr = err
+
+		// If circuit breaker is now open, stop retrying this provider
+		if cb.State() == gobreaker.StateOpen {
+			log.Warn().
+				Str("provider", string(provider)).
+				Str("breaker", breakerName).
+				Msg("circuit breaker opened, stopping retries for this provider")
+			return nil, fmt.Errorf("circuit breaker opened for %s: %w", provider, err)
+		}
 
 		// Check if error is retryable
 		if !isRetryableError(err) {

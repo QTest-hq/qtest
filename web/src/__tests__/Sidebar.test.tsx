@@ -34,6 +34,7 @@ describe('Sidebar', () => {
     expect(screen.getByText('Jobs')).toBeInTheDocument();
     expect(screen.getByText('Tests')).toBeInTheDocument();
     expect(screen.getByText('Coverage')).toBeInTheDocument();
+    expect(screen.getByText('Webhooks')).toBeInTheDocument();
     expect(screen.getByText('Team')).toBeInTheDocument();
     expect(screen.getByText('Settings')).toBeInTheDocument();
   });
@@ -51,21 +52,24 @@ describe('Sidebar', () => {
 
   it('should have correct navigation hrefs', () => {
     render(<Sidebar />);
-    
+
     const dashboardLink = screen.getByText('Dashboard').closest('a');
     expect(dashboardLink).toHaveAttribute('href', '/');
-    
+
     const reposLink = screen.getByText('Repositories').closest('a');
     expect(reposLink).toHaveAttribute('href', '/repos');
-    
+
     const jobsLink = screen.getByText('Jobs').closest('a');
     expect(jobsLink).toHaveAttribute('href', '/jobs');
-    
+
     const testsLink = screen.getByText('Tests').closest('a');
     expect(testsLink).toHaveAttribute('href', '/tests');
-    
+
     const coverageLink = screen.getByText('Coverage').closest('a');
     expect(coverageLink).toHaveAttribute('href', '/coverage');
+
+    const webhooksLink = screen.getByText('Webhooks').closest('a');
+    expect(webhooksLink).toHaveAttribute('href', '/webhooks');
 
     const teamLink = screen.getByText('Team').closest('a');
     expect(teamLink).toHaveAttribute('href', '/team');
@@ -74,10 +78,10 @@ describe('Sidebar', () => {
     expect(settingsLink).toHaveAttribute('href', '/settings');
   });
 
-  it('should render 7 navigation items', () => {
+  it('should render 9 links (logo + 8 navigation items)', () => {
     render(<Sidebar />);
     const navLinks = screen.getAllByRole('link');
-    // Dashboard, Repos, Jobs, Tests, Coverage, Team, Settings = 7 links
-    expect(navLinks.length).toBe(7);
+    // Logo/Home + Dashboard, Repos, Jobs, Tests, Coverage, Webhooks, Team, Settings = 9 links
+    expect(navLinks.length).toBe(9);
   });
 });

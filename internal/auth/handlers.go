@@ -13,10 +13,11 @@ import (
 
 // Handlers provides HTTP handlers for authentication
 type Handlers struct {
-	github   *GitHubProvider
-	sessions *SessionStore
-	store    *db.Store
-	ttl      time.Duration
+	github         *GitHubProvider
+	sessions       *SessionStore
+	store          *db.Store
+	lockoutService *LockoutService
+	ttl            time.Duration
 }
 
 // NewHandlers creates new auth handlers
@@ -36,6 +37,11 @@ func NewHandlersWithStore(github *GitHubProvider, sessions *SessionStore, store 
 		store:    store,
 		ttl:      24 * time.Hour,
 	}
+}
+
+// SetLockoutService sets the lockout service for brute force protection
+func (h *Handlers) SetLockoutService(svc *LockoutService) {
+	h.lockoutService = svc
 }
 
 // LoginResponse is returned after successful login
@@ -71,6 +77,10 @@ func (h *Handlers) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 // HandleCallback handles the OAuth callback
 func (h *Handlers) HandleCallback(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	ip := r.RemoteAddr
+	userAgent := r.UserAgent()
+
 	// Get code and state from query params
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
@@ -90,9 +100,23 @@ func (h *Handlers) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if IP is locked out (brute force protection)
+	if h.lockoutService != nil {
+		locked, remaining, _ := h.lockoutService.IsLocked(ctx, ip, IdentifierTypeIP)
+		if locked {
+			log.Warn().Str("ip", ip).Dur("remaining", remaining).Msg("login attempt from locked out IP")
+			http.Error(w, "Too many failed attempts. Please try again later.", http.StatusTooManyRequests)
+			return
+		}
+	}
+
 	// Exchange code for token
 	token, err := h.github.Exchange(r.Context(), code, state)
 	if err != nil {
+		// Record failed attempt
+		if h.lockoutService != nil {
+			h.lockoutService.RecordAttempt(ctx, ip, IdentifierTypeIP, false, ip, userAgent)
+		}
 		log.Error().Err(err).Msg("failed to exchange code")
 		http.Error(w, "failed to complete authentication", http.StatusInternalServerError)
 		return
@@ -101,6 +125,10 @@ func (h *Handlers) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	// Get user info
 	githubUser, err := h.github.GetUser(r.Context(), token.AccessToken)
 	if err != nil {
+		// Record failed attempt
+		if h.lockoutService != nil {
+			h.lockoutService.RecordAttempt(ctx, ip, IdentifierTypeIP, false, ip, userAgent)
+		}
 		log.Error().Err(err).Msg("failed to get user info")
 		http.Error(w, "failed to get user info", http.StatusInternalServerError)
 		return
@@ -138,6 +166,11 @@ func (h *Handlers) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		log.Error().Err(err).Msg("failed to create session")
 		http.Error(w, "failed to create session", http.StatusInternalServerError)
 		return
+	}
+
+	// Record successful login attempt (clears failed attempts)
+	if h.lockoutService != nil {
+		h.lockoutService.RecordAttempt(ctx, ip, IdentifierTypeIP, true, ip, userAgent)
 	}
 
 	// Clear OAuth state cookie

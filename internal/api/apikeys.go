@@ -307,3 +307,98 @@ func (h *APIKeyHandlers) RevokeAPIKey(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// RotateAPIKeyResponse is the response for API key rotation
+type RotateAPIKeyResponse struct {
+	NewKey          APIKeyResponse `json:"new_key"`
+	OldKeyGraceEnds *time.Time     `json:"old_key_grace_ends,omitempty"`
+	Message         string         `json:"message"`
+}
+
+// RotateAPIKey rotates an API key - creates a new one and marks the old one with a grace period
+// POST /api/v1/api-keys/{keyID}/rotate
+func (h *APIKeyHandlers) RotateAPIKey(w http.ResponseWriter, r *http.Request) {
+	session, ok := auth.GetSessionFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	keyID, err := uuid.Parse(chi.URLParam(r, "keyID"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid key ID")
+		return
+	}
+
+	// Get the existing key
+	oldKey, err := h.store.GetAPIKeyByID(r.Context(), keyID)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to get API key")
+		writeError(w, http.StatusInternalServerError, "failed to get API key")
+		return
+	}
+
+	if oldKey == nil {
+		writeError(w, http.StatusNotFound, "API key not found")
+		return
+	}
+
+	// Verify user owns the key or has org admin access
+	if oldKey.UserID != session.UserID {
+		canManage, manageErr := h.store.CanManageOrg(r.Context(), oldKey.OrganizationID, session.UserID)
+		if manageErr != nil || !canManage {
+			writeError(w, http.StatusForbidden, "you don't have permission to rotate this API key")
+			return
+		}
+	}
+
+	// Check if key is already revoked
+	if oldKey.RevokedAt != nil {
+		writeError(w, http.StatusBadRequest, "cannot rotate a revoked key")
+		return
+	}
+
+	// Create a new key with the same scopes and org
+	newKey, err := h.store.CreateAPIKey(r.Context(), oldKey.OrganizationID, session.UserID, oldKey.Name+" (rotated)", oldKey.Scopes, oldKey.ExpiresAt)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to create rotated API key")
+		writeError(w, http.StatusInternalServerError, "failed to create new API key")
+		return
+	}
+
+	// Mark old key with 24h grace period
+	graceEnds := time.Now().Add(24 * time.Hour)
+	if err := h.store.SetAPIKeyGracePeriod(r.Context(), keyID, graceEnds); err != nil {
+		log.Error().Err(err).Msg("failed to set grace period on old key")
+		// Don't fail - the new key is created, just warn
+	}
+
+	// Log audit event
+	h.store.LogAuditEvent(r.Context(), &oldKey.OrganizationID, &session.UserID, db.AuditActionAPIKeyRotate,
+		db.ResourceTypeAPIKey, &keyID, map[string]string{
+			"old_key_id": keyID.String(),
+			"new_key_id": newKey.ID.String(),
+		}, "", "")
+
+	log.Info().
+		Str("old_key_id", keyID.String()).
+		Str("new_key_id", newKey.ID.String()).
+		Str("user_id", session.UserID.String()).
+		Time("grace_period_ends", graceEnds).
+		Msg("API key rotated")
+
+	writeJSON(w, http.StatusOK, RotateAPIKeyResponse{
+		NewKey: APIKeyResponse{
+			ID:             newKey.ID,
+			OrganizationID: newKey.OrganizationID,
+			Name:           newKey.Name,
+			KeyPrefix:      newKey.KeyPrefix,
+			Scopes:         newKey.Scopes,
+			ExpiresAt:      newKey.ExpiresAt,
+			CreatedAt:      newKey.CreatedAt,
+			Secret:         newKey.Secret, // Only returned on creation/rotation
+		},
+		OldKeyGraceEnds: &graceEnds,
+		Message:         "New key created. Old key will remain valid for 24 hours.",
+	})
+}

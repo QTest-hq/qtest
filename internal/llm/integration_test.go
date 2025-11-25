@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/QTest-hq/qtest/internal/config"
+	"github.com/QTest-hq/qtest/internal/resilience"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -150,8 +151,9 @@ func TestTrackedRouter_Complete(t *testing.T) {
 				Tier1: {ProviderOllama: "qwen2.5-coder:7b"},
 			},
 		},
-		clients:   map[Provider]Client{ProviderOllama: client},
-		fallbacks: []Provider{ProviderOllama},
+		clients:        map[Provider]Client{ProviderOllama: client},
+		fallbacks:      []Provider{ProviderOllama},
+		circuitBreaker: resilience.NewCircuitBreakerManager(),
 	}
 
 	tracker := NewUsageTracker(UsageTrackerConfig{MaxRecords: 100})
@@ -190,8 +192,9 @@ func TestTrackedRouter_Complete_BudgetExceeded(t *testing.T) {
 				Tier1: {ProviderOllama: "model"},
 			},
 		},
-		clients:   map[Provider]Client{ProviderOllama: client},
-		fallbacks: []Provider{ProviderOllama},
+		clients:        map[Provider]Client{ProviderOllama: client},
+		fallbacks:      []Provider{ProviderOllama},
+		circuitBreaker: resilience.NewCircuitBreakerManager(),
 	}
 
 	tracker := NewUsageTracker(UsageTrackerConfig{
@@ -228,8 +231,9 @@ func TestCachedRouter_Integration(t *testing.T) {
 				Tier1: {ProviderOllama: "model"},
 			},
 		},
-		clients:   map[Provider]Client{ProviderOllama: client},
-		fallbacks: []Provider{ProviderOllama},
+		clients:        map[Provider]Client{ProviderOllama: client},
+		fallbacks:      []Provider{ProviderOllama},
+		circuitBreaker: resilience.NewCircuitBreakerManager(),
 	}
 
 	cache := NewMemoryCache(100, time.Hour)
@@ -275,8 +279,9 @@ func TestFullPipeline_TrackerWithCache(t *testing.T) {
 				Tier1: {ProviderOllama: "model"},
 			},
 		},
-		clients:   map[Provider]Client{ProviderOllama: client},
-		fallbacks: []Provider{ProviderOllama},
+		clients:        map[Provider]Client{ProviderOllama: client},
+		fallbacks:      []Provider{ProviderOllama},
+		circuitBreaker: resilience.NewCircuitBreakerManager(),
 	}
 
 	cache := NewMemoryCache(100, time.Hour)
@@ -342,7 +347,8 @@ func TestRouter_Complete_FallbackChain(t *testing.T) {
 			ProviderOllama:    ollamaClient,
 			ProviderAnthropic: anthropicClient,
 		},
-		fallbacks: []Provider{ProviderOllama, ProviderAnthropic},
+		fallbacks:      []Provider{ProviderOllama, ProviderAnthropic},
+		circuitBreaker: resilience.NewCircuitBreakerManager(),
 	}
 
 	resp, err := router.Complete(context.Background(), &Request{Tier: Tier1})
@@ -365,8 +371,9 @@ func TestRouter_Complete_AllTiers(t *testing.T) {
 				Tier3: {ProviderOllama: "tier3-model"},
 			},
 		},
-		clients:   map[Provider]Client{ProviderOllama: client},
-		fallbacks: []Provider{ProviderOllama},
+		clients:        map[Provider]Client{ProviderOllama: client},
+		fallbacks:      []Provider{ProviderOllama},
+		circuitBreaker: resilience.NewCircuitBreakerManager(),
 	}
 
 	tests := []struct {

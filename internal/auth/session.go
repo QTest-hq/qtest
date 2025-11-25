@@ -20,8 +20,7 @@ var (
 	ErrSessionNotFound = errors.New("session not found")
 	// ErrSessionExpired indicates the session has expired
 	ErrSessionExpired = errors.New("session expired")
-	// ErrInvalidToken indicates the token is invalid
-	ErrInvalidToken = errors.New("invalid token")
+	// Note: ErrInvalidToken is defined in jwt.go
 )
 
 // Session represents a user session
@@ -219,6 +218,8 @@ const (
 	UserKey contextKey = "user"
 	// APIKeyKey is the context key for API key info
 	APIKeyKey contextKey = "api_key"
+	// JWTClaimsKey is the context key for JWT claims
+	JWTClaimsKey contextKey = "jwt_claims"
 )
 
 // APIKeyInfo contains information about an authenticated API key
@@ -261,6 +262,12 @@ func GetAPIKeyFromContext(ctx context.Context) (*APIKeyInfo, bool) {
 	return info, ok
 }
 
+// GetJWTClaimsFromContext retrieves the JWT claims from context
+func GetJWTClaimsFromContext(ctx context.Context) (*QTestClaims, bool) {
+	claims, ok := ctx.Value(JWTClaimsKey).(*QTestClaims)
+	return claims, ok
+}
+
 // GetSessionFromContext retrieves the session from context
 func GetSessionFromContext(ctx context.Context) (*Session, bool) {
 	session, ok := ctx.Value(SessionKey).(*Session)
@@ -275,9 +282,11 @@ func GetUserFromContext(ctx context.Context) (*GitHubUser, bool) {
 
 // Middleware provides authentication middleware
 type Middleware struct {
-	sessions     *SessionStore
-	github       *GitHubProvider
+	sessions        *SessionStore
+	github          *GitHubProvider
 	apiKeyValidator APIKeyValidator
+	jwtService      *JWTService
+	refreshService  *RefreshService
 }
 
 // NewMiddleware creates a new auth middleware
@@ -291,6 +300,16 @@ func NewMiddleware(sessions *SessionStore, github *GitHubProvider) *Middleware {
 // SetAPIKeyValidator sets the API key validator for the middleware
 func (m *Middleware) SetAPIKeyValidator(v APIKeyValidator) {
 	m.apiKeyValidator = v
+}
+
+// SetJWTService sets the JWT service for the middleware
+func (m *Middleware) SetJWTService(jwtSvc *JWTService) {
+	m.jwtService = jwtSvc
+}
+
+// SetRefreshService sets the refresh token service for the middleware
+func (m *Middleware) SetRefreshService(refreshSvc *RefreshService) {
+	m.refreshService = refreshSvc
 }
 
 // RequireAuth is middleware that requires authentication
@@ -311,7 +330,36 @@ func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		// Try session-based authentication
+		// Try JWT authentication second (Bearer token with dots = JWT)
+		if claims, ok := m.tryJWTAuth(r); ok {
+			ctx = context.WithValue(ctx, JWTClaimsKey, claims)
+			// Create a synthetic session for JWT auth to work with existing handlers
+			userID, _ := uuid.Parse(claims.UserID)
+			var orgID *uuid.UUID
+			if claims.OrganizationID != "" {
+				parsed, _ := uuid.Parse(claims.OrganizationID)
+				orgID = &parsed
+			}
+			ctx = context.WithValue(ctx, SessionKey, &Session{
+				ID:        claims.SessionID,
+				UserID:    userID,
+				CreatedAt: claims.IssuedAt.Time,
+				ExpiresAt: claims.ExpiresAt.Time,
+				GitHubUser: &GitHubUser{
+					Login: claims.GitHubLogin,
+				},
+			})
+			// Also set API key info for scope checking
+			ctx = context.WithValue(ctx, APIKeyKey, &APIKeyInfo{
+				UserID:         userID,
+				OrganizationID: func() uuid.UUID { if orgID != nil { return *orgID }; return uuid.Nil }(),
+				Scopes:         claims.Scopes,
+			})
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+
+		// Try session-based authentication as fallback
 		session, err := m.extractSession(r)
 		if err != nil {
 			writeAuthError(w, http.StatusUnauthorized, "authentication required")
@@ -346,7 +394,34 @@ func (m *Middleware) OptionalAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		// Try session-based authentication
+		// Try JWT authentication second (Bearer token with dots = JWT)
+		if claims, ok := m.tryJWTAuth(r); ok {
+			ctx = context.WithValue(ctx, JWTClaimsKey, claims)
+			userID, _ := uuid.Parse(claims.UserID)
+			var orgID *uuid.UUID
+			if claims.OrganizationID != "" {
+				parsed, _ := uuid.Parse(claims.OrganizationID)
+				orgID = &parsed
+			}
+			ctx = context.WithValue(ctx, SessionKey, &Session{
+				ID:        claims.SessionID,
+				UserID:    userID,
+				CreatedAt: claims.IssuedAt.Time,
+				ExpiresAt: claims.ExpiresAt.Time,
+				GitHubUser: &GitHubUser{
+					Login: claims.GitHubLogin,
+				},
+			})
+			ctx = context.WithValue(ctx, APIKeyKey, &APIKeyInfo{
+				UserID:         userID,
+				OrganizationID: func() uuid.UUID { if orgID != nil { return *orgID }; return uuid.Nil }(),
+				Scopes:         claims.Scopes,
+			})
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+
+		// Try session-based authentication as fallback
 		session, err := m.extractSession(r)
 		if err == nil && session != nil {
 			ctx = context.WithValue(ctx, SessionKey, session)
@@ -422,6 +497,65 @@ func (m *Middleware) tryAPIKeyAuth(r *http.Request) (*APIKeyInfo, bool) {
 		Msg("API key authenticated")
 
 	return info, true
+}
+
+// tryJWTAuth attempts to authenticate using a JWT access token
+// JWTs are identified by having dots (.) in them - format: header.payload.signature
+func (m *Middleware) tryJWTAuth(r *http.Request) (*QTestClaims, bool) {
+	if m.jwtService == nil {
+		return nil, false
+	}
+
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return nil, false
+	}
+
+	const prefix = "Bearer "
+	if len(authHeader) <= len(prefix) || authHeader[:len(prefix)] != prefix {
+		return nil, false
+	}
+
+	token := authHeader[len(prefix):]
+
+	// Skip API keys and session tokens - JWTs have dots
+	if strings.HasPrefix(token, "qtest_") {
+		return nil, false
+	}
+	if !strings.Contains(token, ".") {
+		return nil, false
+	}
+
+	// Validate the JWT
+	claims, err := m.jwtService.ValidateAccessToken(token)
+	if err != nil {
+		log.Debug().Err(err).Msg("JWT validation failed")
+		return nil, false
+	}
+
+	// Check if the token has been revoked (blacklisted)
+	// The JTI is extracted from the validated claims, not from ParseUnverified
+	if m.refreshService != nil && claims.ID != "" {
+		blacklisted, err := m.refreshService.IsBlacklisted(r.Context(), claims.ID)
+		if err != nil {
+			log.Warn().Err(err).Msg("failed to check token blacklist")
+			// Fail open for availability, but log the error
+			// In high-security environments, consider failing closed instead
+		} else if blacklisted {
+			log.Info().
+				Str("jti", claims.ID[:8]+"...").
+				Str("user_id", claims.UserID[:8]+"...").
+				Msg("rejected blacklisted token")
+			return nil, false
+		}
+	}
+
+	log.Debug().
+		Str("user_id", claims.UserID[:8]+"...").
+		Str("session_id", claims.SessionID[:8]+"...").
+		Msg("JWT authenticated")
+
+	return claims, true
 }
 
 func writeAuthError(w http.ResponseWriter, status int, message string) {

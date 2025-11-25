@@ -212,6 +212,50 @@ func (s *Store) GetSystemModel(ctx context.Context, id uuid.UUID) (*SystemModel,
 	return model, nil
 }
 
+// GetSystemModelByRepoAndCommit retrieves a system model by repository and commit SHA
+func (s *Store) GetSystemModelByRepoAndCommit(ctx context.Context, repoID uuid.UUID, commitSHA string) (*SystemModel, error) {
+	model := &SystemModel{}
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, repository_id, commit_sha, model_data, created_at
+		FROM system_models
+		WHERE repository_id = $1 AND commit_sha = $2
+	`, repoID, commitSHA).Scan(&model.ID, &model.RepositoryID, &model.CommitSHA, &model.ModelData, &model.CreatedAt)
+
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get system model by repo and commit: %w", err)
+	}
+
+	return model, nil
+}
+
+// CreateOrUpdateSystemModel creates a new system model or updates an existing one
+// for the same repository and commit SHA. Uses upsert to handle duplicates gracefully.
+func (s *Store) CreateOrUpdateSystemModel(ctx context.Context, model *SystemModel) error {
+	if model.ID == uuid.Nil {
+		model.ID = uuid.New()
+	}
+	model.CreatedAt = time.Now()
+
+	// Use ON CONFLICT to handle duplicate (repository_id, commit_sha) gracefully
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO system_models (id, repository_id, commit_sha, model_data, created_at)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (repository_id, commit_sha) DO UPDATE SET
+			model_data = EXCLUDED.model_data,
+			created_at = EXCLUDED.created_at
+		RETURNING id
+	`, model.ID, model.RepositoryID, model.CommitSHA, model.ModelData, model.CreatedAt).Scan(&model.ID)
+
+	if err != nil {
+		return fmt.Errorf("failed to create/update system model: %w", err)
+	}
+
+	return nil
+}
+
 // CreateGenerationRun creates a new generation run
 func (s *Store) CreateGenerationRun(ctx context.Context, run *GenerationRun) error {
 	// Only generate a new UUID if one isn't already set

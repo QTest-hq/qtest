@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/QTest-hq/qtest/internal/config"
 )
 
 func TestHealthCheck(t *testing.T) {
@@ -46,7 +48,7 @@ func TestReadyCheck(t *testing.T) {
 		t.Errorf("readyCheck returned status %d, want %d", rr.Code, http.StatusOK)
 	}
 
-	var resp map[string]string
+	var resp map[string]interface{}
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}
@@ -54,21 +56,34 @@ func TestReadyCheck(t *testing.T) {
 	if resp["status"] != "ready" {
 		t.Errorf("status = %s, want ready", resp["status"])
 	}
+
+	// Verify circuit_breakers field is present
+	if _, ok := resp["circuit_breakers"]; !ok {
+		t.Error("circuit_breakers field missing from response")
+	}
 }
 
 func TestCorsMiddleware(t *testing.T) {
-	handler := corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := &Server{
+		cfg: &config.Config{
+			Security: config.SecurityConfig{
+				CORSAllowedOrigins: []string{"*"},
+			},
+		},
+	}
+	handler := server.corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	t.Run("sets CORS headers", func(t *testing.T) {
+	t.Run("sets CORS headers for allowed origin", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
+		req.Header.Set("Origin", "http://localhost:3000")
 		rr := httptest.NewRecorder()
 
 		handler.ServeHTTP(rr, req)
 
-		if rr.Header().Get("Access-Control-Allow-Origin") != "*" {
-			t.Error("Access-Control-Allow-Origin header not set")
+		if rr.Header().Get("Access-Control-Allow-Origin") != "http://localhost:3000" {
+			t.Errorf("Access-Control-Allow-Origin = %q, want %q", rr.Header().Get("Access-Control-Allow-Origin"), "http://localhost:3000")
 		}
 		if rr.Header().Get("Access-Control-Allow-Methods") == "" {
 			t.Error("Access-Control-Allow-Methods header not set")
@@ -80,12 +95,25 @@ func TestCorsMiddleware(t *testing.T) {
 
 	t.Run("OPTIONS request returns 200", func(t *testing.T) {
 		req := httptest.NewRequest("OPTIONS", "/test", nil)
+		req.Header.Set("Origin", "http://localhost:3000")
 		rr := httptest.NewRecorder()
 
 		handler.ServeHTTP(rr, req)
 
 		if rr.Code != http.StatusOK {
 			t.Errorf("OPTIONS returned status %d, want %d", rr.Code, http.StatusOK)
+		}
+	})
+
+	t.Run("rejects requests without origin", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/test", nil)
+		rr := httptest.NewRecorder()
+
+		handler.ServeHTTP(rr, req)
+
+		// No Origin header means no CORS header should be set
+		if rr.Header().Get("Access-Control-Allow-Origin") != "" {
+			t.Error("Access-Control-Allow-Origin should not be set for requests without Origin")
 		}
 	})
 }
@@ -474,13 +502,144 @@ func TestReadyCheck_NoStore(t *testing.T) {
 		t.Errorf("readyCheck returned status %d, want %d", rr.Code, http.StatusOK)
 	}
 
-	var resp map[string]string
+	var resp map[string]interface{}
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}
 
 	if resp["status"] != "ready" {
 		t.Errorf("status = %s, want ready", resp["status"])
+	}
+}
+
+func TestIsAllowedOrigin(t *testing.T) {
+	tests := []struct {
+		name           string
+		allowedOrigins []string
+		origin         string
+		want           bool
+	}{
+		// Basic exact match tests
+		{
+			name:           "exact match",
+			allowedOrigins: []string{"https://example.com"},
+			origin:         "https://example.com",
+			want:           true,
+		},
+		{
+			name:           "no match",
+			allowedOrigins: []string{"https://example.com"},
+			origin:         "https://other.com",
+			want:           false,
+		},
+		{
+			name:           "wildcard allows all",
+			allowedOrigins: []string{"*"},
+			origin:         "https://anything.com",
+			want:           true,
+		},
+		{
+			name:           "empty origin rejected",
+			allowedOrigins: []string{"*"},
+			origin:         "",
+			want:           false,
+		},
+
+		// Wildcard subdomain tests
+		{
+			name:           "wildcard subdomain match",
+			allowedOrigins: []string{"*.example.com"},
+			origin:         "https://sub.example.com",
+			want:           true,
+		},
+		{
+			name:           "wildcard subdomain nested match",
+			allowedOrigins: []string{"*.example.com"},
+			origin:         "https://deep.sub.example.com",
+			want:           true,
+		},
+		{
+			name:           "wildcard subdomain base domain match",
+			allowedOrigins: []string{"*.example.com"},
+			origin:         "https://example.com",
+			want:           true,
+		},
+
+		// Security: suffix attack prevention
+		{
+			name:           "prevents suffix attack - attacker domain",
+			allowedOrigins: []string{"*.example.com"},
+			origin:         "https://evil.example.com.attacker.com",
+			want:           false,
+		},
+		{
+			name:           "prevents suffix attack - malicious subdomain",
+			allowedOrigins: []string{"*.example.com"},
+			origin:         "https://example.com.evil.com",
+			want:           false,
+		},
+		{
+			name:           "prevents suffix attack - similar domain",
+			allowedOrigins: []string{"*.example.com"},
+			origin:         "https://notexample.com",
+			want:           false,
+		},
+		{
+			name:           "prevents prefix attack",
+			allowedOrigins: []string{"*.example.com"},
+			origin:         "https://example.com.sub",
+			want:           false,
+		},
+
+		// Invalid input handling
+		{
+			name:           "invalid URL rejected",
+			allowedOrigins: []string{"*.example.com"},
+			origin:         "not-a-url",
+			want:           false,
+		},
+		{
+			name:           "URL without host rejected",
+			allowedOrigins: []string{"*.example.com"},
+			origin:         "file:///path/to/file",
+			want:           false,
+		},
+
+		// Multiple allowed origins
+		{
+			name:           "multiple origins first match",
+			allowedOrigins: []string{"https://a.com", "https://b.com"},
+			origin:         "https://a.com",
+			want:           true,
+		},
+		{
+			name:           "multiple origins second match",
+			allowedOrigins: []string{"https://a.com", "https://b.com"},
+			origin:         "https://b.com",
+			want:           true,
+		},
+		{
+			name:           "multiple origins with wildcard subdomain",
+			allowedOrigins: []string{"https://a.com", "*.b.com"},
+			origin:         "https://sub.b.com",
+			want:           true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := &Server{
+				cfg: &config.Config{
+					Security: config.SecurityConfig{
+						CORSAllowedOrigins: tt.allowedOrigins,
+					},
+				},
+			}
+			got := server.isAllowedOrigin(tt.origin)
+			if got != tt.want {
+				t.Errorf("isAllowedOrigin(%q) = %v, want %v", tt.origin, got, tt.want)
+			}
+		})
 	}
 }
 

@@ -455,6 +455,53 @@ class ApiClient {
   async getOrgJobs(orgId: string, limit = 20): Promise<Job[]> {
     return this.request(`/api/v1/organizations/${orgId}/jobs?limit=${limit}`);
   }
+
+  // Webhook endpoints
+  async listWebhooks(orgId: string, limit = 20, offset = 0): Promise<Webhook[]> {
+    return this.request(`/api/v1/organizations/${orgId}/webhooks?limit=${limit}&offset=${offset}`);
+  }
+
+  async createWebhook(orgId: string, req: CreateWebhookRequest): Promise<WebhookWithSecret> {
+    return this.request(`/api/v1/organizations/${orgId}/webhooks`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  }
+
+  async getWebhook(orgId: string, webhookId: string): Promise<Webhook> {
+    return this.request(`/api/v1/organizations/${orgId}/webhooks/${webhookId}`);
+  }
+
+  async updateWebhook(orgId: string, webhookId: string, updates: UpdateWebhookRequest): Promise<Webhook> {
+    return this.request(`/api/v1/organizations/${orgId}/webhooks/${webhookId}`, {
+      method: "PATCH",
+      body: JSON.stringify(updates),
+    });
+  }
+
+  async deleteWebhook(orgId: string, webhookId: string): Promise<void> {
+    await this.request(`/api/v1/organizations/${orgId}/webhooks/${webhookId}`, { method: "DELETE" });
+  }
+
+  async listWebhookDeliveries(orgId: string, webhookId: string, limit = 20): Promise<WebhookDelivery[]> {
+    return this.request(`/api/v1/organizations/${orgId}/webhooks/${webhookId}/deliveries?limit=${limit}`);
+  }
+
+  async sendTestWebhook(orgId: string, webhookId: string): Promise<{ status: string; message: string }> {
+    return this.request(`/api/v1/organizations/${orgId}/webhooks/${webhookId}/test`, { method: "POST" });
+  }
+
+  async retryWebhookDelivery(orgId: string, webhookId: string, deliveryId: string): Promise<void> {
+    await this.request(`/api/v1/organizations/${orgId}/webhooks/${webhookId}/deliveries/${deliveryId}/retry`, {
+      method: "POST",
+    });
+  }
+
+  async regenerateWebhookSecret(orgId: string, webhookId: string): Promise<{ secret: string }> {
+    return this.request(`/api/v1/organizations/${orgId}/webhooks/${webhookId}/secret`, {
+      method: "POST",
+    });
+  }
 }
 
 // Export singleton instance
@@ -543,6 +590,73 @@ export interface TeamActivity {
   repo_name?: string;
   created_at: string;
 }
+
+// Webhook types
+export interface Webhook {
+  id: string;
+  organization_id: string;
+  name: string;
+  url: string;
+  events: string[];
+  is_active: boolean;
+  max_retries: number;
+  timeout_seconds: number;
+  description?: string;
+  headers?: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+  last_triggered_at?: string;
+}
+
+export interface WebhookWithSecret extends Webhook {
+  secret: string; // Only returned on creation
+}
+
+export interface WebhookDelivery {
+  id: string;
+  webhook_id: string;
+  event_type: string;
+  event_id: string;
+  status: "pending" | "success" | "failed" | "retrying";
+  attempt_count: number;
+  response_status?: number;
+  response_body?: string;
+  error_message?: string;
+  request_body?: string;
+  created_at: string;
+  delivered_at?: string;
+  duration_ms?: number;
+}
+
+export interface CreateWebhookRequest {
+  name: string;
+  url: string;
+  events: string[];
+  description?: string;
+  headers?: Record<string, string>;
+}
+
+export interface UpdateWebhookRequest {
+  name?: string;
+  url?: string;
+  events?: string[];
+  description?: string;
+  headers?: Record<string, string>;
+  is_active?: boolean;
+}
+
+// Supported webhook event types
+export const WEBHOOK_EVENT_TYPES = [
+  "job.completed",
+  "job.failed",
+  "run.started",
+  "run.completed",
+  "tests.generated",
+  "tests.validated",
+  "mutation.completed",
+] as const;
+
+export type WebhookEventType = typeof WEBHOOK_EVENT_TYPES[number];
 
 // Export class for custom instances
 export { ApiClient };

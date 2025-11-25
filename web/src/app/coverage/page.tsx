@@ -1,8 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Sidebar from "@/components/Sidebar";
 import { api, CoverageSummary, CoverageSnapshot } from "@/lib/api";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+} from "recharts";
 
 export default function CoverageDashboardPage() {
   const [summary, setSummary] = useState<CoverageSummary | null>(null);
@@ -42,6 +54,38 @@ export default function CoverageDashboardPage() {
     if (percent >= 60) return "bg-yellow-500";
     return "bg-red-500";
   }
+
+  // Prepare chart data from snapshots (grouped by date, showing trend over time)
+  const chartData = useMemo(() => {
+    if (snapshots.length === 0) return [];
+
+    // Group by date and calculate average coverage for that day
+    const byDate = new Map<string, { total: number; count: number; covered: number; lines: number }>();
+
+    snapshots.forEach((snap) => {
+      const date = new Date(snap.created_at).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      });
+      const existing = byDate.get(date) || { total: 0, count: 0, covered: 0, lines: 0 };
+      byDate.set(date, {
+        total: existing.total + snap.coverage_percent,
+        count: existing.count + 1,
+        covered: existing.covered + snap.covered_lines,
+        lines: existing.lines + snap.total_lines,
+      });
+    });
+
+    // Convert to array and sort by date
+    return Array.from(byDate.entries())
+      .map(([date, data]) => ({
+        date,
+        coverage: Math.round((data.total / data.count) * 10) / 10,
+        covered: data.covered,
+        total: data.lines,
+      }))
+      .reverse(); // Most recent last for proper chart display
+  }, [snapshots]);
 
   function getDeltaIcon(delta: number) {
     if (delta > 0) {
@@ -180,6 +224,82 @@ export default function CoverageDashboardPage() {
                     <span className="flex items-center"><span className="w-3 h-3 rounded bg-green-500 mr-1"></span> 80%+</span>
                     <span className="flex items-center"><span className="w-3 h-3 rounded bg-yellow-500 mr-1"></span> 50-80%</span>
                     <span className="flex items-center"><span className="w-3 h-3 rounded bg-red-500 mr-1"></span> &lt;50%</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Coverage Trend Chart */}
+              {chartData.length > 1 && (
+                <div className="mb-8 rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200 dark:bg-gray-800 dark:ring-gray-700">
+                  <h2 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Coverage Trend</h2>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="coverageGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fill: "#6b7280", fontSize: 12 }}
+                          tickLine={{ stroke: "#6b7280" }}
+                        />
+                        <YAxis
+                          domain={[0, 100]}
+                          tick={{ fill: "#6b7280", fontSize: 12 }}
+                          tickLine={{ stroke: "#6b7280" }}
+                          tickFormatter={(value) => `${value}%`}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: "rgba(255, 255, 255, 0.95)",
+                            border: "1px solid #e5e7eb",
+                            borderRadius: "0.5rem",
+                            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+                          }}
+                          formatter={(value: number) => [`${value}%`, "Coverage"]}
+                          labelStyle={{ fontWeight: 600, marginBottom: 4 }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="coverage"
+                          stroke="#6366f1"
+                          strokeWidth={2}
+                          fill="url(#coverageGradient)"
+                          dot={{ fill: "#6366f1", strokeWidth: 2 }}
+                          activeDot={{ r: 6, fill: "#6366f1" }}
+                        />
+                        {/* Reference lines for thresholds */}
+                        <Line
+                          type="monotone"
+                          dataKey={() => 80}
+                          stroke="#22c55e"
+                          strokeDasharray="5 5"
+                          strokeWidth={1}
+                          dot={false}
+                          name="Target (80%)"
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey={() => 50}
+                          stroke="#f59e0b"
+                          strokeDasharray="5 5"
+                          strokeWidth={1}
+                          dot={false}
+                          name="Warning (50%)"
+                        />
+                        <Legend
+                          verticalAlign="top"
+                          height={36}
+                          formatter={(value) => (
+                            <span className="text-sm text-gray-600 dark:text-gray-400">{value}</span>
+                          )}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
               )}

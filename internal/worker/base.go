@@ -12,7 +12,9 @@ import (
 
 	"github.com/QTest-hq/qtest/internal/config"
 	"github.com/QTest-hq/qtest/internal/jobs"
+	"github.com/QTest-hq/qtest/internal/metrics"
 	qtestnats "github.com/QTest-hq/qtest/internal/nats"
+	"github.com/QTest-hq/qtest/internal/telemetry"
 )
 
 // BaseWorker provides common functionality for all workers
@@ -124,6 +126,9 @@ func (w *BaseWorker) processFromNATS(ctx context.Context) error {
 	}
 
 	for msg := range msgs.Messages() {
+		// Record NATS message received
+		metrics.NATSMessagesReceived.WithLabelValues(msg.Subject()).Inc()
+
 		jobMsg, err := jobs.DecodeJobMessage(msg.Data())
 		if err != nil {
 			log.Error().Err(err).Msg("failed to decode job message")
@@ -131,8 +136,14 @@ func (w *BaseWorker) processFromNATS(ctx context.Context) error {
 			continue
 		}
 
+		// Extract trace context from the job message for distributed tracing
+		jobCtx := ctx
+		if jobMsg.TraceContext != nil && len(jobMsg.TraceContext) > 0 {
+			jobCtx = telemetry.ExtractTraceContext(ctx, jobMsg.TraceContext)
+		}
+
 		// Claim the job from DB
-		job, err := w.repo.Claim(ctx, jobMsg.JobID, w.workerID, w.lockTime)
+		job, err := w.repo.Claim(jobCtx, jobMsg.JobID, w.workerID, w.lockTime)
 		if err != nil {
 			log.Error().Err(err).Str("job_id", jobMsg.JobID.String()).Msg("failed to claim job")
 			msg.Nak()
@@ -145,8 +156,8 @@ func (w *BaseWorker) processFromNATS(ctx context.Context) error {
 			continue
 		}
 
-		// Process the job
-		if err := w.processJob(ctx, job); err != nil {
+		// Process the job with trace context
+		if err := w.processJob(jobCtx, job); err != nil {
 			log.Error().Err(err).Str("job_id", job.ID.String()).Msg("job processing failed")
 		}
 
@@ -209,6 +220,14 @@ func (w *BaseWorker) processJob(ctx context.Context, job *jobs.Job) error {
 
 	logger.Info().Msg("processing job")
 
+	// Record job in-progress metrics
+	jobType := string(job.Type)
+	metrics.JobsInProgress.WithLabelValues(jobType, w.workerID).Inc()
+	defer metrics.JobsInProgress.WithLabelValues(jobType, w.workerID).Dec()
+
+	// Start timing the job
+	start := time.Now()
+
 	// Create a context with timeout based on lock time
 	jobCtx, cancel := context.WithTimeout(ctx, w.lockTime-30*time.Second)
 	defer cancel()
@@ -223,13 +242,21 @@ func (w *BaseWorker) processJob(ctx context.Context, job *jobs.Job) error {
 	// Stop lock extension
 	close(done)
 
+	// Record job duration
+	duration := time.Since(start).Seconds()
+	metrics.JobDuration.WithLabelValues(jobType).Observe(duration)
+
 	if err != nil {
 		logger.Error().Err(err).Msg("job failed")
+		metrics.JobsCompletedTotal.WithLabelValues(jobType, "failed").Inc()
 		if failErr := w.repo.Fail(ctx, job.ID, err.Error(), nil); failErr != nil {
 			logger.Error().Err(failErr).Msg("failed to mark job as failed")
 		}
 		return err
 	}
+
+	// Record successful completion
+	metrics.JobsCompletedTotal.WithLabelValues(jobType, "completed").Inc()
 
 	logger.Info().Msg("job completed")
 	return nil

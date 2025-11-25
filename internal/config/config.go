@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
+	"time"
 )
 
 // Config holds all application configuration
@@ -35,6 +37,44 @@ type Config struct {
 
 	// Rate Limiting
 	RateLimit RateLimitConfig
+
+	// Security
+	Security SecurityConfig
+
+	// Telemetry (OpenTelemetry tracing)
+	Telemetry TelemetryConfig
+
+	// Security Headers
+	SecurityHeaders SecurityHeadersConfig
+}
+
+// SecurityConfig holds security-related configuration
+type SecurityConfig struct {
+	// CORS
+	CORSAllowedOrigins   []string
+	CORSAllowCredentials bool
+
+	// JWT
+	JWTPrivateKeyPath string
+	JWTPrivateKeyPEM  string
+	JWTPublicKeyPath  string
+	JWTIssuer         string
+	JWTAccessTTL      time.Duration
+	JWTRefreshTTL     time.Duration
+	JWTKeyID          string
+
+	// Account lockout
+	LockoutMaxAttempts    int
+	LockoutDuration       time.Duration
+	LockoutWindowDuration time.Duration
+
+	// API Keys
+	APIKeyDefaultExpiryDays int
+	APIKeyGracePeriod       time.Duration
+
+	// Security headers
+	HSTSEnabled bool // Enable HTTP Strict Transport Security (production with HTTPS only)
+	HSTSMaxAge  int  // HSTS max-age in seconds (default: 31536000 = 1 year)
 }
 
 // RateLimitConfig holds rate limiting configuration
@@ -66,6 +106,23 @@ type GitHubAppConfig struct {
 	WebhookSecret string
 	// Enabled indicates if GitHub App auth is configured
 	Enabled bool
+}
+
+// TelemetryConfig holds OpenTelemetry tracing configuration
+type TelemetryConfig struct {
+	Enabled      bool
+	OTLPEndpoint string
+	SamplingRate float64
+	ServiceName  string
+}
+
+// SecurityHeadersConfig holds security headers middleware configuration
+type SecurityHeadersConfig struct {
+	Enabled        bool
+	HSTSEnabled    bool
+	HSTSMaxAge     int
+	FrameOptions   string
+	ReferrerPolicy string
 }
 
 // LLMConfig holds LLM-related configuration
@@ -128,6 +185,45 @@ func Load() (*Config, error) {
 			IPPerHour:        getEnvInt("RATE_LIMIT_IP_PER_HOUR", 100),
 			StorageBackend:   getEnv("RATE_LIMIT_STORAGE", "memory"),
 		},
+
+		Security: SecurityConfig{
+			// CORS - allow localhost by default in development
+			CORSAllowedOrigins:   getEnvStringSlice("CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001"}),
+			CORSAllowCredentials: getEnvBool("CORS_ALLOW_CREDENTIALS", true),
+
+			// JWT configuration
+			JWTPrivateKeyPath: getEnv("JWT_PRIVATE_KEY_PATH", ""),
+			JWTPrivateKeyPEM:  getEnv("JWT_PRIVATE_KEY_PEM", ""),
+			JWTPublicKeyPath:  getEnv("JWT_PUBLIC_KEY_PATH", ""),
+			JWTIssuer:         getEnv("JWT_ISSUER", "https://api.qtest.io"),
+			JWTAccessTTL:      getEnvDuration("JWT_ACCESS_TTL", 15*time.Minute),
+			JWTRefreshTTL:     getEnvDuration("JWT_REFRESH_TTL", 7*24*time.Hour),
+			JWTKeyID:          getEnv("JWT_KEY_ID", "v1"),
+
+			// Account lockout
+			LockoutMaxAttempts:    getEnvInt("ACCOUNT_LOCKOUT_ATTEMPTS", 5),
+			LockoutDuration:       getEnvDuration("ACCOUNT_LOCKOUT_DURATION", 15*time.Minute),
+			LockoutWindowDuration: getEnvDuration("ACCOUNT_LOCKOUT_WINDOW", 15*time.Minute),
+
+			// API Keys
+			APIKeyDefaultExpiryDays: getEnvInt("API_KEY_DEFAULT_EXPIRY_DAYS", 90),
+			APIKeyGracePeriod:       getEnvDuration("API_KEY_ROTATION_GRACE_PERIOD", 24*time.Hour),
+		},
+
+		Telemetry: TelemetryConfig{
+			Enabled:      getEnvBool("OTEL_ENABLED", false),
+			OTLPEndpoint: getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317"),
+			SamplingRate: getEnvFloat64("OTEL_SAMPLING_RATE", 1.0),
+			ServiceName:  getEnv("OTEL_SERVICE_NAME", "qtest"),
+		},
+
+		SecurityHeaders: SecurityHeadersConfig{
+			Enabled:        getEnvBool("SECURITY_HEADERS_ENABLED", true),
+			HSTSEnabled:    getEnvBool("SECURITY_HSTS_ENABLED", false),
+			HSTSMaxAge:     getEnvInt("SECURITY_HSTS_MAX_AGE", 31536000),
+			FrameOptions:   getEnv("SECURITY_FRAME_OPTIONS", "DENY"),
+			ReferrerPolicy: getEnv("SECURITY_REFERRER_POLICY", "strict-origin-when-cross-origin"),
+		},
 	}
 
 	return cfg, nil
@@ -147,7 +243,30 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// Production-specific validation
+	if c.Env == "production" {
+		// Require explicit database URL in production (no defaults with hardcoded creds)
+		if c.DatabaseURL == "" {
+			return fmt.Errorf("DATABASE_URL required in production")
+		}
+		// Warn if SSL is disabled in production
+		if strings.Contains(c.DatabaseURL, "sslmode=disable") {
+			// Log warning but don't fail - some internal deployments may not need SSL
+			fmt.Println("WARNING: Database SSL is disabled in production. Consider using sslmode=require")
+		}
+
+		// Require explicit CORS origins in production
+		if len(c.Security.CORSAllowedOrigins) == 0 {
+			return fmt.Errorf("CORS_ALLOWED_ORIGINS required in production")
+		}
+	}
+
 	return nil
+}
+
+// IsProductionMode returns true if running in production
+func (c *Config) IsProductionMode() bool {
+	return c.Env == "production"
 }
 
 func getEnv(key, defaultValue string) string {
@@ -179,6 +298,42 @@ func getEnvInt64(key string, defaultValue int64) int64 {
 	if value := os.Getenv(key); value != "" {
 		if i, err := strconv.ParseInt(value, 10, 64); err == nil {
 			return i
+		}
+	}
+	return defaultValue
+}
+
+func getEnvFloat64(key string, defaultValue float64) float64 {
+	if value := os.Getenv(key); value != "" {
+		if f, err := strconv.ParseFloat(value, 64); err == nil {
+			return f
+		}
+	}
+	return defaultValue
+}
+
+func getEnvStringSlice(key string, defaultValue []string) []string {
+	if value := os.Getenv(key); value != "" {
+		// Split by comma and trim whitespace
+		parts := strings.Split(value, ",")
+		result := make([]string, 0, len(parts))
+		for _, p := range parts {
+			trimmed := strings.TrimSpace(p)
+			if trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
+		if len(result) > 0 {
+			return result
+		}
+	}
+	return defaultValue
+}
+
+func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
+	if value := os.Getenv(key); value != "" {
+		if d, err := time.ParseDuration(value); err == nil {
+			return d
 		}
 	}
 	return defaultValue

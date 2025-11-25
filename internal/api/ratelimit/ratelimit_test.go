@@ -497,3 +497,67 @@ func TestResult_Fields(t *testing.T) {
 		t.Errorf("WindowType = %s, want per_minute", result.WindowType)
 	}
 }
+
+// TestMemoryStorage_Concurrent tests thread safety of memory storage
+func TestMemoryStorage_Concurrent(t *testing.T) {
+	storage := NewMemoryStorage()
+	defer storage.Close()
+	ctx := context.Background()
+
+	const numGoroutines = 100
+	const numIterations = 100
+
+	done := make(chan bool, numGoroutines)
+
+	// Launch concurrent goroutines that increment the same key
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			for j := 0; j < numIterations; j++ {
+				_, _, err := storage.Increment(ctx, "concurrent:key", time.Minute, 10000)
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+			}
+			done <- true
+		}()
+	}
+
+	// Wait for all goroutines to complete
+	for i := 0; i < numGoroutines; i++ {
+		<-done
+	}
+
+	// Verify final count
+	count, _, err := storage.Get(ctx, "concurrent:key")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expectedCount := int64(numGoroutines * numIterations)
+	if count != expectedCount {
+		t.Errorf("count = %d, want %d (race condition detected)", count, expectedCount)
+	}
+}
+
+// TestMemoryStorage_CloseWhileRunning tests closing during operations
+func TestMemoryStorage_CloseWhileRunning(t *testing.T) {
+	storage := NewMemoryStorage()
+	ctx := context.Background()
+
+	// Make some requests
+	for i := 0; i < 10; i++ {
+		storage.Increment(ctx, "close:test", time.Minute, 100)
+	}
+
+	// Close should not panic
+	err := storage.Close()
+	if err != nil {
+		t.Errorf("Close() error = %v", err)
+	}
+
+	// Double close should be safe
+	err = storage.Close()
+	if err != nil {
+		t.Errorf("second Close() error = %v", err)
+	}
+}

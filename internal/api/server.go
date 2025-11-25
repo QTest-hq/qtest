@@ -5,17 +5,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	apimiddleware "github.com/QTest-hq/qtest/internal/api/middleware"
 	"github.com/QTest-hq/qtest/internal/api/ratelimit"
 	"github.com/QTest-hq/qtest/internal/auth"
 	"github.com/QTest-hq/qtest/internal/config"
 	"github.com/QTest-hq/qtest/internal/db"
 	gh "github.com/QTest-hq/qtest/internal/github"
 	"github.com/QTest-hq/qtest/internal/jobs"
+	"github.com/QTest-hq/qtest/internal/metrics"
 	qtestnats "github.com/QTest-hq/qtest/internal/nats"
+	"github.com/QTest-hq/qtest/internal/resilience"
+	"github.com/QTest-hq/qtest/internal/telemetry"
 	"github.com/QTest-hq/qtest/internal/webhook"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -48,6 +53,9 @@ type Server struct {
 	// Auth components
 	authHandlers   *auth.Handlers
 	authMiddleware *auth.Middleware
+	jwtService     *auth.JWTService
+	refreshService *auth.RefreshService
+	lockoutService *auth.LockoutService
 
 	// Rate limiter
 	rateLimiter *ratelimit.RateLimiter
@@ -70,6 +78,12 @@ type Server struct {
 
 	// Admin handlers
 	adminHandlers *AdminHandlers
+
+	// WebSocket hub
+	wsHub *WSHub
+
+	// Task pool for background operations (e.g., repository cloning)
+	clonePool *TaskPool
 }
 
 // NewServer creates a new API server
@@ -85,6 +99,7 @@ func NewServer(cfg *config.Config, database *db.DB) (*Server, error) {
 		auditHandlers:  NewAuditHandlers(store),
 		usageHandlers:  NewUsageHandlers(store),
 		adminHandlers:  NewAdminHandlers(store),
+		clonePool:      NewTaskPool(5), // Limit concurrent repository clones
 	}
 
 	return s, nil
@@ -95,6 +110,15 @@ func (s *Server) Initialize() error {
 	s.setupMiddleware()
 	s.setupRoutes()
 	return nil
+}
+
+// Close gracefully shuts down the server's background tasks
+func (s *Server) Close() {
+	if s.clonePool != nil {
+		log.Info().Msg("closing clone pool, waiting for pending tasks")
+		s.clonePool.Close()
+		log.Info().Msg("clone pool closed")
+	}
 }
 
 // SetJobSystem configures the job processing system
@@ -130,6 +154,34 @@ func (s *Server) SetWebhookService(svc *webhook.Service) {
 	s.webhookService = svc
 	s.webhookHandlers = NewWebhookHandlers(s.store, svc)
 	log.Info().Msg("webhook service configured")
+}
+
+// SetAuthServices configures JWT, refresh, and lockout services
+func (s *Server) SetAuthServices(jwtSvc *auth.JWTService, refreshSvc *auth.RefreshService, lockoutSvc *auth.LockoutService) {
+	s.jwtService = jwtSvc
+	s.refreshService = refreshSvc
+	s.lockoutService = lockoutSvc
+
+	// Wire JWT service to auth middleware if available
+	if s.authMiddleware != nil && jwtSvc != nil {
+		s.authMiddleware.SetJWTService(jwtSvc)
+		s.authMiddleware.SetRefreshService(refreshSvc)
+		log.Info().Msg("JWT service wired to auth middleware")
+	}
+
+	log.Info().Msg("auth services configured")
+}
+
+// StartWebSocketHub creates and starts the WebSocket hub for real-time updates
+func (s *Server) StartWebSocketHub(ctx context.Context) {
+	s.wsHub = NewWSHub()
+	go s.wsHub.Run(ctx)
+	log.Info().Msg("WebSocket hub started")
+}
+
+// GetWebSocketHub returns the WebSocket hub for broadcasting events
+func (s *Server) GetWebSocketHub() *WSHub {
+	return s.wsHub
 }
 
 // GetWebhookService returns the webhook service for external use
@@ -171,7 +223,35 @@ func (s *Server) setupMiddleware() {
 	s.router.Use(middleware.Logger)
 	s.router.Use(middleware.Recoverer)
 	s.router.Use(middleware.Timeout(60 * time.Second))
-	s.router.Use(corsMiddleware)
+	s.router.Use(s.corsMiddleware)
+
+	// OpenTelemetry tracing middleware (if enabled)
+	if s.cfg.Telemetry.Enabled {
+		s.router.Use(telemetry.HTTPMiddleware("qtest-api"))
+		log.Info().Msg("OpenTelemetry tracing middleware applied")
+	}
+
+	// Security headers - add early in the chain
+	securityConfig := apimiddleware.DefaultSecurityHeadersConfig()
+	if s.cfg.Security.HSTSEnabled {
+		securityConfig.HSTSEnabled = true
+		securityConfig.HSTSMaxAge = s.cfg.Security.HSTSMaxAge
+	}
+	s.router.Use(apimiddleware.SecurityHeaders(securityConfig))
+	log.Info().Msg("security headers middleware applied")
+
+	// Body size limit - protect against large request attacks
+	s.router.Use(apimiddleware.DefaultBodyLimitMiddleware())
+	log.Info().Msg("body limit middleware applied (1MB default)")
+
+	// Add Prometheus metrics middleware (before rate limiting for accurate measurements)
+	s.router.Use(apimiddleware.Metrics())
+	log.Info().Msg("prometheus metrics middleware applied")
+
+	// Audit logging for sensitive endpoints
+	auditConfig := apimiddleware.DefaultAuditConfig()
+	s.router.Use(apimiddleware.Audit(auditConfig))
+	log.Info().Msg("audit logging middleware applied")
 
 	// Apply rate limiting if configured
 	if s.rateLimiter != nil {
@@ -181,11 +261,26 @@ func (s *Server) setupMiddleware() {
 }
 
 
-func corsMiddleware(next http.Handler) http.Handler {
+// corsMiddleware creates a CORS middleware with configurable origins
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		origin := r.Header.Get("Origin")
+
+		// Check if origin is allowed
+		allowed := s.isAllowedOrigin(origin)
+
+		if allowed && origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			if s.cfg.Security.CORSAllowCredentials {
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
+		}
+
+		// Always set Vary header for proper caching
+		w.Header().Set("Vary", "Origin")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, X-Request-ID")
+		w.Header().Set("Access-Control-Max-Age", "86400") // 24 hours preflight cache
 
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
@@ -196,10 +291,56 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// isAllowedOrigin checks if the origin is in the allowed list
+func (s *Server) isAllowedOrigin(origin string) bool {
+	if origin == "" {
+		return false
+	}
+
+	// Parse the origin URL to extract the host
+	originURL, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	originHost := originURL.Hostname()
+	if originHost == "" {
+		return false
+	}
+
+	// Check configured allowed origins
+	for _, allowed := range s.cfg.Security.CORSAllowedOrigins {
+		if allowed == "*" {
+			log.Warn().Msg("CORS wildcard origin (*) is enabled - not recommended for production")
+			return true
+		}
+		if allowed == origin {
+			return true
+		}
+		// Support wildcard subdomains like "*.example.com"
+		if strings.HasPrefix(allowed, "*.") {
+			// Extract the base domain from the pattern (e.g., "example.com" from "*.example.com")
+			baseDomain := allowed[2:] // Remove "*."
+
+			// The origin host must either:
+			// 1. Be exactly the base domain (e.g., "example.com" matches "*.example.com")
+			// 2. End with "." + baseDomain (e.g., "sub.example.com" matches "*.example.com")
+			// This prevents "evil.example.com.attacker.com" from matching "*.example.com"
+			if originHost == baseDomain || strings.HasSuffix(originHost, "."+baseDomain) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 func (s *Server) setupRoutes() {
 	// Health check
 	s.router.Get("/health", s.healthCheck)
 	s.router.Get("/ready", s.readyCheck)
+
+	// Prometheus metrics endpoint
+	s.router.Handle("/metrics", metrics.Handler())
 
 	// API Documentation
 	s.router.Route("/docs", func(r chi.Router) {
@@ -341,6 +482,7 @@ func (s *Server) setupRoutes() {
 			r.Post("/", s.createAPIKey)
 			r.Get("/{keyID}", s.getAPIKey)
 			r.Delete("/{keyID}", s.revokeAPIKey)
+			r.Post("/{keyID}/rotate", s.rotateAPIKey)
 		})
 
 		// Admin endpoints (requires admin role)
@@ -355,6 +497,11 @@ func (s *Server) setupRoutes() {
 			r.Post("/jobs/{jobID}/cancel", s.cancelAdminJob)
 			r.Get("/audit-logs", s.getAuditLogs)
 		})
+
+		// WebSocket endpoint for real-time updates
+		if s.wsHub != nil {
+			r.Get("/ws", s.HandleWebSocket(s.wsHub))
+		}
 	})
 }
 
@@ -374,6 +521,10 @@ func (s *Server) getAPIKey(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) revokeAPIKey(w http.ResponseWriter, r *http.Request) {
 	s.apiKeyHandlers.RevokeAPIKey(w, r)
+}
+
+func (s *Server) rotateAPIKey(w http.ResponseWriter, r *http.Request) {
+	s.apiKeyHandlers.RotateAPIKey(w, r)
 }
 
 // Audit log handlers - delegate to auditHandlers
@@ -455,6 +606,7 @@ func (s *Server) healthCheck(w http.ResponseWriter, r *http.Request) {
 func (s *Server) readyCheck(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	checks := make(map[string]string)
+	circuitBreakers := make(map[string]string)
 	allHealthy := true
 
 	// Check database
@@ -477,12 +629,28 @@ func (s *Server) readyCheck(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Check circuit breakers (informational, don't affect readiness)
+	cbManager := resilience.Default()
+	for _, name := range []string{
+		resilience.BreakerLLMOllama,
+		resilience.BreakerLLMAnthropic,
+		resilience.BreakerGitHubAPI,
+	} {
+		state := cbManager.State(name)
+		circuitBreakers[name] = state.String()
+	}
+
+	response := map[string]interface{}{
+		"checks":           checks,
+		"circuit_breakers": circuitBreakers,
+	}
+
 	if allHealthy {
-		checks["status"] = "ready"
-		respondJSON(w, http.StatusOK, checks)
+		response["status"] = "ready"
+		respondJSON(w, http.StatusOK, response)
 	} else {
-		checks["status"] = "not_ready"
-		respondJSON(w, http.StatusServiceUnavailable, checks)
+		response["status"] = "not_ready"
+		respondJSON(w, http.StatusServiceUnavailable, response)
 	}
 }
 
@@ -591,8 +759,15 @@ func (s *Server) createRepo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Clone the repository asynchronously
-	go s.cloneRepository(repo.ID, repoInfo)
+	// Clone the repository asynchronously using the task pool
+	// This limits concurrent clones to prevent resource exhaustion
+	repoID := repo.ID
+	info := repoInfo
+	if !s.clonePool.Submit(func() {
+		s.cloneRepository(repoID, info)
+	}) {
+		log.Warn().Str("repo", repoInfo.URL).Msg("clone pool is closing, repository will not be cloned")
+	}
 
 	respondJSON(w, http.StatusCreated, repo)
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/QTest-hq/qtest/internal/auth"
+	"github.com/QTest-hq/qtest/internal/metrics"
 	"github.com/rs/zerolog/log"
 )
 
@@ -60,14 +61,33 @@ func (rl *RateLimiter) Middleware() func(http.Handler) http.Handler {
 			result := rl.check(r)
 			rl.setHeaders(w, result)
 
+			// Determine key type for metrics
+			keyType := string(rl.getKeyType(r.Context(), r))
+
 			if !result.Allowed {
+				// Record rate limit rejection
+				metrics.RateLimitRejections.WithLabelValues(keyType, result.WindowType).Inc()
 				rl.writeError(w, result)
 				return
 			}
 
+			// Record rate limit hit (allowed request)
+			metrics.RateLimitHits.WithLabelValues(keyType, result.WindowType).Inc()
+
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// getKeyType determines the rate limit key type based on auth context
+func (rl *RateLimiter) getKeyType(ctx context.Context, r *http.Request) KeyType {
+	if _, ok := auth.GetAPIKeyFromContext(ctx); ok {
+		return KeyTypeAPIKey
+	}
+	if _, ok := auth.GetSessionFromContext(ctx); ok {
+		return KeyTypeUser
+	}
+	return KeyTypeIP
 }
 
 // check performs the rate limit check based on request context

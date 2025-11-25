@@ -28,29 +28,63 @@ type AuditAction string
 
 const (
 	// Authentication actions
-	AuditActionLogin  AuditAction = "login"
-	AuditActionLogout AuditAction = "logout"
+	AuditActionLogin       AuditAction = "auth.login"
+	AuditActionLogout      AuditAction = "auth.logout"
+	AuditActionAuthFailure AuditAction = "auth.failure"
+	AuditActionAuthLockout AuditAction = "auth.lockout"
 
 	// Organization actions
-	AuditActionOrgCreate       AuditAction = "org.create"
-	AuditActionOrgUpdate       AuditAction = "org.update"
-	AuditActionOrgDelete       AuditAction = "org.delete"
-	AuditActionMemberAdd       AuditAction = "member.add"
-	AuditActionMemberRemove    AuditAction = "member.remove"
-	AuditActionMemberRoleChange AuditAction = "member.role_change"
+	AuditActionOrgCreate        AuditAction = "org.create"
+	AuditActionOrgUpdate        AuditAction = "org.update"
+	AuditActionOrgDelete        AuditAction = "org.delete"
+	AuditActionMemberAdd        AuditAction = "org.member.add"
+	AuditActionMemberRemove     AuditAction = "org.member.remove"
+	AuditActionMemberRoleChange AuditAction = "org.member.role_change"
 
 	// Repository actions
 	AuditActionRepoCreate AuditAction = "repo.create"
 	AuditActionRepoDelete AuditAction = "repo.delete"
 
 	// API key actions
-	AuditActionAPIKeyCreate AuditAction = "api_key.create"
-	AuditActionAPIKeyRevoke AuditAction = "api_key.revoke"
+	AuditActionAPIKeyCreate AuditAction = "apikey.create"
+	AuditActionAPIKeyRevoke AuditAction = "apikey.revoke"
+	AuditActionAPIKeyRotate AuditAction = "apikey.rotate"
+
+	// Webhook actions
+	AuditActionWebhookCreate AuditAction = "webhook.create"
+	AuditActionWebhookUpdate AuditAction = "webhook.update"
+	AuditActionWebhookDelete AuditAction = "webhook.delete"
+
+	// Job actions
+	AuditActionJobCreate   AuditAction = "job.create"
+	AuditActionJobComplete AuditAction = "job.complete"
+	AuditActionJobFail     AuditAction = "job.fail"
+	AuditActionJobCancel   AuditAction = "job.cancel"
 
 	// Test generation actions
-	AuditActionRunCreate AuditAction = "run.create"
+	AuditActionRunCreate  AuditAction = "run.create"
 	AuditActionTestAccept AuditAction = "test.accept"
 	AuditActionTestReject AuditAction = "test.reject"
+
+	// Rate limiting actions
+	AuditActionRateLimited AuditAction = "rate.limited"
+
+	// Admin actions
+	AuditActionAdminAccess AuditAction = "admin.access"
+	AuditActionConfigChange AuditAction = "admin.config"
+
+	// System actions
+	AuditActionCircuitOpen  AuditAction = "system.circuit_open"
+	AuditActionCircuitClose AuditAction = "system.circuit_close"
+
+	// Legacy aliases for backwards compatibility
+	AuditActionLegacyLogin       AuditAction = "login"
+	AuditActionLegacyLogout      AuditAction = "logout"
+	AuditActionLegacyMemberAdd   AuditAction = "member.add"
+	AuditActionLegacyMemberRemove AuditAction = "member.remove"
+	AuditActionLegacyAPIKeyCreate AuditAction = "api_key.create"
+	AuditActionLegacyAPIKeyRevoke AuditAction = "api_key.revoke"
+	AuditActionLegacyAPIKeyRotate AuditAction = "api_key.rotate"
 )
 
 // AuditResourceType represents the type of resource being audited
@@ -64,6 +98,18 @@ const (
 	ResourceTypeAPIKey       AuditResourceType = "api_key"
 	ResourceTypeRun          AuditResourceType = "run"
 	ResourceTypeTest         AuditResourceType = "test"
+	ResourceTypeJob          AuditResourceType = "job"
+	ResourceTypeWebhook      AuditResourceType = "webhook"
+	ResourceTypeSystem       AuditResourceType = "system"
+)
+
+// AuditSeverity represents the severity level of an audit event
+type AuditSeverity string
+
+const (
+	AuditSeverityInfo     AuditSeverity = "info"
+	AuditSeverityWarning  AuditSeverity = "warning"
+	AuditSeverityCritical AuditSeverity = "critical"
 )
 
 // CreateAuditLog creates a new audit log entry

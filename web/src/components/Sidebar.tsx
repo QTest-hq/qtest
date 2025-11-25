@@ -10,6 +10,7 @@ const navigation = [
   { name: "Jobs", href: "/jobs", icon: QueueIcon },
   { name: "Tests", href: "/tests", icon: BeakerIcon },
   { name: "Coverage", href: "/coverage", icon: ChartIcon },
+  { name: "Webhooks", href: "/webhooks", icon: WebhookIcon },
   { name: "Team", href: "/team", icon: TeamIcon },
   { name: "Settings", href: "/settings", icon: CogIcon },
 ];
@@ -71,29 +72,44 @@ function TeamIcon({ className }: { className?: string }) {
   );
 }
 
+function WebhookIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0M3.124 7.5A8.969 8.969 0 0 1 5.292 3m13.416 0a8.969 8.969 0 0 1 2.168 4.5" />
+    </svg>
+  );
+}
+
 export default function Sidebar() {
   const pathname = usePathname();
   const { user, loading, login, logout } = useAuth();
 
   return (
-    <div className="flex h-screen w-64 flex-col bg-gray-900">
+    <aside
+      className="hidden lg:flex h-screen w-64 flex-col bg-gray-900"
+      role="navigation"
+      aria-label="Main navigation"
+    >
       {/* Logo */}
       <div className="flex h-16 items-center px-6">
-        <span className="text-2xl font-bold text-white">QTest</span>
-        <span className="ml-2 rounded bg-indigo-500 px-2 py-0.5 text-xs font-medium text-white">
-          AI
-        </span>
+        <Link href="/" className="flex items-center" aria-label="QTest AI - Home">
+          <span className="text-2xl font-bold text-white">QTest</span>
+          <span className="ml-2 rounded bg-indigo-500 px-2 py-0.5 text-xs font-medium text-white" aria-hidden="true">
+            AI
+          </span>
+        </Link>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1 px-3 py-4">
+      <nav className="flex-1 space-y-1 px-3 py-4" aria-label="Primary">
         {navigation.map((item) => {
           const isActive = pathname === item.href;
           return (
             <Link
               key={item.name}
               href={item.href}
-              className={`group flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              aria-current={isActive ? "page" : undefined}
+              className={`group flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-900 ${
                 isActive
                   ? "bg-gray-800 text-white"
                   : "text-gray-300 hover:bg-gray-800 hover:text-white"
@@ -103,6 +119,7 @@ export default function Sidebar() {
                 className={`mr-3 h-5 w-5 flex-shrink-0 ${
                   isActive ? "text-indigo-400" : "text-gray-400 group-hover:text-gray-300"
                 }`}
+                aria-hidden="true"
               />
               {item.name}
             </Link>
@@ -163,6 +180,6 @@ export default function Sidebar() {
           </button>
         )}
       </div>
-    </div>
+    </aside>
   );
 }

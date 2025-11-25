@@ -130,14 +130,28 @@ func (m *MemoryStorage) removeExpired() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Check if storage has been closed
+	if m.counters == nil {
+		return
+	}
+
 	now := time.Now()
+	// Collect keys to delete first, then delete
+	// This avoids holding the counter lock while modifying the map
+	var expiredKeys []string
+
 	for key, counter := range m.counters {
 		counter.mu.Lock()
 		expired := now.After(counter.windowEnd)
 		counter.mu.Unlock()
 
 		if expired {
-			delete(m.counters, key)
+			expiredKeys = append(expiredKeys, key)
 		}
+	}
+
+	// Delete all expired keys
+	for _, key := range expiredKeys {
+		delete(m.counters, key)
 	}
 }

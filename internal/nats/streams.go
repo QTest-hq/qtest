@@ -24,6 +24,11 @@ const (
 	SubjectJobValidation  = "jobs.validation"
 	SubjectJobMutation    = "jobs.mutation"
 	SubjectJobIntegration = "jobs.integration"
+
+	// E2E job type subjects
+	SubjectJobE2EDiscovery  = "jobs.e2e_discovery"
+	SubjectJobE2EGeneration = "jobs.e2e_generation"
+	SubjectJobE2ERun        = "jobs.e2e_run"
 )
 
 // Consumer names
@@ -35,6 +40,11 @@ const (
 	ConsumerValidation  = "validation-worker"
 	ConsumerMutation    = "mutation-worker"
 	ConsumerIntegration = "integration-worker"
+
+	// E2E consumer names
+	ConsumerE2EDiscovery  = "e2e-discovery-worker"
+	ConsumerE2EGeneration = "e2e-generation-worker"
+	ConsumerE2ERun        = "e2e-run-worker"
 )
 
 // DefaultStreamConfig returns the default stream configuration for jobs
@@ -70,6 +80,10 @@ func (c *Client) SetupStreams(ctx context.Context) error {
 		{ConsumerValidation, SubjectJobValidation},
 		{ConsumerMutation, SubjectJobMutation},
 		{ConsumerIntegration, SubjectJobIntegration},
+		// E2E workers
+		{ConsumerE2EDiscovery, SubjectJobE2EDiscovery},
+		{ConsumerE2EGeneration, SubjectJobE2EGeneration},
+		{ConsumerE2ERun, SubjectJobE2ERun},
 	}
 
 	for _, cons := range consumers {
@@ -98,6 +112,12 @@ func SubjectForJobType(jobType string) string {
 		return SubjectJobMutation
 	case "integration":
 		return SubjectJobIntegration
+	case "e2e_discovery":
+		return SubjectJobE2EDiscovery
+	case "e2e_generation":
+		return SubjectJobE2EGeneration
+	case "e2e_run":
+		return SubjectJobE2ERun
 	default:
 		return ""
 	}
@@ -120,6 +140,12 @@ func ConsumerForJobType(jobType string) string {
 		return ConsumerMutation
 	case "integration":
 		return ConsumerIntegration
+	case "e2e_discovery":
+		return ConsumerE2EDiscovery
+	case "e2e_generation":
+		return ConsumerE2EGeneration
+	case "e2e_run":
+		return ConsumerE2ERun
 	default:
 		return ""
 	}

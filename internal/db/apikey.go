@@ -237,6 +237,21 @@ func (s *Store) RevokeAPIKey(ctx context.Context, keyID, userID uuid.UUID) error
 	return nil
 }
 
+// SetAPIKeyGracePeriod sets a grace period expiration on an API key
+// This is used when rotating keys to allow the old key to work during transition
+func (s *Store) SetAPIKeyGracePeriod(ctx context.Context, keyID uuid.UUID, graceEnds time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE api_keys SET expires_at = $2
+		WHERE id = $1 AND revoked_at IS NULL
+	`, keyID, graceEnds)
+
+	if err != nil {
+		return fmt.Errorf("failed to set grace period on API key: %w", err)
+	}
+
+	return nil
+}
+
 // GetAPIKeyByID retrieves an API key by its ID
 func (s *Store) GetAPIKeyByID(ctx context.Context, keyID uuid.UUID) (*APIKey, error) {
 	key := &APIKey{}

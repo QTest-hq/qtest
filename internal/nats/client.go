@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/QTest-hq/qtest/internal/metrics"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/rs/zerolog/log"
@@ -49,11 +50,14 @@ func (c *Client) connect() error {
 		nats.MaxReconnects(-1), // Infinite reconnects
 		nats.ReconnectHandler(func(nc *nats.Conn) {
 			log.Info().Str("url", nc.ConnectedUrl()).Msg("reconnected to NATS")
+			metrics.NATSReconnects.Inc()
+			metrics.NATSConnectionState.Set(1) // Connected
 		}),
 		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
 			if err != nil {
 				log.Warn().Err(err).Msg("disconnected from NATS")
 			}
+			metrics.NATSConnectionState.Set(0) // Disconnected
 		}),
 		nats.ErrorHandler(func(nc *nats.Conn, sub *nats.Subscription, err error) {
 			log.Error().Err(err).Msg("NATS error")
@@ -73,6 +77,9 @@ func (c *Client) connect() error {
 
 	c.nc = nc
 	c.js = js
+
+	// Set connection state metric to connected
+	metrics.NATSConnectionState.Set(1)
 
 	log.Info().Str("url", c.url).Msg("connected to NATS JetStream")
 	return nil
@@ -184,8 +191,12 @@ func (c *Client) Publish(ctx context.Context, subject string, data []byte) (*jet
 
 	ack, err := js.Publish(ctx, subject, data)
 	if err != nil {
+		metrics.NATSPublishErrors.WithLabelValues(subject).Inc()
 		return nil, fmt.Errorf("failed to publish to %s: %w", subject, err)
 	}
+
+	// Record successful publish
+	metrics.NATSMessagesPublished.WithLabelValues(subject).Inc()
 
 	return ack, nil
 }

@@ -25,6 +25,41 @@ const (
 	JobTypeE2ERun       JobType = "e2e_run"
 )
 
+// ValidJobTypes contains all supported job types for validation
+var ValidJobTypes = map[JobType]bool{
+	JobTypeIngestion:    true,
+	JobTypeModeling:     true,
+	JobTypePlanning:     true,
+	JobTypeGeneration:   true,
+	JobTypeValidation:   true,
+	JobTypeMutation:     true,
+	JobTypeIntegration:  true,
+	JobTypeE2EDiscovery: true,
+	JobTypeE2EGenerate:  true,
+	JobTypeE2ERun:       true,
+}
+
+// IsValidJobType returns true if the job type is recognized
+func IsValidJobType(t JobType) bool {
+	return ValidJobTypes[t]
+}
+
+// AllJobTypes returns a slice of all valid job types
+func AllJobTypes() []JobType {
+	return []JobType{
+		JobTypeIngestion,
+		JobTypeModeling,
+		JobTypePlanning,
+		JobTypeGeneration,
+		JobTypeValidation,
+		JobTypeMutation,
+		JobTypeIntegration,
+		JobTypeE2EDiscovery,
+		JobTypeE2EGenerate,
+		JobTypeE2ERun,
+	}
+}
+
 // JobStatus represents the current state of a job
 type JobStatus string
 
@@ -326,9 +361,10 @@ func (j *Job) CanRetry() bool {
 
 // JobMessage is the message sent via NATS for job notifications
 type JobMessage struct {
-	JobID    uuid.UUID `json:"job_id"`
-	Type     JobType   `json:"type"`
-	Priority int       `json:"priority"`
+	JobID        uuid.UUID         `json:"job_id"`
+	Type         JobType           `json:"type"`
+	Priority     int               `json:"priority"`
+	TraceContext map[string]string `json:"trace_context,omitempty"` // OpenTelemetry trace context for distributed tracing
 }
 
 // Encode serializes the job message to JSON

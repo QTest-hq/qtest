@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	qtestnats "github.com/QTest-hq/qtest/internal/nats"
+	"github.com/QTest-hq/qtest/internal/telemetry"
 )
 
 // Pipeline orchestrates the test generation workflow
@@ -266,9 +267,10 @@ func (p *Pipeline) publishJob(ctx context.Context, job *Job) error {
 	}
 
 	msg := &JobMessage{
-		JobID:    job.ID,
-		Type:     job.Type,
-		Priority: job.Priority,
+		JobID:        job.ID,
+		Type:         job.Type,
+		Priority:     job.Priority,
+		TraceContext: telemetry.InjectTraceContext(ctx), // Propagate trace context for distributed tracing
 	}
 
 	data, err := msg.Encode()

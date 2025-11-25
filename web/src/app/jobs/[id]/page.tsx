@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import { api, Job, GeneratedTest } from "@/lib/api";
-
-const POLL_INTERVAL = 3000; // 3 seconds for running jobs
+import { useJobUpdates, useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
+import { WSJobPayload } from "@/lib/websocket";
 
 export default function JobDetailPage() {
   const params = useParams();
@@ -18,6 +18,48 @@ export default function JobDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  // WebSocket connection for real-time updates
+  const { isConnected, connect } = useRealtimeUpdates({
+    autoConnect: true,
+  });
+
+  // Handle WebSocket job updates
+  const handleJobUpdate = useCallback((update: WSJobPayload) => {
+    if (update.job_id === id) {
+      // Update main job with WebSocket data
+      setJob((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          status: update.status,
+          started_at: update.started_at || prev.started_at,
+          completed_at: update.completed_at || prev.completed_at,
+          error_message: update.error,
+        };
+      });
+    }
+
+    // Check if this is a child job update
+    setChildJobs((prev) => {
+      const idx = prev.findIndex((c) => c.id === update.job_id);
+      if (idx >= 0) {
+        const updated = [...prev];
+        updated[idx] = {
+          ...updated[idx],
+          status: update.status,
+          started_at: update.started_at || updated[idx].started_at,
+          completed_at: update.completed_at || updated[idx].completed_at,
+          error_message: update.error,
+        };
+        return updated;
+      }
+      return prev;
+    });
+  }, [id]);
+
+  // Subscribe to job updates via WebSocket
+  useJobUpdates(handleJobUpdate, { jobId: id });
 
   const loadData = useCallback(async () => {
     try {
@@ -51,22 +93,23 @@ export default function JobDetailPage() {
     initialLoad();
   }, [loadData]);
 
-  // Poll for updates when job is running or pending
+  // Fallback polling only when WebSocket is not connected
   useEffect(() => {
-    if (!job || (job.status !== "running" && job.status !== "pending")) {
+    // Only poll if WebSocket is not connected and job is active
+    if (isConnected || !job || (job.status !== "running" && job.status !== "pending")) {
       return;
     }
 
+    // Fallback polling at reduced frequency when WebSocket is down
     const interval = setInterval(async () => {
       const updatedJob = await loadData();
-      // Stop polling if job is no longer active
       if (updatedJob && updatedJob.status !== "running" && updatedJob.status !== "pending") {
         clearInterval(interval);
       }
-    }, POLL_INTERVAL);
+    }, 5000); // 5 seconds fallback polling
 
     return () => clearInterval(interval);
-  }, [job?.status, loadData]);
+  }, [job?.status, loadData, isConnected]);
 
   async function handleCancel() {
     try {
@@ -228,8 +271,9 @@ export default function JobDetailPage() {
                   {job.status}
                 </span>
                 {(job.status === "running" || job.status === "pending") && (
-                  <span className="ml-2 text-xs text-gray-500 animate-pulse">
-                    Auto-refreshing...
+                  <span className={`ml-2 inline-flex items-center text-xs ${isConnected ? 'text-green-600' : 'text-yellow-600'}`}>
+                    <span className={`mr-1 h-2 w-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-yellow-500 animate-pulse'}`} />
+                    {isConnected ? 'Live updates' : 'Polling...'}
                   </span>
                 )}
               </div>
